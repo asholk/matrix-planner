@@ -18,7 +18,18 @@ The plugin works on desktop, iPhone, iPad and Android. The iOS companion app (wi
 
 ## Installation
 
-The plugin is not published in the community plugin directory yet, so install it manually.
+The plugin is not published in the community plugin directory yet. Install it with BRAT or manually.
+
+### With BRAT
+
+Works well on iPhone and iPad: you don't need to copy files into the hidden `.obsidian` folder, and updates arrive automatically.
+
+1. Install the **BRAT** plugin from the directory: **Settings → Community plugins → Browse**, search for "BRAT", then select **Install** and **Enable**.
+2. Open **Settings → BRAT → Add beta plugin**.
+3. Paste the repository URL `https://github.com/asholk/matrix-planner` and select **Add plugin**.
+4. Enable **Matrix planner** in **Settings → Community plugins**.
+
+### Manually
 
 1. Download `main.js`, `manifest.json` and `styles.css` from the release (or build them yourself, see [Development](#development)).
 2. Create the folder `<vault>/.obsidian/plugins/matrix-planner/` and put the three files in it.

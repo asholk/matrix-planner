@@ -1,0 +1,41 @@
+# Релиз для BRAT и ручной установки: тег 0.1.0 → сборка → релиз с main.js, manifest.json, styles.css
+name: Release
+
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Проверить, что тег совпадает с версией в manifest.json
+        run: |
+          version=$(node -p "require('./manifest.json').version")
+          if [ "$version" != "${GITHUB_REF_NAME}" ]; then
+            echo "Тег ${GITHUB_REF_NAME} не совпадает с версией $version в manifest.json"
+            exit 1
+          fi
+
+      - name: Создать релиз
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            main.js manifest.json styles.css
