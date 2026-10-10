@@ -1,0 +1,70 @@
+/* Панель «Требуют внимания» (src/integrity/attention-panel.ts). */
+
+.mp-attention-empty {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  padding: var(--size-4-2) 0;
+}
+
+.mp-attention-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mp-attention-item {
+  padding: var(--size-4-3) 0;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.mp-attention-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-4-2);
+  color: var(--text-normal);
+}
+
+.mp-attention-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-warning);
+}
+
+.mp-attention-icon svg {
+  width: var(--icon-s);
+  height: var(--icon-s);
+}
+
+.mp-attention-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-2);
+  padding-inline-start: var(--size-4-6);
+}
+
+.mp-attention-label {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  text-transform: none;
+}
+
+.mp-attention-file {
+  flex: 1 1 12em;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.mp-attention-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+}
+
+.mp-attention-footer {
+  margin-top: var(--size-4-2);
+  padding-inline-start: var(--size-4-6);
+}
