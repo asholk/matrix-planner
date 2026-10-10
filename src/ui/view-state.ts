@@ -7,7 +7,7 @@ import type { AddContext } from '../app/contracts';
 import type { LocalDateString, PlannerTabId, QuadrantKey } from '../model/types';
 
 /** Порядок вкладок на нижней панели. */
-export const PLANNER_TAB_ORDER: readonly PlannerTabId[] = ['tasks', 'calendar', 'lockscreen'];
+export const PLANNER_TAB_ORDER: readonly PlannerTabId[] = ['tasks', 'calendar', 'lockscreen', 'settings'];
 
 /** Ширина, начиная с которой «Задачи» и «Календарь» показываются рядом (ТЗ §7.1). */
 export const SPLIT_MIN_WIDTH = 900;

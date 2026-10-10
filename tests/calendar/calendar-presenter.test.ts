@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { metaParts } from '../../src/calendar/day-list';
+import { setLanguageOverride } from '../../src/i18n';
+import '../../src/calendar/calendar-tab';
 import {
   buildDayList,
   buildRow,
@@ -313,5 +316,36 @@ describe('временная шкала', () => {
     expect(initialScrollMinute([{ startMinute: 600 }], 780)).toBe(750);
     expect(initialScrollMinute([{ startMinute: 600 }, { startMinute: 540 }], null)).toBe(510);
     expect(initialScrollMinute([], null)).toBe(450);
+  });
+});
+
+describe('подпись строки списка дня (референс LockDay)', () => {
+  const ctx = {
+    quadrantTitle: () => 'Важно и срочно',
+    quadrantIcon: () => 'flame',
+    calendarTitle: (row: { source: string; calendarId: string | null }) =>
+      row.calendarId === 'C1' ? 'Calendar' : row.source === 'task' || row.source === 'event' ? 'Планировщик' : null,
+  };
+
+  it('задача: значок и название квадранта · календарь «Планировщик»', () => {
+    setLanguageOverride('ru');
+    expect(metaParts(buildRow(task(), STRINGS), ctx)).toEqual([
+      { text: 'Важно и срочно', icon: 'flame' },
+      { text: 'Планировщик', icon: 'calendar' },
+    ]);
+    setLanguageOverride(null);
+  });
+
+  it('событие: значок календаря и время · название календаря', () => {
+    expect(metaParts(buildRow(event({ calendarId: 'C1' }), STRINGS), ctx)).toEqual([
+      { text: '09:00–10:00', icon: 'calendar' },
+      { text: 'Calendar', icon: null },
+    ]);
+  });
+
+  it('событие на весь день без времени: значок у названия календаря', () => {
+    expect(metaParts(buildRow(event({ allDay: true, startMinute: null, endMinute: null }), STRINGS), ctx)).toEqual([
+      { text: 'Планировщик', icon: 'calendar' },
+    ]);
   });
 });

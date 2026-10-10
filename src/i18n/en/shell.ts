@@ -13,6 +13,14 @@ export const enShell = {
     note: 'Note',
     unavailable: 'Not available yet',
   },
+  settings: {
+    all: {
+      name: 'All plugin settings',
+      desc: 'The Matrix planner section in Obsidian settings',
+      button: 'Open',
+    },
+    unavailable: 'Couldn’t open settings. Open them from the Obsidian menu',
+  },
   sheet: {
     close: 'Close',
     submit: 'Done',

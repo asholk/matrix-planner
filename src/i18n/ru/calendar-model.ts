@@ -6,7 +6,7 @@ import type { Dictionary } from '../index';
  */
 export const ruCalendarModel = {
   coverage: {
-    noCache: 'Подключите компаньон, чтобы видеть события «Календаря» iOS',
+    noCache: 'Подключите календарь iOS в настройках',
     outOfRange: 'События «Календаря» iOS за этот период не загружены',
   },
   emptyDay: 'Здесь пока ничего нет. Нажмите +, чтобы спланировать этот день',

@@ -23,7 +23,7 @@ import type {
 } from '../app/contracts';
 import type { CalendarMode, CalendarSourceFilter, DayItem, DayItemsByDate, LocalDateString, QuadrantKey, TaskDayItem, Unsubscribe } from '../model/types';
 import { floatingFromDate, isValidTimeZone, parseDateParts, timeToMinutes } from '../model/dates';
-import { DEFAULT_QUADRANT_TITLES } from '../model/defaults';
+import { DEFAULT_QUADRANT_STYLE, DEFAULT_QUADRANT_TITLES } from '../model/defaults';
 import { registerDictionary, t } from '../i18n';
 import { ruCalendar } from '../i18n/ru/calendar';
 import { enCalendar } from '../i18n/en/calendar';
@@ -515,10 +515,17 @@ export class CalendarTab implements TabController {
   private listContext(): DayListContext {
     const matrix = this.deps.index?.getMatrix() ?? null;
     const calendars = new Map((this.deps.cache?.getCalendars() ?? []).map((calendar) => [calendar.calendarId, calendar.title]));
+    const planner = t('calendar.item.planner');
     return {
       isMobile: this.host.platform.isMobile,
       quadrantTitle: (key: QuadrantKey) => matrix?.byKey[key]?.title ?? DEFAULT_QUADRANT_TITLES[this.deps.format.get().language][key],
-      calendarTitle: (row: DayListRow) => (row.calendarId ? (calendars.get(row.calendarId) ?? null) : null),
+      quadrantIcon: (key: QuadrantKey) => matrix?.byKey[key]?.icon ?? DEFAULT_QUADRANT_STYLE[key].icon,
+      // Задачи и события без календаря — локальный календарь «Планировщик».
+      calendarTitle: (row: DayListRow) => {
+        if (row.calendarId) return calendars.get(row.calendarId) ?? null;
+        return row.source === 'task' || row.source === 'event' ? planner : null;
+      },
+      connectCalendar: () => this.host.switchTab('settings'),
       handlers: {
         open: (item) => this.openItem(item),
         toggle: (item, rowEl) => this.toggleTask(item, rowEl),

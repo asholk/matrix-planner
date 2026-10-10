@@ -2,11 +2,7 @@ import type { Dictionary } from '../index';
 
 /** Вкладка «Задачи»: шапка, фильтры, квадранты, карточки, меню. */
 export const ruTasks = {
-  greeting: {
-    morning: 'Доброе утро',
-    afternoon: 'Добрый день',
-    evening: 'Добрый вечер',
-  },
+  greeting: 'Привет! 👋',
   subtitle: 'Чем займёмся сегодня?',
   loading: 'Загрузка задач…',
   controls: {

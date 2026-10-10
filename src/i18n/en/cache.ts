@@ -3,7 +3,7 @@ import type { Dictionary } from '../index';
 /** Calendar cache and companion system JSON strings. */
 export const enCache = {
   notice: {
-    noCache: 'Connect the companion to see iOS Calendar events',
+    noCache: 'Connect iOS Calendar in settings',
     outOfRange: 'iOS Calendar events for this period aren’t loaded',
     corrupt: 'Couldn’t read iOS Calendar events: the “_system/calendar-cache.json” file is damaged',
     unsupportedVersion: 'iOS Calendar events were saved by a newer companion version. Update the plugin',

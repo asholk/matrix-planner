@@ -13,6 +13,14 @@ export const ruShell = {
     note: 'Заметка',
     unavailable: 'Пока недоступно',
   },
+  settings: {
+    all: {
+      name: 'Все настройки плагина',
+      desc: 'Раздел Matrix planner в настройках Obsidian',
+      button: 'Открыть',
+    },
+    unavailable: 'Не удалось открыть настройки. Откройте их через меню Obsidian',
+  },
   sheet: {
     close: 'Закрыть',
     submit: 'Готово',

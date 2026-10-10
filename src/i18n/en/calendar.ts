@@ -42,6 +42,8 @@ export const enCalendar = {
   },
   day: {
     label: 'Items for {date}',
+    connect: 'Connect',
+    connectLabel: 'Open iOS Calendar settings',
   },
   item: {
     task: 'Task “{title}”',
@@ -55,6 +57,7 @@ export const enCalendar = {
     readOnly: 'view only',
     recurring: 'repeats',
     continues: 'continued',
+    planner: 'Planner',
     complete: 'Complete task “{title}”',
     uncomplete: 'Mark task “{title}” as not completed',
   },

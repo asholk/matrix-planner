@@ -52,13 +52,7 @@ export function rootFolderErrorText(result: RootFolderValidation): string | null
 type Track = (cleanup: () => void) => void;
 
 export class PlannerSettingTab extends PluginSettingTab {
-  /** Очистка подписок и панелей текущего показа. */
-  private cleanups: Array<() => void> = [];
-  /** Последнее N для «Через N дней», чтобы не терять его при переключении на «Никогда». */
-  private archiveDays = DEFAULT_ARCHIVE_DAYS;
-  /** Номер показа: меняется при `display`/`hide`, чтобы поздний `save` не перерисовал закрытую панель. */
-  private generation = 0;
-  private shown = false;
+  private readonly renderer: PlannerSettingsRenderer;
 
   constructor(
     app: App,
@@ -66,6 +60,7 @@ export class PlannerSettingTab extends PluginSettingTab {
     private readonly deps: SettingsTabDeps,
   ) {
     super(app, plugin);
+    this.renderer = new PlannerSettingsRenderer(deps);
   }
 
   /**
@@ -78,15 +73,51 @@ export class PlannerSettingTab extends PluginSettingTab {
   }
 
   display(): void {
+    this.renderer.render(this.containerEl);
+  }
+
+  hide(): void {
+    this.renderer.dispose();
+    super.hide();
+  }
+}
+
+/**
+ * Разделы настроек в произвольном контейнере: вкладка настроек Obsidian и вкладка
+ * «Настройки» вида используют разные экземпляры (у каждого свои подписки).
+ */
+export class PlannerSettingsRenderer {
+  /** Очистка подписок и панелей текущего показа. */
+  private cleanups: Array<() => void> = [];
+  /** Последнее N для «Через N дней», чтобы не терять его при переключении на «Никогда». */
+  private archiveDays = DEFAULT_ARCHIVE_DAYS;
+  /** Номер показа: меняется при `render`/`dispose`, чтобы поздний `save` не перерисовал закрытую панель. */
+  private generation = 0;
+  private shown = false;
+  private containerEl: HTMLElement | null = null;
+
+  constructor(private readonly deps: SettingsTabDeps) {}
+
+  /** Полная отрисовка в `containerEl` (содержимое заменяется). */
+  render(containerEl: HTMLElement): void {
+    this.containerEl = containerEl;
     this.renderTab();
   }
 
-  /** Полная отрисовка вкладки; её же вызывает перерисовка после сохранения. */
+  /** Снять подписки; содержимое контейнера остаётся до следующей отрисовки. */
+  dispose(): void {
+    this.generation += 1;
+    this.shown = false;
+    this.disposeAll();
+  }
+
+  /** Полная отрисовка; её же вызывает перерисовка после сохранения. */
   private renderTab(): void {
+    const containerEl = this.containerEl;
+    if (!containerEl) return;
     this.disposeAll();
     this.generation += 1;
     this.shown = true;
-    const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass('mp-settings');
 
@@ -119,13 +150,6 @@ export class PlannerSettingTab extends PluginSettingTab {
       }
       if (section.dispose) this.cleanups.push(() => section.dispose?.());
     }
-  }
-
-  hide(): void {
-    this.generation += 1;
-    this.shown = false;
-    this.disposeAll();
-    super.hide();
   }
 
   /** Перерисовка после сохранения — только если панель всё ещё показана тем же показом. */

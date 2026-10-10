@@ -20,10 +20,17 @@ export interface DayListContext {
   /** Подпись пустого дня: «Нажмите +» (мобильные) или «Выберите +» (компьютер). */
   isMobile: boolean;
   quadrantTitle(key: QuadrantKey): string;
+  /** Значок квадранта (Lucide) для подписи задачи; по умолчанию — без значка. */
+  quadrantIcon?(key: QuadrantKey): string | null;
   /** Название календаря события; `null` — не показывать. */
   calendarTitle(row: DayListRow): string | null;
+  /** Кнопка «Подключить» в сообщении об отсутствии событий iOS (переход к настройкам). */
+  connectCalendar?: (() => void) | null;
   handlers: CalendarItemHandlers;
 }
+
+/** Сообщения «нет кэша», к которым относится кнопка «Подключить». */
+const CONNECT_NOTICE_KEYS: readonly string[] = ['cache.notice.noCache', CALENDAR_MODEL_KEYS.coverage['no-cache']];
 
 /** Заголовок дня: «Сегодня  10 октября … 2 элемента». */
 export function renderDayHeading(parent: HTMLElement, model: DayListModel): HTMLElement {
@@ -36,12 +43,21 @@ export function renderDayHeading(parent: HTMLElement, model: DayListModel): HTML
 }
 
 /** Сообщение о покрытии кэша и пустой день — отдельными элементами. */
-export function renderDayStatus(parent: HTMLElement, model: DayListModel, ctx: Pick<DayListContext, 'isMobile'>): void {
+export function renderDayStatus(parent: HTMLElement, model: DayListModel, ctx: Pick<DayListContext, 'isMobile' | 'connectCalendar'>): void {
   if (model.noticeKey) {
     const notice = parent.createDiv({ cls: 'mp-cal-notice', attr: { role: 'note' } });
     notice.toggleClass('is-out-of-range', model.coverage === 'out-of-range');
     setIcon(notice.createSpan({ cls: 'mp-cal-notice-icon', attr: { 'aria-hidden': 'true' } }), 'calendar-x');
     notice.createSpan({ cls: 'mp-cal-notice-text', text: t(model.noticeKey) });
+    const connect = ctx.connectCalendar;
+    if (connect && CONNECT_NOTICE_KEYS.includes(model.noticeKey)) {
+      const button = notice.createEl('button', {
+        cls: 'mp-chip mp-cal-notice-action',
+        text: t('calendar.day.connect'),
+        attr: { type: 'button', 'aria-label': t('calendar.day.connectLabel') },
+      });
+      button.addEventListener('click', () => connect());
+    }
   }
   if (model.empty) {
     const empty = parent.createDiv({ cls: 'mp-cal-empty' });
@@ -159,13 +175,28 @@ export function renderItemRow(parent: HTMLElement, row: DayListRow, ctx: DayList
   return el;
 }
 
-function metaParts(row: DayListRow, ctx: DayListContext): Array<{ text: string; icon: string | null }> {
+/**
+ * Подпись под названием (кадры 09, референс LockDay): задача — «[значок] квадрант · [календарь] Планировщик»,
+ * событие — «[календарь] 9:00–10:00 · Календарь».
+ */
+export function metaParts(row: DayListRow, ctx: Pick<DayListContext, 'quadrantTitle' | 'quadrantIcon' | 'calendarTitle'>): Array<{ text: string; icon: string | null }> {
   const parts: Array<{ text: string; icon: string | null }> = [];
-  if (row.quadrant) parts.push({ text: ctx.quadrantTitle(row.quadrant), icon: null });
-  if (row.rangeLabel) parts.push({ text: row.rangeLabel, icon: 'clock' });
-  else if (row.continues && row.allDay) parts.push({ text: t('calendar.item.continues'), icon: null });
+  if (row.source === 'note') return parts;
   const calendar = ctx.calendarTitle(row);
-  if (calendar) parts.push({ text: calendar, icon: 'calendar' });
+  if (row.quadrant) {
+    parts.push({ text: ctx.quadrantTitle(row.quadrant), icon: ctx.quadrantIcon?.(row.quadrant) ?? null });
+    if (calendar) parts.push({ text: calendar, icon: 'calendar' });
+  } else {
+    let leading = false;
+    if (row.rangeLabel) {
+      parts.push({ text: row.rangeLabel, icon: 'calendar' });
+      leading = true;
+    } else if (row.continues && row.allDay) {
+      parts.push({ text: t('calendar.item.continues'), icon: 'calendar' });
+      leading = true;
+    }
+    if (calendar) parts.push({ text: calendar, icon: leading ? null : 'calendar' });
+  }
   if (row.readOnly) parts.push({ text: t('calendar.item.readOnly'), icon: 'eye' });
   return parts;
 }

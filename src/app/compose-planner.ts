@@ -303,7 +303,7 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
     datePicker: core.datePicker,
   });
   const lockscreenTab = createLockscreenTab({
-      app,
+    app,
     settings,
     wallpaper,
     status: wallpaperStatus,

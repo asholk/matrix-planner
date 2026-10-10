@@ -42,7 +42,7 @@
 
 .mp-tasks-greeting {
   margin: 0;
-  font-size: var(--h1-size);
+  font-size: max(var(--h1-size), 1.85em);
   font-weight: var(--font-bold);
   line-height: var(--line-height-tight);
   color: var(--text-normal);
@@ -69,42 +69,49 @@
 }
 
 .mp-tasks-done-filter {
-  background: var(--mp-surface);
+  min-height: 2.6em;
+  padding: 0 var(--size-4-4) 0 var(--size-4-3);
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-card);
+  font-size: var(--font-ui-medium);
   font-weight: var(--font-semibold);
 }
 
 .mp-tasks-done-filter .mp-tasks-done-icon {
   display: inline-flex;
-  color: var(--color-green);
+  color: var(--mp-done);
+}
+
+/* Заливка галочки «Выполнено» как в референсе: зелёный круг с белой галочкой. */
+.mp-tasks-done-filter:not(.is-active) .mp-tasks-done-icon .svg-icon {
+  fill: var(--mp-done);
+  stroke: var(--mp-card-bg);
 }
 
 .mp-tasks-done-filter.is-active .mp-tasks-done-icon {
   color: inherit;
 }
 
-.mp-tasks-done-count {
-  color: var(--text-muted);
-}
-
 .mp-tasks-done-icon .svg-icon {
-  width: 1.1em;
-  height: 1.1em;
+  width: 1.25em;
+  height: 1.25em;
 }
 
 .mp-segmented {
   display: inline-flex;
-  padding: var(--size-2-1);
-  gap: var(--size-2-1);
+  padding: 3px;
+  gap: 2px;
   border-radius: var(--mp-radius-pill);
-  background: var(--mp-surface);
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-card);
 }
 
 .mp-segment {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.5em;
-  height: 2em;
+  width: 2.75em;
+  height: 2.25em;
   padding: 0;
   border: none;
   border-radius: var(--mp-radius-pill);
@@ -114,9 +121,10 @@
   cursor: var(--cursor);
 }
 
-.mp-segment.is-active {
-  background: var(--mp-ink);
-  color: var(--mp-ink-inverse);
+.mp-segment.is-active,
+.mp-segment.is-active:hover {
+  background: var(--mp-fab-bg);
+  color: var(--mp-fab-ink);
 }
 
 .mp-segment .svg-icon {
@@ -142,12 +150,13 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  min-height: 16em;
+  min-height: 17em;
   max-height: 26em;
   padding: var(--size-4-3);
-  border-radius: calc(var(--mp-radius-card) * 1.5);
-  background: var(--mp-surface);
+  border-radius: var(--mp-radius-panel);
+  background: var(--mp-card-bg);
   border: 2px solid transparent;
+  box-shadow: var(--mp-shadow-card);
   transition: border-color var(--mp-transition), background-color var(--mp-transition);
 }
 
@@ -183,7 +192,7 @@
   min-width: 0;
   margin: 0;
   font-size: var(--font-ui-medium);
-  font-weight: var(--font-semibold);
+  font-weight: var(--font-bold);
   line-height: var(--line-height-tight);
   color: var(--text-normal);
 }
@@ -205,7 +214,7 @@
   padding: 0;
   border: none;
   border-radius: var(--mp-radius-pill);
-  background: var(--background-modifier-hover);
+  background: var(--mp-app-bg);
   color: var(--text-muted);
   box-shadow: none;
   cursor: var(--cursor);
@@ -247,9 +256,10 @@
 
 .mp-list-section {
   padding: var(--size-4-3);
-  border-radius: calc(var(--mp-radius-card) * 1.5);
-  background: var(--mp-surface);
+  border-radius: var(--mp-radius-panel);
+  background: var(--mp-card-bg);
   border: 2px solid transparent;
+  box-shadow: var(--mp-shadow-card);
 }
 
 .mp-list-section-cards {
@@ -299,9 +309,9 @@
   display: flex;
   align-items: center;
   gap: var(--size-4-1);
-  min-height: var(--mp-touch);
+  min-height: 3em;
   padding: var(--size-4-1) var(--size-4-1) var(--size-4-1) var(--size-4-2);
-  border-radius: var(--mp-radius-card);
+  border-radius: 0.9em;
   background: var(--mp-q-tint);
   user-select: none;
   -webkit-user-select: none;
@@ -328,8 +338,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.5em;
-  height: 1.5em;
+  width: 1.6em;
+  height: 1.6em;
   border: 2px solid var(--mp-q);
   border-radius: var(--mp-radius-pill);
   color: transparent;
@@ -432,7 +442,7 @@
   gap: var(--size-4-1);
   color: var(--text-muted);
   font-size: var(--font-ui-small);
-  font-weight: var(--font-medium);
+  font-weight: var(--font-semibold);
 }
 
 .mp-task-card.is-overdue .mp-task-due {
@@ -551,4 +561,10 @@
   .mp-task-card.is-completing .mp-task-check-mark {
     transform: none;
   }
+}
+
+/* Маркер перетаскивания на телефоне — едва заметный, чтобы карточки выглядели как в референсе. */
+.mp-view.is-phone .mp-task-handle {
+  width: 1.25em;
+  opacity: 0.45;
 }

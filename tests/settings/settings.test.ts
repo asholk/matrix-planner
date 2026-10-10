@@ -340,8 +340,8 @@ describe('сохранение N дней и перерисовка', () => {
     const { plugin, store } = await createStore();
     const tab = createTab(plugin, { store });
     show(tab);
-    // Перерисовка после сохранения идёт через внутренний `renderTab` (его же вызывает `display`).
-    const display = vi.spyOn(tab as unknown as { renderTab(): void }, 'renderTab');
+    // Перерисовка после сохранения идёт через внутренний `renderTab` общего отрисовщика (его же вызывает `display`).
+    const display = vi.spyOn((tab as unknown as { renderer: { renderTab(): void } }).renderer, 'renderTab');
     component(findSetting('Перенос выполненных в архив'), DropdownComponent).simulateChange('after-days');
     tab.hide();
     await flush();
@@ -353,8 +353,8 @@ describe('сохранение N дней и перерисовка', () => {
     const { plugin, store } = await createStore();
     const tab = createTab(plugin, { store });
     show(tab);
-    // Перерисовка после сохранения идёт через внутренний `renderTab` (его же вызывает `display`).
-    const display = vi.spyOn(tab as unknown as { renderTab(): void }, 'renderTab');
+    // Перерисовка после сохранения идёт через внутренний `renderTab` общего отрисовщика (его же вызывает `display`).
+    const display = vi.spyOn((tab as unknown as { renderer: { renderTab(): void } }).renderer, 'renderTab');
     component(findSetting('Перенос выполненных в архив'), DropdownComponent).simulateChange('after-days');
     await flush();
     expect(display).toHaveBeenCalledTimes(1);

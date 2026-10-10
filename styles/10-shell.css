@@ -6,12 +6,35 @@
 }
 
 .mp-view {
+  --mp-bottom-safe: 0px;
+  --mp-dock-gap: 0px;
+  /* Подъём дока: перекрытие панелями Obsidian (из JS) или safe-area у нижнего края экрана. */
+  --mp-dock-offset: calc(var(--mp-bottom-overlap, 0px) + var(--mp-bottom-safe) + var(--mp-dock-gap));
   position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--background-secondary);
+  background: var(--mp-app-bg);
+}
+
+.mp-view.mp-at-screen-bottom {
+  --mp-bottom-safe: var(--mp-safe-bottom);
+}
+
+.mp-view.has-bottom-overlap {
+  --mp-dock-gap: var(--size-4-1);
+}
+
+/* Телефон: заголовок вида Obsidian скрыт, содержимое начинается сразу (кадры 01, 09).
+   Меню Obsidian остаётся на его плавающей панели навигации. */
+body.is-phone .workspace-leaf-content[data-type='matrix-planner'] > .view-header {
+  display: none;
+}
+
+/* Без заголовка вид может начинаться под строкой состояния: отступ — только недостающая часть safe-area. */
+body.is-phone .mp-view {
+  padding-top: max(0px, calc(env(safe-area-inset-top, 0px) - var(--mp-view-top, 0px)));
 }
 
 .mp-view-body {
@@ -26,7 +49,8 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: var(--mp-gutter) var(--mp-gutter) calc(var(--mp-fab-size) + var(--mp-gutter) * 2);
+  /* Снизу — место под док (он плавает над содержимым) и «+». */
+  padding: var(--mp-gutter) var(--mp-gutter) calc(var(--mp-dock-height, 9em) + var(--mp-dock-offset) + var(--mp-fab-size) + var(--mp-gutter));
   padding-left: calc(var(--mp-gutter) + var(--mp-safe-left));
   padding-right: calc(var(--mp-gutter) + var(--mp-safe-right));
 }
@@ -48,36 +72,39 @@
 }
 
 .mp-view.is-split .mp-panel {
-  background: var(--background-secondary);
+  background: var(--mp-app-bg);
 }
 
 .mp-view.is-split .mp-panel-tasks:not([hidden]) {
   flex-grow: 1.2;
 }
 
-/* Нижний док: «+», баннер, панель вкладок. */
+/* Нижний док: «+», баннер, панель вкладок. Плавает над содержимым, пустые места пропускают нажатия. */
 .mp-view-dock {
-  position: relative;
-  flex: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: var(--mp-dock-offset);
+  z-index: 3;
   display: flex;
   flex-direction: column;
   gap: var(--size-4-2);
   padding: var(--size-4-2) var(--mp-gutter);
   padding-left: calc(var(--mp-gutter) + var(--mp-safe-left));
   padding-right: calc(var(--mp-gutter) + var(--mp-safe-right));
+  pointer-events: none;
 }
 
-/* Safe-area только когда вид доходит до нижнего края экрана (нет панели навигации Obsidian ниже). */
-.mp-view.mp-at-screen-bottom .mp-view-dock {
-  padding-bottom: calc(var(--size-4-2) + var(--mp-safe-bottom));
+.mp-view-dock > * {
+  pointer-events: auto;
 }
 
 /* «+» плавает над баннером справа и перекрывает содержимое панели. */
-.mp-fab-row {
+.mp-view-dock > .mp-fab-row {
   position: absolute;
   right: calc(var(--mp-gutter) + var(--mp-safe-right));
   bottom: 100%;
-  padding-bottom: var(--size-4-3);
+  padding-bottom: var(--size-4-1);
   pointer-events: none;
   z-index: 2;
 }
@@ -92,15 +119,15 @@
   padding: 0;
   border: none;
   border-radius: var(--mp-radius-pill);
-  background: var(--mp-ink);
-  color: var(--mp-ink-inverse);
-  box-shadow: var(--shadow-l);
+  background: var(--mp-fab-bg);
+  color: var(--mp-fab-ink);
+  box-shadow: var(--mp-shadow-float);
   cursor: var(--cursor);
   transition: transform var(--mp-transition);
 }
 
 .mp-fab:hover {
-  background: var(--mp-ink);
+  background: var(--mp-fab-bg);
   transform: scale(1.04);
 }
 
@@ -118,41 +145,89 @@
   display: none;
 }
 
-/* Панель вкладок — плавающая «таблетка» как на кадрах 01 и 09. */
+/* Баннер «Обновите экран блокировки» в доке — белая карточка с тенью (кадры 01, 09). */
+.mp-banner-slot .mp-ls-banner {
+  padding: var(--size-4-2);
+  border: none;
+  border-radius: calc(var(--mp-radius-card) * 1.6);
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-float);
+}
+
+.mp-banner-slot .mp-ls-banner-action {
+  gap: var(--size-4-4);
+  padding: var(--size-4-1);
+}
+
+.mp-banner-slot .mp-ls-banner-icon {
+  width: 3em;
+  height: 3em;
+  border-radius: 0.8em;
+  background: var(--mp-banner-icon-bg);
+  color: var(--text-normal);
+}
+
+.mp-banner-slot .mp-ls-banner-icon .svg-icon {
+  width: 1.4em;
+  height: 1.4em;
+}
+
+.mp-banner-slot .mp-ls-banner-title {
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-bold);
+}
+
+.mp-banner-slot .mp-ls-banner-subtitle {
+  font-size: var(--font-ui-small);
+  line-height: var(--line-height-tight);
+}
+
+/* На касаниях :hover «залипает» — подложку при наведении не показываем. */
+.mp-view.is-mobile .mp-banner-slot .mp-ls-banner-action:hover {
+  background: transparent;
+}
+
+/* Панель вкладок — белая «таблетка» с тенью (кадры 01, 09, 19). */
 .mp-tabbar {
   display: flex;
   gap: var(--size-4-1);
   padding: var(--size-4-1);
-  border: 1px solid var(--background-modifier-border);
+  border: 1px solid var(--mp-hairline);
   border-radius: var(--mp-radius-pill);
-  background: var(--background-primary);
-  box-shadow: var(--shadow-s);
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-float);
 }
 
 .mp-tab {
   flex: 1 1 0;
   min-width: 0;
-  min-height: var(--mp-touch);
+  min-height: 3.4em;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  padding: var(--size-4-1) var(--size-4-2);
+  gap: 3px;
+  padding: var(--size-4-1) var(--size-4-1);
   border: none;
   border-radius: var(--mp-radius-pill);
   background: transparent;
   color: var(--text-normal);
   box-shadow: none;
   cursor: var(--cursor);
+  transition: background-color var(--mp-transition);
 }
 
 .mp-tab:hover:not(.is-disabled) {
   background: var(--background-modifier-hover);
 }
 
-.mp-tab.is-active {
-  background: var(--background-modifier-active-hover);
+.mp-view.is-mobile .mp-tab:hover:not(.is-active) {
+  background: transparent;
+}
+
+.mp-tab.is-active,
+.mp-view.is-mobile .mp-tab.is-active:hover {
+  background: var(--mp-tab-active-bg);
 }
 
 .mp-tab.is-disabled {
@@ -167,6 +242,7 @@
 .mp-tab-icon .svg-icon {
   width: 1.5em;
   height: 1.5em;
+  stroke-width: 1.75;
 }
 
 .mp-tab-label {
@@ -182,10 +258,71 @@
 body:not(.is-mobile) .mp-tab {
   flex-direction: row;
   gap: var(--size-4-2);
+  min-height: var(--mp-touch);
 }
 
 body:not(.is-mobile) .mp-tab-label {
   font-size: var(--font-ui-small);
+}
+
+/* Вкладка «Настройки» вида (кадр 19): крупный заголовок, разделы — белые карточки. */
+.mp-settings-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mp-gap);
+}
+
+.mp-settings-view-title {
+  margin: 0;
+  font-size: max(var(--h1-size), 1.85em);
+  font-weight: var(--font-bold);
+  line-height: var(--line-height-tight);
+}
+
+.mp-settings-view-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mp-gap);
+}
+
+.mp-settings-view-card,
+.mp-settings-view-sections > .mp-settings-section:not(:empty) {
+  padding: var(--size-2-2) var(--size-4-4);
+  border-radius: var(--mp-radius-panel);
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-card);
+}
+
+.mp-settings-view-sections > .mp-settings-section:empty {
+  display: none;
+}
+
+.mp-settings-view .setting-item {
+  padding: var(--size-4-3) 0;
+}
+
+.mp-settings-view .setting-item:first-child {
+  border-top: none;
+}
+
+/* Заголовок раздела — подпись прописными буквами, как в референсе. */
+.mp-settings-view .setting-item-heading .setting-item-name {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* На телефоне элементы управления переносятся под подпись, чтобы не сжимать текст. */
+.mp-view.is-phone .mp-settings-view .setting-item:not(.setting-item-heading) {
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+}
+
+.mp-view.is-phone .mp-settings-view .setting-item-control {
+  flex: 1 1 auto;
+  justify-content: flex-end;
 }
 
 @media print {

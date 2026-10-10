@@ -23,7 +23,7 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--size-4-2);
+  gap: var(--size-4-2) var(--size-4-1);
 }
 
 .mp-cal-title-row {
@@ -38,13 +38,14 @@
   align-items: center;
   gap: var(--size-4-1);
   min-height: var(--mp-touch);
-  padding: 0 var(--size-2-2);
+  padding: 0 var(--size-2-2) 0 0;
   border: none;
   border-radius: var(--radius-m);
   background: transparent;
   color: var(--text-normal);
-  font-size: var(--h2-size);
+  font-size: 1.45em;
   font-weight: var(--font-bold);
+  white-space: nowrap;
   box-shadow: none;
   cursor: var(--cursor);
 }
@@ -59,28 +60,43 @@
 }
 
 .mp-cal-title-icon .svg-icon {
-  width: 0.75em;
-  height: 0.75em;
+  width: 0.7em;
+  height: 0.7em;
+  stroke-width: 2.5;
 }
 
 .mp-cal-actions {
   display: flex;
   align-items: center;
-  gap: var(--size-4-2);
+  gap: var(--size-4-1);
   margin-left: auto;
 }
 
+/* Круглая кнопка фильтра, сегмент режимов и «Сегодня» — белые с мягкой тенью. */
 .mp-cal-actions .mp-icon-button,
 .mp-cal-today {
-  background: var(--mp-surface);
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-card);
+}
+
+.mp-cal-actions .mp-icon-button {
+  width: 2.6em;
+  height: 2.6em;
+}
+
+.mp-cal-modes .mp-segment {
+  width: 2.4em;
 }
 
 .mp-cal-filter.is-active {
-  background: var(--mp-ink);
-  color: var(--mp-ink-inverse);
+  background: var(--mp-fab-bg);
+  color: var(--mp-fab-ink);
 }
 
 .mp-cal-today {
+  min-height: 2.6em;
+  padding: 0 var(--size-4-3);
+  font-size: var(--font-ui-medium);
   font-weight: var(--font-semibold);
 }
 
@@ -144,11 +160,13 @@
 .mp-cal-week-weekday {
   color: var(--text-faint);
   font-size: var(--font-ui-smaller);
+  font-weight: var(--font-medium);
   text-transform: uppercase;
 }
 
+/* Сегодня — оранжевые буква и число (кадры 01, 09). */
 .mp-cal-week-day.is-today .mp-cal-week-weekday {
-  color: var(--text-accent);
+  color: var(--mp-today);
   font-weight: var(--font-semibold);
 }
 
@@ -156,31 +174,31 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.1em;
-  height: 2.1em;
+  width: 2.2em;
+  height: 2.2em;
   border-radius: 50%;
-  font-size: var(--font-ui-medium);
+  font-size: 1.15em;
+  font-weight: var(--font-medium);
   font-variant-numeric: tabular-nums;
 }
 
-/* Сегодня — кругом акцентного цвета; выбранный день — заливкой. */
 .mp-cal-week-day.is-today .mp-cal-week-number {
-  box-shadow: inset 0 0 0 2px var(--interactive-accent);
-  color: var(--text-accent);
-  font-weight: var(--font-semibold);
+  color: var(--mp-today);
+  font-weight: var(--font-bold);
 }
 
+/* Выбранный день — чёрный круг с белым числом; выбранный «сегодня» — оранжевый круг. */
 .mp-cal-week-day.is-selected .mp-cal-week-number,
 .mp-cal-week-day.is-selected:hover .mp-cal-week-number {
-  background: var(--mp-ink);
-  color: var(--mp-ink-inverse);
-  font-weight: var(--font-semibold);
+  background: var(--mp-fab-bg);
+  color: var(--mp-fab-ink);
+  font-weight: var(--font-bold);
 }
 
-.mp-cal-week-day.is-selected.is-today .mp-cal-week-number {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  box-shadow: none;
+.mp-cal-week-day.is-selected.is-today .mp-cal-week-number,
+.mp-cal-week-day.is-selected.is-today:hover .mp-cal-week-number {
+  background: var(--mp-today);
+  color: #ffffff;
 }
 
 .mp-cal-week-marks {
@@ -205,7 +223,7 @@
 
 .mp-cal-week-check {
   display: inline-flex;
-  color: var(--color-green);
+  color: var(--mp-done);
 }
 
 .mp-cal-week-check .svg-icon {
@@ -239,6 +257,10 @@
   gap: var(--size-4-2);
 }
 
+.mp-cal-day-header {
+  padding: 0 var(--size-2-1);
+}
+
 .mp-cal-day-title {
   display: flex;
   align-items: baseline;
@@ -251,29 +273,56 @@
 .mp-cal-day-date {
   color: var(--text-muted);
   font-size: var(--font-ui-medium);
-  font-weight: var(--font-normal);
+  font-weight: var(--font-medium);
 }
 
 .mp-cal-day-count {
   flex: none;
   color: var(--text-muted);
   font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
 }
 
 .mp-cal-notice,
 .mp-cal-empty {
   display: flex;
-  align-items: flex-start;
-  gap: var(--size-4-2);
-  padding: var(--size-4-3);
-  border-radius: var(--mp-radius-card);
-  background: var(--mp-surface);
+  align-items: center;
+  gap: var(--size-4-3);
+  padding: var(--size-4-3) var(--size-4-4);
+  border-radius: var(--mp-radius-panel);
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-card);
   color: var(--text-muted);
   font-size: var(--font-ui-small);
 }
 
-.mp-cal-notice {
-  background: var(--background-modifier-hover);
+.mp-cal-notice-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-normal);
+  font-weight: var(--font-medium);
+}
+
+.mp-cal-notice-icon {
+  align-items: center;
+  justify-content: center;
+  width: 2.4em;
+  height: 2.4em;
+  border-radius: 0.7em;
+  background: var(--mp-banner-icon-bg);
+  color: var(--text-normal);
+}
+
+.mp-cal-notice-action {
+  flex: none;
+  background: var(--mp-fab-bg);
+  color: var(--mp-fab-ink);
+  font-weight: var(--font-semibold);
+}
+
+.mp-cal-notice-action:hover {
+  background: var(--mp-fab-bg);
+  opacity: 0.9;
 }
 
 .mp-cal-notice-icon,
@@ -291,7 +340,10 @@
 .mp-cal-empty {
   flex-direction: column;
   align-items: center;
-  padding: var(--size-4-6) var(--size-4-4);
+  gap: var(--size-4-2);
+  padding: var(--size-4-8) var(--size-4-6);
+  font-size: var(--font-ui-medium);
+  line-height: var(--line-height-tight);
   text-align: center;
 }
 
@@ -307,13 +359,15 @@
   text-align: center;
 }
 
+/* Список дня — белая скруглённая карточка-контейнер (кадр 09). */
 .mp-cal-day-card {
   display: flex;
   flex-direction: column;
   gap: var(--size-4-3);
-  padding: var(--size-4-3);
-  border-radius: var(--mp-radius-card);
-  background: var(--mp-surface);
+  padding: var(--size-4-4) var(--size-4-3) var(--size-4-4) var(--size-4-2);
+  border-radius: var(--mp-radius-panel);
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-card);
 }
 
 .mp-cal-block {
@@ -348,9 +402,10 @@
 .mp-cal-row-time {
   flex: none;
   width: var(--mp-cal-time-col);
-  padding-top: var(--size-4-2);
+  padding-top: var(--size-4-3);
   color: var(--text-muted);
-  font-size: var(--font-ui-small);
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-medium);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -366,7 +421,7 @@
 .mp-cal-row-rail::after {
   content: '';
   position: absolute;
-  top: calc(var(--size-4-2) + 0.9em);
+  top: calc(var(--size-4-3) + 0.9em);
   bottom: calc(var(--size-4-2) * -1);
   left: 50%;
   width: 2px;
@@ -381,9 +436,9 @@
 .mp-cal-row-dot {
   position: relative;
   z-index: 1;
-  width: 0.6em;
-  height: 0.6em;
-  margin-top: calc(var(--size-4-2) + 0.3em);
+  width: 0.65em;
+  height: 0.65em;
+  margin-top: calc(var(--size-4-3) + 0.35em);
   border-radius: 50%;
   background: var(--mp-item-color);
 }
@@ -395,16 +450,21 @@
   align-items: center;
   gap: var(--size-4-2);
   min-width: 0;
-  min-height: var(--mp-touch);
-  padding: var(--size-4-2) var(--size-4-3) var(--size-4-2) calc(var(--size-4-3) + 3px);
-  border-radius: var(--radius-m);
-  background: color-mix(in srgb, var(--mp-item-color) 14%, var(--background-primary));
+  min-height: 3.2em;
+  padding: var(--size-4-2) var(--size-4-3) var(--size-4-2) calc(var(--size-4-4) + 2px);
+  border-radius: 0.85em;
+  background: color-mix(in srgb, var(--mp-item-color) 13%, var(--mp-card-bg));
   cursor: var(--cursor);
   transition: background-color var(--mp-transition);
 }
 
 .mp-cal-row-card:hover {
-  background: color-mix(in srgb, var(--mp-item-color) 22%, var(--background-primary));
+  background: color-mix(in srgb, var(--mp-item-color) 20%, var(--mp-card-bg));
+}
+
+/* Задача без полосы: кружок стоит ближе к краю плашки. */
+.mp-cal-row-task .mp-cal-row-card {
+  padding-left: var(--size-4-3);
 }
 
 .mp-cal-row-card:focus-visible,
@@ -413,12 +473,13 @@
   outline-offset: 2px;
 }
 
+/* Вертикальная полоса цвета события слева (кадр 09). */
 .mp-cal-row-bar {
   position: absolute;
   top: var(--size-4-2);
   bottom: var(--size-4-2);
-  left: var(--size-2-2);
-  width: 3px;
+  left: var(--size-4-2);
+  width: 4px;
   border-radius: 2px;
   background: var(--mp-item-color);
 }
@@ -438,13 +499,13 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 1.5em;
-  height: 1.5em;
+  width: 1.55em;
+  height: 1.55em;
   padding: 0;
   border: 2px solid var(--mp-item-color);
   border-radius: 50%;
   background: transparent;
-  color: var(--text-on-accent);
+  color: #ffffff;
   box-shadow: none;
   cursor: var(--cursor);
 }
@@ -455,10 +516,11 @@
   stroke-width: 3;
 }
 
+/* Выполненная задача — зелёная галочка в круге (кадр 09). */
 .is-completed .mp-cal-check,
 .is-completing .mp-cal-check {
-  border-color: var(--color-green);
-  background: var(--color-green);
+  border-color: var(--mp-done);
+  background: var(--mp-done);
 }
 
 .mp-cal-row.is-busy .mp-cal-check,
@@ -505,7 +567,9 @@
   gap: var(--size-4-1);
   min-width: 0;
   color: var(--text-normal);
-  font-weight: var(--font-medium);
+  font-size: 1.06em;
+  font-weight: var(--font-normal);
+  line-height: var(--line-height-tight);
 }
 
 .mp-cal-row-title-text {
@@ -516,9 +580,9 @@
   overflow-wrap: anywhere;
 }
 
+/* Выполненные в списке дня не зачёркиваются: галочка уже показывает состояние (кадр 09). */
 .mp-cal-row.is-completed .mp-cal-row-title-text {
-  color: var(--text-muted);
-  text-decoration: line-through;
+  color: var(--text-normal);
 }
 
 .mp-cal-row-flag {
@@ -538,9 +602,9 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--size-2-2);
-  color: color-mix(in srgb, var(--mp-item-color) 75%, var(--text-normal));
+  color: color-mix(in srgb, var(--mp-item-color) 82%, var(--text-normal));
   font-size: var(--font-ui-smaller);
-  font-weight: var(--font-medium);
+  font-weight: var(--font-semibold);
 }
 
 .mp-cal-row-meta-part {
@@ -559,7 +623,8 @@
 }
 
 .mp-cal-row-sep {
-  color: var(--text-faint);
+  color: inherit;
+  opacity: 0.6;
 }
 
 /* --- Временная шкала --- */
@@ -569,8 +634,9 @@
   max-height: 60vh;
   overflow-y: auto;
   overscroll-behavior: contain;
-  border-radius: var(--mp-radius-card);
-  background: var(--mp-surface);
+  border-radius: var(--mp-radius-panel);
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-card);
 }
 
 .mp-cal-timeline-grid {
@@ -692,8 +758,9 @@
   --mp-cal-bars: 3;
   display: flex;
   flex-direction: column;
-  border-radius: var(--mp-radius-card);
-  background: var(--mp-surface);
+  border-radius: var(--mp-radius-panel);
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-card);
   overflow: hidden;
   touch-action: pan-y;
 }
@@ -768,21 +835,19 @@
 }
 
 .mp-cal-month-day.is-today .mp-cal-month-number {
-  box-shadow: inset 0 0 0 2px var(--interactive-accent);
-  color: var(--text-accent);
-  font-weight: var(--font-semibold);
+  color: var(--mp-today);
+  font-weight: var(--font-bold);
 }
 
 .mp-cal-month-day.is-selected .mp-cal-month-number {
-  background: var(--mp-ink);
-  color: var(--mp-ink-inverse);
+  background: var(--mp-fab-bg);
+  color: var(--mp-fab-ink);
   font-weight: var(--font-semibold);
 }
 
 .mp-cal-month-day.is-selected.is-today .mp-cal-month-number {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  box-shadow: none;
+  background: var(--mp-today);
+  color: #ffffff;
 }
 
 .mp-cal-month-more {
@@ -853,9 +918,30 @@
 }
 
 /* Узкий вид: заголовок над кнопками, меньше дорожек текста. */
+/* Телефон: заголовок и кнопки помещаются в одну строку (при нехватке места кнопки переносятся). */
 @media (max-width: 420px) {
   .mp-cal-title {
-    font-size: var(--h3-size);
+    font-size: 1.25em;
+  }
+
+  .mp-cal-actions .mp-icon-button,
+  .mp-cal-today {
+    height: 2.25em;
+    min-height: 2.25em;
+  }
+
+  .mp-cal-actions .mp-icon-button {
+    width: 2.25em;
+  }
+
+  .mp-cal-modes .mp-segment {
+    width: 1.85em;
+    height: 1.85em;
+  }
+
+  .mp-cal-today {
+    padding: 0 0.6em;
+    font-size: var(--font-ui-small);
   }
 
   .mp-cal-month-bar {

@@ -54,6 +54,7 @@ import { PlannerView, VIEW_TYPE_PLANNER } from '../ui/planner-view';
 import { FormSheetPresenter } from '../ui/controls/form-sheet';
 import { createDatePicker } from '../ui/controls/date-picker';
 import { createAddMenuOpener } from '../ui/add-menu';
+import { createSettingsViewTab } from '../ui/settings-tab-view';
 import { DataJsonAttentionStateStore, PluginDataFile } from './attention-state-store';
 import { registerCoreCommands } from './commands';
 
@@ -450,14 +451,35 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
     : null;
 
   const tasksTab = createTasksTab({ index, tasks, settings, clock, format, notifier });
+
+  // Общие зависимости вкладки настроек Obsidian и вкладки «Настройки» вида.
+  const settingsDeps: SettingsTabDeps = {
+    store: settings,
+    clock,
+    notifier,
+    format,
+    integrity,
+    attentionPanel: createAttentionPanel({ integrity, ...createWorkspaceOpeners(app), notifier }),
+    openNote: (path) => void openNote(path),
+    lastReminderEditAt: () => reminderEdits.get(),
+    ...(extension?.settings ?? {}),
+  };
+  const settingsTab = createSettingsViewTab({
+    settings: settingsDeps,
+    openPluginSettings: () => {
+      if (!openPluginSettings(app, plugin.manifest.id)) notifier.show(t('shell.settings.unavailable'));
+    },
+  });
+
   const viewOptions = (): PlannerViewOptions => ({
-    tabs: { ...(extension?.tabs ?? {}), tasks: tasksTab },
+    tabs: { ...(extension?.tabs ?? {}), tasks: tasksTab, settings: settingsTab },
     banner: extension?.banner ?? null,
     actions,
     platform,
     initialTab: settings.get().ui.lastTab,
     onTabChange: (tab: PlannerTabId) => {
-      if (settings.get().ui.lastTab === tab) return;
+      // «Настройки» не запоминаются: при следующем открытии — рабочая вкладка.
+      if (tab === 'settings' || settings.get().ui.lastTab === tab) return;
       settings
         .update((draft) => {
           draft.ui.lastTab = tab;
@@ -473,19 +495,7 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
 
   registerCoreCommands(plugin, { app, actions, taskActions, index, integrity, notifier });
 
-  plugin.addSettingTab(
-    new PlannerSettingTab(app, plugin, {
-      store: settings,
-      clock,
-      notifier,
-      format,
-      integrity,
-      attentionPanel: createAttentionPanel({ integrity, ...createWorkspaceOpeners(app), notifier }),
-      openNote: (path) => void openNote(path),
-      lastReminderEditAt: () => reminderEdits.get(),
-      ...(extension?.settings ?? {}),
-    }),
-  );
+  plugin.addSettingTab(new PlannerSettingTab(app, plugin, settingsDeps));
 
   // --- Подписки ---
   plugin.register(marker.watch());
@@ -582,4 +592,24 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
   });
 
   return { services, taskActions, actions, activateView, ready, extension };
+}
+
+/** Внутренний API Obsidian (`app.setting`): открыть настройки на вкладке плагина. */
+interface AppSettingModal {
+  open(): void;
+  openTabById(id: string): unknown;
+}
+
+/** Открывает вкладку плагина в настройках Obsidian; `false` — API недоступен или упал. */
+export function openPluginSettings(app: App, pluginId: string): boolean {
+  const setting = (app as unknown as { setting?: Partial<AppSettingModal> | null }).setting;
+  if (!setting || typeof setting.open !== 'function' || typeof setting.openTabById !== 'function') return false;
+  try {
+    setting.open();
+    setting.openTabById(pluginId);
+    return true;
+  } catch (error) {
+    console.error('[matrix-planner] Cannot open plugin settings', error);
+    return false;
+  }
 }

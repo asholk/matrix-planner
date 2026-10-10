@@ -26,6 +26,20 @@ body {
   --mp-safe-left: env(safe-area-inset-left, 0px);
   --mp-safe-right: env(safe-area-inset-right, 0px);
   --mp-transition: 160ms ease;
+
+  /* Поверхности по референсу (светлая тема): серый фон вида, белые карточки, мягкие тени. */
+  --mp-app-bg: var(--background-secondary);
+  --mp-card-bg: var(--background-primary);
+  --mp-hairline: var(--background-modifier-border);
+  --mp-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 14px rgba(0, 0, 0, 0.05);
+  --mp-shadow-float: 0 2px 6px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.1);
+  --mp-tab-active-bg: var(--background-modifier-hover);
+  --mp-fab-bg: #1f2330;
+  --mp-fab-ink: #ffffff;
+  --mp-banner-icon-bg: #fdf3dc;
+  --mp-today: var(--color-orange, #e8912d);
+  --mp-done: var(--color-green, #34c759);
+  --mp-radius-panel: 1.5em;
 }
 
 /* В тёмной теме фоны квадрантов — полупрозрачные оттенки цвета квадранта. */
@@ -34,6 +48,13 @@ body.theme-dark {
   --mp-q-plan-bg: rgba(62, 139, 240, 0.18);
   --mp-q-urgent-bg: rgba(242, 179, 61, 0.18);
   --mp-q-someday-bg: rgba(142, 142, 147, 0.2);
+
+  --mp-app-bg: var(--background-primary);
+  --mp-card-bg: var(--background-secondary);
+  --mp-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --mp-shadow-float: 0 4px 18px rgba(0, 0, 0, 0.45);
+  --mp-fab-bg: #3b4150;
+  --mp-banner-icon-bg: rgba(242, 179, 61, 0.18);
 }
 
 .mp-view,

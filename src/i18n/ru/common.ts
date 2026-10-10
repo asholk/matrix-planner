@@ -8,6 +8,7 @@ export const ruCommon = {
     tasks: 'Задачи',
     calendar: 'Календарь',
     lockscreen: 'Блокировка',
+    settings: 'Настройки',
   },
   quadrants: {
     do: 'Важно и срочно',

@@ -306,7 +306,7 @@ export class TasksTab implements TabController {
       format,
     });
     this.timeKey = `${greetingFor(hourOf(now))}|${JSON.stringify(this.model)}`;
-    this.renderHeader(now);
+    this.renderHeader();
     this.renderControls(this.model);
     this.renderContent(this.model, strings);
   }
@@ -320,9 +320,9 @@ export class TasksTab implements TabController {
     }
   }
 
-  private renderHeader(now: FloatingDateTime = this.now()): void {
+  private renderHeader(): void {
     if (!this.greetingEl) return;
-    this.greetingEl.setText(t(`tasks.greeting.${greetingFor(hourOf(now))}`));
+    this.greetingEl.setText(t('tasks.greeting'));
   }
 
   private renderControls(model: TasksViewModel): void {
@@ -343,8 +343,8 @@ export class TasksTab implements TabController {
     });
     doneChip.toggleClass('is-active', doneActive);
     setIcon(doneChip.createSpan({ cls: 'mp-tasks-done-icon', attr: { 'aria-hidden': 'true' } }), doneActive ? 'x' : 'circle-check');
+    // Число выполненных — только в подписи для диктора (в референсе таблетка без числа).
     doneChip.createSpan({ cls: 'mp-tasks-done-label', text: t('tasks.controls.done') });
-    if (!doneActive) doneChip.createSpan({ cls: 'mp-tasks-done-count', text: String(model.doneCount) });
     doneChip.addEventListener('click', () => {
       this.mode = this.mode === 'done' ? 'active' : 'done';
       this.render();

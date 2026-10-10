@@ -1,8 +1,11 @@
 /**
  * Вид «Планировщик» (S1.T4, ТЗ §4.1): единственный `ItemView` с нижней панелью
- * вкладок «Задачи / Календарь / Блокировка», местом для баннера над панелью
+ * вкладок «Задачи / Календарь / Блокировка / Настройки», местом для баннера над панелью
  * и плавающей «+» над баннером справа. Вкладки и баннер подключаются фабриками
  * из `PlannerViewOptions`; состояние — чистый модуль `view-state`.
+ *
+ * Док (панель вкладок, баннер, «+») плавает над содержимым и поднимается над нижними
+ * панелями Obsidian (плавающая навигация 1.11+ на телефоне), см. `dock-insets`.
  */
 
 import { ItemView, setIcon } from 'obsidian';
@@ -37,6 +40,7 @@ import {
   visibleTabs,
 } from './view-state';
 import type { PlannerViewState } from './view-state';
+import { OBSIDIAN_BOTTOM_BAR_SELECTORS, findBottomBars, measureBottomOverlap } from './dock-insets';
 
 registerDictionary('ru', 'shell', ruShell);
 registerDictionary('en', 'shell', enShell);
@@ -46,7 +50,8 @@ export const VIEW_TYPE_PLANNER = 'matrix-planner';
 const TAB_ICONS: Record<PlannerTabId, string> = {
   tasks: 'layout-grid',
   calendar: 'calendar-days',
-  lockscreen: 'smartphone',
+  lockscreen: 'lock',
+  settings: 'settings',
 };
 
 /** Расширение опций вида (локально, без изменения контракта). */
@@ -74,7 +79,12 @@ export class PlannerView extends ItemView {
   private banner: BannerController | null = null;
   private rootEl: HTMLElement | null = null;
   private bodyEl: HTMLElement | null = null;
+  private dockEl: HTMLElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  /** Наблюдение за размерами нижних панелей Obsidian. */
+  private barObserver: ResizeObserver | null = null;
+  private readonly observedBars = new Set<Element>();
+  private insetsFrame: number | null = null;
   private opened = false;
   /** Уникальность id элементов при нескольких открытых видах. */
   private readonly key = Math.random().toString(36).slice(2, 8);
@@ -139,6 +149,14 @@ export class PlannerView extends ItemView {
     this.opened = false;
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
+    this.barObserver?.disconnect();
+    this.barObserver = null;
+    this.observedBars.clear();
+    if (this.insetsFrame !== null) {
+      const win = this.rootEl?.win;
+      win?.cancelAnimationFrame?.(this.insetsFrame);
+      this.insetsFrame = null;
+    }
     for (const slot of this.slots.values()) this.unmountSlot(slot);
     this.slots.clear();
     if (this.banner) {
@@ -159,6 +177,7 @@ export class PlannerView extends ItemView {
     this.contentEl.empty();
     this.rootEl = null;
     this.bodyEl = null;
+    this.dockEl = null;
   }
 
   getState(): Record<string, unknown> {
@@ -186,6 +205,7 @@ export class PlannerView extends ItemView {
     this.bodyEl = body;
 
     const dock = root.createDiv({ cls: 'mp-view-dock' });
+    this.dockEl = dock;
     const fabRow = dock.createDiv({ cls: 'mp-fab-row' });
     const fab = fabRow.createEl('button', {
       cls: 'mp-fab',
@@ -267,9 +287,34 @@ export class PlannerView extends ItemView {
     if (typeof ResizeObserver !== 'undefined') {
       this.resizeObserver = new ResizeObserver(update);
       this.resizeObserver.observe(this.contentEl);
-    } else {
-      this.registerDomEvent(window, 'resize', update);
+      if (this.dockEl) this.resizeObserver.observe(this.dockEl);
+      this.barObserver = new ResizeObserver(() => this.scheduleInsets());
     }
+    // Окно, клавиатура и панели Obsidian меняют перекрытие без изменения размеров вида.
+    const win = this.rootEl?.win;
+    if (win && typeof win.addEventListener === 'function') {
+      this.registerDomEvent(win, 'resize', update);
+      const viewport = win.visualViewport;
+      if (viewport) {
+        const onViewport = (): void => this.scheduleInsets();
+        viewport.addEventListener('resize', onViewport);
+        viewport.addEventListener('scroll', onViewport);
+        this.register(() => {
+          viewport.removeEventListener('resize', onViewport);
+          viewport.removeEventListener('scroll', onViewport);
+        });
+      }
+      const doc = win.document;
+      const onBarMotion = (evt: Event): void => {
+        const target = evt.target as Element | null;
+        if (!target || typeof target.closest !== 'function' || this.rootEl?.contains(target)) return;
+        if (target.closest(OBSIDIAN_BOTTOM_BAR_SELECTORS)) this.scheduleInsets();
+      };
+      this.registerDomEvent(doc, 'transitionend', onBarMotion, { capture: true });
+      this.registerDomEvent(doc, 'animationend', onBarMotion, { capture: true });
+    }
+    this.registerEvent(this.app.workspace.on('layout-change', () => this.scheduleInsets()));
+    this.registerEvent(this.app.workspace.on('resize', () => this.scheduleInsets()));
     update();
   }
 
@@ -280,10 +325,62 @@ export class PlannerView extends ItemView {
     const width = this.contentEl.clientWidth;
     // Нулевая ширина — вид скрыт (фоновая вкладка): раскладку не меняем.
     if (width > 0) this.applyState(setWidth(this.state, width, minWidth));
-    // Safe-area нужна, только если вид доходит до нижнего края экрана.
-    const win = root.win;
+    this.updateInsets();
+  }
+
+  /** Пересчёт отступов дока не чаще раза за кадр. */
+  private scheduleInsets(): void {
+    const root = this.rootEl;
+    if (!root || this.insetsFrame !== null) return;
+    const win = root.win as Window | undefined;
+    if (typeof win?.requestAnimationFrame !== 'function') {
+      this.updateInsets();
+      return;
+    }
+    this.insetsFrame = win.requestAnimationFrame(() => {
+      this.insetsFrame = null;
+      this.updateInsets();
+    });
+  }
+
+  /**
+   * Док поднимается на перекрытие нижними панелями Obsidian; без них — на safe-area,
+   * если вид доходит до нижнего края экрана. Панели вкладок получают отступ снизу
+   * на высоту дока, чтобы последние элементы не прятались под ним.
+   */
+  private updateInsets(): void {
+    const root = this.rootEl;
+    if (!root || typeof root.getBoundingClientRect !== 'function') return;
+    let overlap = 0;
+    try {
+      overlap = measureBottomOverlap(root, { probe: this.platform.isMobile });
+    } catch (error) {
+      console.error('[matrix-planner] cannot measure bottom bars', error);
+    }
     const rect = root.getBoundingClientRect();
-    root.toggleClass('mp-at-screen-bottom', rect.height > 0 && rect.bottom >= win.innerHeight - 1);
+    const win = root.win;
+    const atBottom = rect.height > 0 && win.innerHeight > 0 && rect.bottom >= win.innerHeight - 1;
+    root.toggleClass('mp-at-screen-bottom', atBottom && overlap === 0);
+    root.toggleClass('has-bottom-overlap', overlap > 0);
+    const dockRect = this.dockEl && typeof this.dockEl.getBoundingClientRect === 'function' ? this.dockEl.getBoundingClientRect() : null;
+    root.setCssProps({
+      '--mp-bottom-overlap': `${overlap}px`,
+      '--mp-view-top': `${Math.max(0, Math.round(rect.top))}px`,
+      '--mp-dock-height': `${Math.ceil(dockRect?.height ?? 0)}px`,
+    });
+    this.observeBars(root);
+  }
+
+  /** Следит за размерами найденных нижних панелей (появление, скрытие, смена высоты). */
+  private observeBars(root: HTMLElement): void {
+    const observer = this.barObserver;
+    const doc = root.ownerDocument as Document | null | undefined;
+    if (!observer) return;
+    findBottomBars(doc).forEach((el) => {
+      if (this.observedBars.has(el)) return;
+      this.observedBars.add(el);
+      observer.observe(el);
+    });
   }
 
   // --- Состояние и отрисовка ---
@@ -314,6 +411,7 @@ export class PlannerView extends ItemView {
       else this.hideSlot(slot);
     }
     this.deliverPendingFocus();
+    this.scheduleInsets();
   }
 
   private showSlot(slot: TabSlot): void {

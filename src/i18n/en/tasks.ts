@@ -2,11 +2,7 @@ import type { Dictionary } from '../index';
 
 /** Tasks tab: header, filters, quadrants, cards, menu. */
 export const enTasks = {
-  greeting: {
-    morning: 'Good morning',
-    afternoon: 'Good afternoon',
-    evening: 'Good evening',
-  },
+  greeting: 'Hi! 👋',
   subtitle: 'What shall we do today?',
   loading: 'Loading tasks…',
   controls: {

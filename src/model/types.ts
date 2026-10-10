@@ -516,7 +516,7 @@ export interface VisibleCalendarsSetting {
   calendarIds: string[];
 }
 
-export type PlannerTabId = 'tasks' | 'calendar' | 'lockscreen';
+export type PlannerTabId = 'tasks' | 'calendar' | 'lockscreen' | 'settings';
 export type TasksLayout = 'grid' | 'list';
 export type TasksListGrouping = 'quadrant' | 'date';
 export type CalendarMode = 'list' | 'timeline' | 'month';

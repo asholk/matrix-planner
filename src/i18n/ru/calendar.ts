@@ -42,6 +42,8 @@ export const ruCalendar = {
   },
   day: {
     label: 'Элементы дня {date}',
+    connect: 'Подключить',
+    connectLabel: 'Открыть настройки календаря iOS',
   },
   item: {
     task: 'Задача «{title}»',
@@ -55,6 +57,7 @@ export const ruCalendar = {
     readOnly: 'только просмотр',
     recurring: 'повторяется',
     continues: 'продолжение',
+    planner: 'Планировщик',
     complete: 'Выполнить задачу «{title}»',
     uncomplete: 'Вернуть в работу задачу «{title}»',
   },

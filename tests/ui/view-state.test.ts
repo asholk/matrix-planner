@@ -32,6 +32,12 @@ describe('view-state: вкладки', () => {
     expect(fresh('lockscreen', ['tasks', 'calendar']).activeTab).toBe('tasks');
   });
 
+  it('«Настройки» — четвёртая вкладка панели и не встают в две колонки', () => {
+    const state = createViewState({ available: ['settings', 'lockscreen', 'calendar', 'tasks'], initialTab: 'settings' });
+    expect(state.available).toEqual(['tasks', 'calendar', 'lockscreen', 'settings']);
+    expect(visibleTabs({ ...state, split: true })).toEqual(['settings']);
+  });
+
   it('список доступных упорядочен по панели', () => {
     const state = createViewState({ available: ['lockscreen', 'tasks'], initialTab: 'tasks' });
     expect(state.available).toEqual(['tasks', 'lockscreen']);
