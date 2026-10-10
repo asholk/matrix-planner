@@ -206,8 +206,8 @@
 | --- | --- |
 | `saved_at` | Плагин сохранил PNG обоев профиля |
 | `launched_at` | Запустилась быстрая команда (по нажатию в плагине или намерением компаньона **Отметить обновление обоев**). Используется для защиты от повторного запуска в течение 10 секунд |
-| `confirmed_at` | Установка обоев подтверждена: `x-success` (`obsidian://planner?action=wallpaper-done`) или намерение компаньона |
-| `failed_at` | Получен `x-error` (`obsidian://planner?action=wallpaper-failed`) или команда не найдена |
+| `confirmed_at` | Установка обоев подтверждена: `x-success` (`obsidian://planner?do=wallpaper-done`) или намерение компаньона |
+| `failed_at` | Получен `x-error` (`obsidian://planner?do=wallpaper-failed`) или команда не найдена |
 | `device_name` | Устройство, которое последним обновило статус |
 
 Правила записи:

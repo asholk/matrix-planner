@@ -266,7 +266,10 @@ export interface DayListRow {
   /** «9:00–10:00» для событий со временем. */
   rangeLabel: string | null;
   allDay: boolean;
-  /** Кружок выполнения (только задачи). */
+  /**
+   * Кружок выполнения: только задачи и не вычисленные будущие повторения
+   * (выполнить можно лишь текущее повторение — его `due`).
+   */
   checkable: boolean;
   completed: boolean;
   overdue: boolean;
@@ -306,7 +309,7 @@ export function buildRow(item: DayItem, strings: CalendarLabelStrings): DayListR
     timeLabel: timed ? minuteLabel(item.startMinute as number, strings) : null,
     rangeLabel: showRange ? `${minuteLabel(item.startMinute as number, strings)}–${minuteLabel(item.endMinute as number, strings)}` : null,
     allDay: item.allDay,
-    checkable: item.source === 'task',
+    checkable: item.source === 'task' && !item.projected,
     completed: item.source === 'task' && item.completed,
     overdue: item.source === 'task' && item.overdue,
     recurring: (item.source === 'task' || item.source === 'event') && item.recurring,

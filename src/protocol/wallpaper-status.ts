@@ -11,6 +11,7 @@
  */
 
 import type {
+  BannerDescription,
   Clock,
   CompanionStore,
   FormatPreferencesProvider,
@@ -37,15 +38,7 @@ type Translate = (key: string, params?: Record<string, string | number>) => stri
 // Чистые функции: тексты баннера и статуса
 // ===========================================================================
 
-export interface BannerDescription {
-  text: string;
-  /** Подпись действия баннера («Обновить экран блокировки» / «Сохранить обои»). */
-  actionLabel: string;
-  /** Показать действие «Как настроить» (ошибка быстрой команды). */
-  helpLabel: string | null;
-  /** Баннер требует внимания (есть несохранённые изменения или ошибка). */
-  attention: boolean;
-}
+export type { BannerDescription };
 
 export function describeBanner(state: WallpaperBannerState, actionKind: WallpaperActionKind, translate: Translate = t): BannerDescription {
   const actionLabel = translate(actionKind === 'update' ? 'protocol.wallpaper.actionUpdate' : 'protocol.wallpaper.actionSave');
@@ -221,7 +214,8 @@ export class PlannerWallpaperStatusTracker implements WallpaperStatusTracker {
       } catch {
         rendered = { ok: false, error: { code: 'unknown' } };
       }
-      if (!rendered.ok || (rendered.value.written.length === 0 && !rendered.value.lockUpdated)) {
+      // `lock.png` не обновлён (не удался рендер на сегодня) — тоже сбой: на экране остались бы старые обои.
+      if (!rendered.ok || !rendered.value.lockUpdated) {
         this.setState({ kind: 'failed', reason: 'render' });
         this.deps.notifier.show(this.translate('protocol.wallpaper.failedRender'));
         return;

@@ -9,6 +9,7 @@
 import { setIcon } from 'obsidian';
 import type {
   BannerController,
+  BannerDescription,
   BannerFactory,
   SheetPresenter,
   WallpaperBannerState,
@@ -18,7 +19,7 @@ import { registerDictionary, t } from '../i18n';
 import { enLockscreen } from '../i18n/en/lockscreen';
 import { ruLockscreen } from '../i18n/ru/lockscreen';
 import type { Unsubscribe } from '../model/types';
-import { describeBanner, type BannerDescription } from '../protocol/wallpaper-status';
+import { describeBanner } from '../protocol/wallpaper-status';
 
 registerDictionary('ru', 'lockscreen', ruLockscreen);
 registerDictionary('en', 'lockscreen', enLockscreen);
@@ -26,17 +27,14 @@ registerDictionary('en', 'lockscreen', enLockscreen);
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 export type WallpaperActionKind = 'update' | 'save';
 
+type DescriptiveMethods = 'describe' | 'getStatusText' | 'isFresh';
+
 /**
- * Методы `PlannerWallpaperStatusTracker`, которых пока нет в контракте
- * (S2.T5 → добавить в `WallpaperStatusTracker`). Необязательны: без них — запасной путь.
+ * Трекер, у которого описательные методы могут отсутствовать (заглушки в тестах):
+ * функции ниже тогда используют запасной путь по состоянию.
  */
-export interface WallpaperStatusTrackerExt extends WallpaperStatusTracker {
-  describe?(): BannerDescription;
-  /** Строка статуса карточки «Текущий». */
-  getStatusText?(): string;
-  /** PNG соответствуют текущим данным. */
-  isFresh?(): boolean;
-}
+export type WallpaperStatusTrackerExt = Omit<WallpaperStatusTracker, DescriptiveMethods> &
+  Partial<Pick<WallpaperStatusTracker, DescriptiveMethods>>;
 
 // ===========================================================================
 // Чистая модель баннера
@@ -189,7 +187,7 @@ export function openWallpaperHelp(sheets: SheetPresenter, context: WallpaperHelp
 // ===========================================================================
 
 export interface UpdateBannerDeps {
-  status: WallpaperStatusTrackerExt;
+  status: WallpaperStatusTracker;
   sheets: SheetPresenter;
   /** Профиль и название команды для «Как настроить». */
   getHelpContext(): Omit<WallpaperHelpContext, 'actionKind'>;

@@ -12,6 +12,17 @@ export const enApp = {
     completeActiveTask: 'Complete task in active note',
     postponeActiveTask: 'Postpone task in active note to tomorrow',
     checkIntegrity: 'Check data integrity',
+    openCalendar: 'Open calendar',
+    openLockscreen: 'Open lock screen',
+    createEvent: 'Create event',
+    createNote: 'Create note',
+    updateLockscreen: 'Update lock screen',
+  },
+  settings: {
+    sync: {
+      name: 'Obsidian Sync',
+      desc: 'If this vault syncs with Obsidian Sync, turn on “Other file types” in its settings. Otherwise the “_system/*.json” service files (calendar cache, deleted events, companion status) won’t reach your other devices.',
+    },
   },
   notices: {
     taskCompleted: 'Task completed',

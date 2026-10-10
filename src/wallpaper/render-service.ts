@@ -39,8 +39,8 @@ registerDictionary('en', 'wallpaperRender', enWallpaperRender);
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-/** Renderer с необязательным освобождением кэшей после пакета (`CanvasWallpaperRenderer`). */
-export type BatchWallpaperRenderer = WallpaperRenderer & { releaseResources?(): void };
+/** Renderer с необязательным освобождением кэшей после пакета (теперь часть контракта). */
+export type BatchWallpaperRenderer = WallpaperRenderer;
 
 export interface WallpaperRenderServiceDeps {
   settings: Pick<SettingsStore, 'get'>;
@@ -93,7 +93,8 @@ export class PlannerWallpaperService implements WallpaperService {
 
   async renderPreview(canvas: HTMLCanvasElement, draft: WallpaperSettings, date: LocalDateString): Promise<void> {
     const profile = this.resolveProfile(draft);
-    const snapshot = this.snapshot([date]);
+    // Календари черновика, а не сохранённых настроек.
+    const snapshot = this.snapshot([date], draft.calendarIds);
     const layout = this.layoutFor(date, draft, profile, snapshot);
     await this.deps.renderer.renderTo(canvas, { layout, background: draft.background });
   }
@@ -182,7 +183,7 @@ export class PlannerWallpaperService implements WallpaperService {
   }
 
   /** Снимок данных на все даты сразу — пакет рисуется по одному состоянию. */
-  private snapshot(dates: readonly LocalDateString[]): RenderSnapshot {
+  private snapshot(dates: readonly LocalDateString[], calendarIds?: readonly string[] | null): RenderSnapshot {
     const now = this.now();
     const format = this.deps.format.get();
     return {
@@ -192,7 +193,7 @@ export class PlannerWallpaperService implements WallpaperService {
       hour12: format.hour12,
       tasks: this.deps.index.getTasks(),
       matrix: this.deps.index.getMatrix(),
-      days: this.deps.dayItems.getDays(renderDataRange(dates), { forWallpaper: true }),
+      days: this.deps.dayItems.getDays(renderDataRange(dates), calendarIds === undefined ? { forWallpaper: true } : { forWallpaper: true, calendarIds }),
       strings: this.createStrings(format.hour12),
     };
   }

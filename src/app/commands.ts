@@ -1,10 +1,11 @@
 /**
- * Команды ядра (ТЗ §4.7): без названия плагина и без сочетаний клавиш.
- * Команды этапа 2 («Открыть календарь», «Создать событие» и др.) подключает compose-planner.
+ * Команды (ТЗ §4.7): без названия плагина и без сочетаний клавиш.
+ * Команды ядра — `registerCoreCommands`; этапа 2 («Открыть календарь», «Создать событие» и др.) —
+ * `registerPlannerCommands` из compose-planner.
  */
 
 import type { App, Command } from 'obsidian';
-import type { IntegrityService, NoteIndex, Notifier, PlannerActions } from './contracts';
+import type { IntegrityService, NoteIndex, Notifier, PlannerActions, WallpaperStatusTracker } from './contracts';
 import type { Task } from '../model/types';
 import { QUADRANT_KEYS } from '../model/types';
 import { t, tPlural } from '../i18n';
@@ -109,6 +110,55 @@ export function registerCoreCommands(host: CommandHost, deps: CoreCommandDeps): 
       }
       const count = result.value.items.length;
       deps.notifier.show(count === 0 ? t('app.notices.integrityClean') : tPlural('app.notices.integrityFound', count));
+    },
+  });
+}
+
+export interface PlannerCommandDeps {
+  actions: PlannerActions;
+  wallpaperStatus: Pick<WallpaperStatusTracker, 'getState' | 'run'>;
+}
+
+/** Команды этапа 2: календарь, экран блокировки, событие, заметка, обновление обоев. */
+export function registerPlannerCommands(host: CommandHost, deps: PlannerCommandDeps): void {
+  const { actions } = deps;
+
+  host.addCommand({
+    id: 'open-calendar',
+    name: t('app.commands.openCalendar'),
+    icon: 'calendar',
+    callback: () => void actions.showTab('calendar'),
+  });
+
+  host.addCommand({
+    id: 'open-lockscreen',
+    name: t('app.commands.openLockscreen'),
+    icon: 'smartphone',
+    callback: () => void actions.showTab('lockscreen'),
+  });
+
+  host.addCommand({
+    id: 'create-event',
+    name: t('app.commands.createEvent'),
+    icon: 'calendar-plus',
+    callback: () => actions.openEventForm({ mode: 'create' }),
+  });
+
+  host.addCommand({
+    id: 'create-note',
+    name: t('app.commands.createNote'),
+    icon: 'sticky-note',
+    callback: () => actions.openNoteForm({ mode: 'create' }),
+  });
+
+  host.addCommand({
+    id: 'update-lockscreen',
+    name: t('app.commands.updateLockscreen'),
+    icon: 'refresh-cw',
+    // Синхронно: на iOS быстрая команда открывается в пределах жеста пользователя.
+    callback: () => {
+      if (deps.wallpaperStatus.getState().kind === 'rendering') return;
+      void deps.wallpaperStatus.run();
     },
   });
 }

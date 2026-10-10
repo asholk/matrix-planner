@@ -262,6 +262,16 @@ describe('PlannerWallpaperStatusTracker', () => {
     expect(s.launches).toEqual([]);
   });
 
+  it('lock.png not updated (today failed) counts as render failure', async () => {
+    const partial = renderOk();
+    if (partial.ok) partial.value.lockUpdated = false;
+    const s = setupTracker({ isIos: true, render: async () => partial });
+    await s.tracker.run();
+    expect(s.tracker.getState()).toEqual({ kind: 'failed', reason: 'render' });
+    expect(s.launches).toEqual([]);
+    expect(s.patches.filter((p) => 'savedAt' in p)).toHaveLength(0);
+  });
+
   it('empty shortcut name or launcher error → shortcut failure', async () => {
     const empty = setupTracker({ isIos: true, shortcutName: '  ' });
     await empty.tracker.run();

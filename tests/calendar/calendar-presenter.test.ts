@@ -297,6 +297,11 @@ describe('нажатие на элемент и выполнение', () => {
     expect(buildRow(event(), STRINGS).checkable).toBe(false);
     expect(buildRow(note(), STRINGS).checkable).toBe(false);
   });
+
+  it('у вычисленного будущего повторения кружка нет — выполняется только текущее', () => {
+    expect(buildRow(task({ recurring: true, instanceDate: '2026-10-17', date: '2026-10-17', projected: true }), STRINGS).checkable).toBe(false);
+    expect(buildRow(task({ recurring: true, projected: false }), STRINGS).checkable).toBe(true);
+  });
 });
 
 describe('временная шкала', () => {

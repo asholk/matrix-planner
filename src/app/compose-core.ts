@@ -4,11 +4,14 @@
  * команды и вкладка настроек. Все подписки регистрируются в `Plugin` (register/registerEvent),
  * поэтому выгрузка плагина освобождает их без отдельного кода в `onunload`.
  *
- * Вкладки «Календарь» и «Блокировка», формы события и заметки подключает этап 2 (compose-planner).
+ * Вкладки «Календарь» и «Блокировка», формы события и заметки подключает этап 2 (compose-planner)
+ * через `extend`: расширение получает сервисы ядра до регистрации вида, команд и настроек
+ * и возвращает вкладки, баннер и дополнительные зависимости настроек.
  */
 
 import { Notice, Platform, type App, type Plugin, type WorkspaceLeaf } from 'obsidian';
 import type {
+  BannerFactory,
   Clock,
   CoreServices,
   FormatPreferences,
@@ -17,9 +20,13 @@ import type {
   Notifier,
   PlannerActions,
   PlannerViewOptions,
+  NoteIndex,
   PlatformInfo,
+  TabFactory,
+  TaskService,
 } from './contracts';
-import type { Language, PlannerPaths, PlannerSettings, PlannerTabId, VaultPath, WeekStartDay } from '../model/types';
+import type { ItemId, Language, PlannerPaths, PlannerSettings, PlannerTabId, VaultPath, WeekStartDay } from '../model/types';
+import type { SettingsTabDeps } from '../settings/types';
 import { getCurrentLanguage, registerDictionary, t } from '../i18n';
 import { ruModel } from '../i18n/ru/model';
 import { enModel } from '../i18n/en/model';
@@ -62,7 +69,7 @@ registerCoreDictionaries();
 
 const LOG_PREFIX = '[matrix-planner]';
 
-function log(message: string, error?: unknown): void {
+export function log(message: string, error?: unknown): void {
   if (error === undefined) console.error(`${LOG_PREFIX} ${message}`);
   else console.error(`${LOG_PREFIX} ${message}`, error);
 }
@@ -130,6 +137,65 @@ export function resolveFormatPreferences(settings: Pick<PlannerSettings, 'weekSt
 }
 
 // ---------------------------------------------------------------------------
+// Правки задач с напоминанием (баннер «Напоминание будет запланировано…»)
+// ---------------------------------------------------------------------------
+
+/** Время последней локальной правки задачи с напоминанием — только в памяти. */
+export class ReminderEditTracker {
+  private last: number | null = null;
+
+  constructor(private readonly clock: Pick<Clock, 'now'>) {}
+
+  mark(): void {
+    this.last = this.clock.now().getTime();
+  }
+
+  get(): number | null {
+    return this.last;
+  }
+}
+
+/**
+ * Обёртка сервиса задач: после удачной правки задачи с напоминанием отмечает время.
+ * Напоминания планирует компаньон, поэтому до его обновления настройки показывают баннер.
+ */
+export function trackReminderEdits(tasks: TaskService, index: Pick<NoteIndex, 'getById'>, tracker: ReminderEditTracker): TaskService {
+  const hasReminder = (id: ItemId): boolean => {
+    const item = index.getById(id);
+    return item?.kind === 'task' && item.remind !== 'none' && item.due !== null;
+  };
+  /** Отметить, если до операции у задачи было напоминание и операция удалась. */
+  const wrap = async <T extends { ok: boolean }>(id: ItemId, run: () => Promise<T>): Promise<T> => {
+    const had = hasReminder(id);
+    const result = await run();
+    if (had && result.ok) tracker.mark();
+    return result;
+  };
+  return {
+    create: async (draft) => {
+      const result = await tasks.create(draft);
+      if (result.ok && draft.remind !== 'none' && draft.due !== null) tracker.mark();
+      return result;
+    },
+    update: async (id, patch) => {
+      const had = hasReminder(id);
+      const result = await tasks.update(id, patch);
+      const now = patch.remind !== undefined ? patch.remind !== 'none' : had;
+      // Включение, правка или выключение напоминания — компаньону нужно перепланировать.
+      if (result.ok && (had || now)) tracker.mark();
+      return result;
+    },
+    complete: (id, instanceDate) => wrap(id, () => tasks.complete(id, instanceDate)),
+    uncomplete: (id, instanceDate) => wrap(id, () => tasks.uncomplete(id, instanceDate)),
+    moveToQuadrant: (id, quadrant) => tasks.moveToQuadrant(id, quadrant),
+    reschedule: (id, date) => wrap(id, () => tasks.reschedule(id, date)),
+    postponeToTomorrow: (id) => wrap(id, () => tasks.postponeToTomorrow(id)),
+    delete: (id) => wrap(id, () => tasks.delete(id)),
+    getCompletions: () => tasks.getCompletions(),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Сборка
 // ---------------------------------------------------------------------------
 
@@ -141,7 +207,33 @@ export interface CoreOverrides {
   platform?: PlatformInfo;
 }
 
-export interface CoreHandle {
+/** То, что ядро передаёт расширению (этап 2) до регистрации вида, команд и настроек. */
+export interface CoreContext {
+  plugin: Plugin;
+  app: App;
+  services: CoreServices;
+  taskActions: TaskActions;
+  /** Изменяемый объект действий: расширение подменяет формы и `isAvailable`. */
+  actions: PlannerActions;
+  activateView(): Promise<PlannerView | null>;
+  /** Время последней правки задачи с напоминанием (мс) или `null`. */
+  lastReminderEditAt(): number | null;
+  /** Плагин выгружен — отложенные операции не выполнять. */
+  isUnloaded(): boolean;
+  log(message: string, error?: unknown): void;
+}
+
+/** Что расширение добавляет к виду и настройкам. */
+export interface CoreExtension {
+  tabs?: Partial<Record<PlannerTabId, TabFactory>>;
+  banner?: BannerFactory | null;
+  /** Дополнительные зависимости вкладки настроек (календари, профили, компаньон, разделы). */
+  settings?: Partial<Omit<SettingsTabDeps, 'store'>>;
+}
+
+export type CoreExtender<E extends CoreExtension> = (context: CoreContext) => E | Promise<E>;
+
+export interface CoreHandle<E extends CoreExtension = CoreExtension> {
   services: CoreServices;
   taskActions: TaskActions;
   actions: PlannerActions;
@@ -149,9 +241,15 @@ export interface CoreHandle {
   activateView(): Promise<PlannerView | null>;
   /** Завершение запуска: маркер, миграции, индекс, автоархив, проверка целостности. */
   ready: Promise<void>;
+  /** Результат `extend` или `null`, если расширения нет. */
+  extension: E | null;
 }
 
-export async function composeCore(plugin: Plugin, overrides: CoreOverrides = {}): Promise<CoreHandle> {
+export async function composeCore<E extends CoreExtension = CoreExtension>(
+  plugin: Plugin,
+  overrides: CoreOverrides = {},
+  extend?: CoreExtender<E>,
+): Promise<CoreHandle<E>> {
   const app: App = plugin.app;
   let unloaded = false;
   plugin.register(() => {
@@ -191,7 +289,8 @@ export async function composeCore(plugin: Plugin, overrides: CoreOverrides = {})
   const index = new MetadataNoteIndex(app, { parser, getPaths, log });
 
   // --- Сервисы ---
-  const tasks = new VaultTaskService({ repository, index, clock, ids });
+  const reminderEdits = new ReminderEditTracker(clock);
+  const tasks = trackReminderEdits(new VaultTaskService({ repository, index, clock, ids }), index, reminderEdits);
   const archive = new VaultArchiveService({ repository, index, clock, settings, tasks });
   const taskActions = new TaskActions({ tasks, archive, notifier });
   const integrity = new VaultIntegrityService({
@@ -279,10 +378,25 @@ export async function composeCore(plugin: Plugin, overrides: CoreOverrides = {})
     isAvailable: (feature) => feature === 'task',
   };
 
+  // --- Расширение (этап 2): формы, вкладки, баннер, сервисы календаря и обоев ---
+  const extension: E | null = extend
+    ? await extend({
+        plugin,
+        app,
+        services,
+        taskActions,
+        actions,
+        activateView,
+        lastReminderEditAt: () => reminderEdits.get(),
+        isUnloaded: () => unloaded,
+        log,
+      })
+    : null;
+
   const tasksTab = createTasksTab({ index, tasks, settings, clock, format, notifier });
   const viewOptions = (): PlannerViewOptions => ({
-    tabs: { tasks: tasksTab },
-    banner: null,
+    tabs: { ...(extension?.tabs ?? {}), tasks: tasksTab },
+    banner: extension?.banner ?? null,
     actions,
     platform,
     initialTab: settings.get().ui.lastTab,
@@ -312,6 +426,8 @@ export async function composeCore(plugin: Plugin, overrides: CoreOverrides = {})
       integrity,
       attentionPanel: createAttentionPanel({ integrity, ...createWorkspaceOpeners(app), notifier }),
       openNote: (path) => void openNote(path),
+      lastReminderEditAt: () => reminderEdits.get(),
+      ...(extension?.settings ?? {}),
     }),
   );
 
@@ -379,5 +495,5 @@ export async function composeCore(plugin: Plugin, overrides: CoreOverrides = {})
     });
   });
 
-  return { services, taskActions, actions, activateView, ready };
+  return { services, taskActions, actions, activateView, ready, extension };
 }

@@ -9,6 +9,14 @@ describe('parseLinkParams', () => {
     expect(parseLinkParams({ action: 'planner', vault: 'V' })).toEqual({ ok: false, messageKey: 'protocol.errors.missingAction' });
   });
 
+  it('prefers do= over action= (Obsidian puts the handler name into action)', () => {
+    expect(parseLinkParams({ action: 'planner', vault: 'V', do: 'new-task', quadrant: 'do' })).toEqual({
+      ok: true,
+      link: { action: 'new-task', quadrant: 'do', date: null },
+    });
+    expect(parseLinkParams({ action: 'planner', do: 'open', id: ID })).toEqual({ ok: true, link: { action: 'open', id: ID } });
+  });
+
   it('accepts every view and rejects unknown', () => {
     for (const view of ['tasks', 'calendar', 'lockscreen']) {
       expect(parseLinkParams({ view })).toEqual({ ok: true, link: { action: 'view', view } });
@@ -52,7 +60,7 @@ describe('parseLinkParams', () => {
 describe('linkToParams', () => {
   it('omits empty new-task fields', () => {
     expect(linkToParams({ action: 'new-task', quadrant: null, date: '2026-10-21' })).toEqual([
-      ['action', 'new-task'],
+      ['do', 'new-task'],
       ['date', '2026-10-21'],
     ]);
   });

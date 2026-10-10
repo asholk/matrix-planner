@@ -3,8 +3,10 @@
  * Чистый модуль: без `obsidian`, DOM и i18n — ошибки возвращаются ключами.
  *
  * Obsidian передаёт в обработчик уже раскодированные параметры запроса плюс
- * `action` — имя обработчика (`planner`). Поэтому `action=planner` считается
- * отсутствующим действием, а `vault` не проверяется (маршрутизирует сам Obsidian).
+ * `action` — имя обработчика (`planner`), которое может перекрыть одноимённый параметр
+ * запроса. Поэтому действие передаётся в `do=` (генерируемые ссылки), а `action=`
+ * принимается для совместимости; `action=planner` считается отсутствующим действием.
+ * `vault` не проверяется (маршрутизирует сам Obsidian).
  */
 
 import type { ParsedLinkResult } from '../app/contracts';
@@ -15,6 +17,9 @@ import type { PlannerLink, PlannerTabId, QuadrantKey } from '../model/types';
 
 /** Имя обработчика протокола: `obsidian://planner`. */
 export const PROTOCOL_ACTION = 'planner';
+
+/** Параметр действия в генерируемых ссылках (`action` занят именем обработчика). */
+export const ACTION_PARAM = 'do';
 
 export const PLANNER_VIEWS: readonly PlannerTabId[] = ['tasks', 'calendar', 'lockscreen'];
 
@@ -61,7 +66,8 @@ function isLinkAction(value: string): value is LinkAction {
  * Лишние параметры игнорируются; `view` без `action` — переключение вкладки.
  */
 export function parseLinkParams(params: Readonly<Record<string, string | undefined>>): ParsedLinkResult {
-  const rawAction = readParam(params, 'action');
+  // `do` — основной параметр; `action` — совместимость (если не перекрыт именем обработчика).
+  const rawAction = readParam(params, ACTION_PARAM) ?? readParam(params, 'action');
   const action = rawAction === PROTOCOL_ACTION ? null : rawAction;
 
   if (action === null) {
@@ -102,16 +108,16 @@ export function linkToParams(link: PlannerLink): Array<[string, string]> {
     case 'view':
       return [['view', link.view]];
     case 'new-task': {
-      const out: Array<[string, string]> = [['action', 'new-task']];
+      const out: Array<[string, string]> = [[ACTION_PARAM, 'new-task']];
       if (link.quadrant !== null) out.push(['quadrant', link.quadrant]);
       if (link.date !== null) out.push(['date', link.date]);
       return out;
     }
     case 'open':
-      return [['action', 'open'], ['id', link.id]];
+      return [[ACTION_PARAM, 'open'], ['id', link.id]];
     case 'wallpaper-done':
-      return [['action', 'wallpaper-done']];
+      return [[ACTION_PARAM, 'wallpaper-done']];
     case 'wallpaper-failed':
-      return [['action', 'wallpaper-failed']];
+      return [[ACTION_PARAM, 'wallpaper-failed']];
   }
 }

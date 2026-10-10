@@ -87,7 +87,7 @@
 
 ### Ссылки
 
-`PlannerLink` — разобранная ссылка `obsidian://planner`: `view`, `new-task` (`quadrant`, `date`), `open` (`id`), `wallpaper-done`, `wallpaper-failed`.
+`PlannerLink` — разобранная ссылка `obsidian://planner`: `view`, `new-task` (`quadrant`, `date`), `open` (`id`), `wallpaper-done`, `wallpaper-failed`. В строке запроса действие передаётся параметром `do` (`…&do=new-task`): в `action` Obsidian кладёт имя обработчика (`planner`). Старый `action=` принимается для совместимости.
 
 ### Обои
 
@@ -138,7 +138,7 @@
 - `CalendarCacheReader` — только чтение: `getState`, `refresh`, `coverage(date)`, `getCalendars`, `onChange`.
 - `TombstoneWriter` — `add` (идемпотентно, объединение по id), `list`, `has`.
 - `CompanionStore` — `read`, `getState`, `updateWallpaperStatus(profileId, patch)` (меняет только статус обоев, чужие поля сохраняются), `onChange`.
-- `DayItemsBuilder` — чистая функция сборки; `DayItemsProvider` — обёртка над индексом, настройками и кэшем для UI и обоев.
+- `DayItemsBuilder` — чистая функция сборки; `DayItemsProvider` — обёртка над индексом, настройками и кэшем для UI и обоев. `getDays(range, DayItemsOptions)`: `includeCompleted`, `forWallpaper`, `calendarIds` (только для обоев: календари черновика вместо `settings.wallpaper.calendarIds`, `null` — как в календаре).
 
 ### Целостность (S1.T9)
 
@@ -147,9 +147,9 @@
 ### Обои и протокол (S2.T4–S2.T8)
 
 - `WallpaperLayoutFn(input, measurer)` — чистая раскладка.
-- `WallpaperRenderer` — `render(request)` → PNG `ArrayBuffer`, `renderTo(canvas, request)` — предпросмотр, `measurer`.
+- `WallpaperRenderer` — `render(request)` → PNG `ArrayBuffer`, `renderTo(canvas, request)` — предпросмотр (рисунок масштабируется под размер холста, поэтому предпросмотр рисуется в уменьшенный холст), `measurer`, необязательный `releaseResources()` после пакета.
 - `WallpaperService` — `resolveProfile`, `renderAll()` (7 дат сегодня…+6 и `lock.png`, очистка своих файлов профиля; `WallpaperRenderResult` с частичными сбоями), `renderPreview`, `getCurrentImagePath`.
-- `WallpaperStatusTracker` — состояние баннера `WallpaperBannerState` (`idle`, `dirty`, `rendering`, `saved`, `launched`, `confirmed`, `failed`), `getActionKind()` (`update` на iPhone/iPad, `save` на компьютере и Android), ревизия данных, `run()`, `onWallpaperCallback()`.
+- `WallpaperStatusTracker` — состояние баннера `WallpaperBannerState` (`idle`, `dirty`, `rendering`, `saved`, `launched`, `confirmed`, `failed`), `getActionKind()` (`update` на iPhone/iPad, `save` на компьютере и Android), ревизия данных, `run()`, `onWallpaperCallback()`, тексты `describe()` (`BannerDescription`) и `getStatusText()`, `isFresh()` — PNG соответствуют текущей ревизии. Пакет без обновлённого `lock.png` (не удался рендер на сегодня) считается сбоем.
 - `ShortcutLauncher.launch(name)` — только по жесту пользователя; защита от повтора.
 - `ProtocolHandler.handle(params)` — откладывает обработку до `resolved`. `LinkBuilder` — `build(link)` и `shortcutRunUrl(name)`; все ссылки содержат `vault`.
 
@@ -166,6 +166,8 @@
 ### Состав сервисов
 
 `CoreServices` (этап 1) и `PlannerServices extends CoreServices` (этап 2) собираются в `compose-core.ts` и `compose-planner.ts`. Модули получают зависимости через конструктор, а не через плагин.
+
+`composeApp(plugin)` = `composeCore(plugin, overrides, composePlanner)`: ядро строит сервисы и `PlannerActions`, затем вызывает расширение (`CoreContext` → `CoreExtension`) до регистрации вида, команд и вкладки настроек. Расширение подменяет формы события/заметки и `isAvailable`, возвращает вкладки «Календарь» и «Блокировка», баннер и дополнительные зависимости настроек; свои подписки (кэш календаря, компаньон, обработчик ссылок, провайдер элементов дня) регистрирует в `Plugin`. Сервис задач в ядре обёрнут `trackReminderEdits` — время последней правки задачи с напоминанием для баннера настроек «Напоминание будет запланировано…».
 
 ## Локализация (`src/i18n`)
 

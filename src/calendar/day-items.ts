@@ -40,7 +40,7 @@ import type {
   VisibleCalendarsSetting,
 } from '../model/types';
 import { QUADRANT_KEYS } from '../model/types';
-import type { CalendarCacheReader, Clock, DayItemsBuilder, DayItemsProvider, NoteIndex, SettingsStore } from '../app/contracts';
+import type { CalendarCacheReader, Clock, DayItemsBuilder, DayItemsOptions, DayItemsProvider, NoteIndex, SettingsStore } from '../app/contracts';
 import { addDays, datesInRange, floatingFromDate, isValidTimeZone, timeToMinutes } from '../model/dates';
 import { DEFAULT_QUADRANT_STYLE } from '../model/defaults';
 import { occurrencesInRange } from '../model/recurrence';
@@ -458,12 +458,15 @@ export interface DayItemsProviderDeps {
 }
 
 /** Источники и календари обоев: без заметок; `wallpaper.calendarIds` заменяет список календарей. */
-export function wallpaperFilters(settings: Readonly<PlannerSettings>): {
+export function wallpaperFilters(
+  settings: Readonly<PlannerSettings>,
+  calendarIds?: readonly string[] | null,
+): {
   sources: CalendarSourceFilter;
   visibleCalendars: VisibleCalendarsSetting;
 } {
   const visible = settings.visibleCalendars;
-  const ids = settings.wallpaper.calendarIds;
+  const ids = calendarIds === undefined ? settings.wallpaper.calendarIds : calendarIds;
   return {
     sources: { tasks: true, events: true, notes: false, external: true },
     visibleCalendars: ids === null ? visible : { planner: visible.planner, birthdays: false, calendarIds: [...ids] },
@@ -476,11 +479,11 @@ export class PlannerDayItemsProvider implements DayItemsProvider {
 
   constructor(private readonly deps: DayItemsProviderDeps) {}
 
-  getDays(range: DateRange, options: { includeCompleted?: boolean; forWallpaper?: boolean } = {}): DayItemsByDate {
+  getDays(range: DateRange, options: DayItemsOptions = {}): DayItemsByDate {
     const settings = this.deps.settings.get();
     const forWallpaper = options.forWallpaper ?? false;
     const filters = forWallpaper
-      ? wallpaperFilters(settings)
+      ? wallpaperFilters(settings, options.calendarIds)
       : { sources: settings.ui.calendarSources, visibleCalendars: settings.visibleCalendars };
     const timeZone = this.deps.clock.timeZone();
     const zone = isValidTimeZone(timeZone) ? timeZone : undefined;

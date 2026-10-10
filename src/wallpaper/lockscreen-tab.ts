@@ -15,6 +15,7 @@ import type {
   PlannerViewHost,
   TabController,
   TabFactory,
+  WallpaperStatusTracker,
 } from '../app/contracts';
 import { registerDictionary, t } from '../i18n';
 import { enLockscreen } from '../i18n/en/lockscreen';
@@ -25,7 +26,6 @@ import {
   openWallpaperHelp,
   statusNeedsAttention,
   statusTextOf,
-  type WallpaperStatusTrackerExt,
 } from './update-banner';
 import { TEMPLATE_FILTERS, filterTemplates, templateInfo, type TemplateFilter, type TemplateInfo } from './wallpaper-draft';
 import {
@@ -33,6 +33,7 @@ import {
   createPhoneFrame,
   openWallpaperEditor,
   prepareCanvas,
+  THUMBNAIL_MAX_HEIGHT,
   todayOf,
   type WallpaperEditorDeps,
 } from './wallpaper-editor';
@@ -44,7 +45,7 @@ registerDictionary('en', 'lockscreen', enLockscreen);
 const THUMBNAIL_DEBOUNCE_MS = 400;
 
 export interface LockscreenTabDeps extends WallpaperEditorDeps {
-  status: WallpaperStatusTrackerExt;
+  status: WallpaperStatusTracker;
   /** Изменения статуса обоев в `companion.json` (подтверждение с другого устройства). */
   companion?: Pick<CompanionStore, 'onChange'> | null;
   /** Изменения задач и событий — перерисовать миниатюры. */
@@ -305,7 +306,7 @@ export class LockscreenTab implements TabController {
       if (generation !== this.generation) return;
       try {
         const settings = thumb.settings();
-        prepareCanvas(thumb.canvas, this.deps.wallpaper.resolveProfile(settings));
+        prepareCanvas(thumb.canvas, this.deps.wallpaper.resolveProfile(settings), THUMBNAIL_MAX_HEIGHT);
         await this.deps.wallpaper.renderPreview(thumb.canvas, settings, date);
         thumb.frameEl.removeClass('is-failed');
       } catch (error) {

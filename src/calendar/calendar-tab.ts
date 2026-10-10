@@ -484,7 +484,8 @@ export class CalendarTab implements TabController {
   }
 
   private toggleTask(item: TaskDayItem, rowEl: HTMLElement): void {
-    if (this.busy.has(item.key)) return;
+    // Будущее повторение выполнить нельзя: сервис принимает только текущее (`due`).
+    if (this.busy.has(item.key) || (item.projected && !item.completed)) return;
     const request = taskToggleRequest(item);
     this.busy.add(item.key);
     rowEl.addClass('is-busy');

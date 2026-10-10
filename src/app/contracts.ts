@@ -364,10 +364,20 @@ export interface CompanionStore {
 /** Сигнатура сборки элементов дней (реализация — calendar/day-items.ts). */
 export type DayItemsBuilder = (input: DayItemsInput) => DayItemsByDate;
 
+export interface DayItemsOptions {
+  includeCompleted?: boolean;
+  forWallpaper?: boolean;
+  /**
+   * Только с `forWallpaper`: календари обоев вместо `settings.wallpaper.calendarIds`
+   * (`null` — как в календаре). Нужен предпросмотру черновика редактора.
+   */
+  calendarIds?: readonly string[] | null;
+}
+
 /** Источник данных для календаря и обоев, собранный из индекса, настроек и кэша. */
 export interface DayItemsProvider {
   /** Элементы дней диапазона с текущими фильтрами источников. */
-  getDays(range: DateRange, options?: { includeCompleted?: boolean; forWallpaper?: boolean }): DayItemsByDate;
+  getDays(range: DateRange, options?: DayItemsOptions): DayItemsByDate;
   onChange(listener: () => void): Unsubscribe;
 }
 
@@ -403,6 +413,8 @@ export interface WallpaperRenderer {
   renderTo(canvas: HTMLCanvasElement, request: WallpaperRenderRequest): Promise<void>;
   /** Измеритель текста, согласованный с renderer'ом. */
   readonly measurer: TextMeasurer;
+  /** Освободить кэши (картинка фона, значки) после пакета. */
+  releaseResources?(): void;
 }
 
 export interface WallpaperRenderFailure {
@@ -442,9 +454,26 @@ export type WallpaperBannerState =
   | { kind: 'confirmed'; at: string } // x-success
   | { kind: 'failed'; reason: 'render' | 'shortcut' | 'callback-error' };
 
+/** Тексты баннера по состоянию (S2.T5 `describeBanner`). */
+export interface BannerDescription {
+  text: string;
+  /** Подпись действия баннера («Обновить экран блокировки» / «Сохранить обои»). */
+  actionLabel: string;
+  /** Показать действие «Как настроить» (ошибка быстрой команды). */
+  helpLabel: string | null;
+  /** Баннер требует внимания (есть несохранённые изменения или ошибка). */
+  attention: boolean;
+}
+
 /** Отслеживание изменений данных и статуса обоев для баннера. */
 export interface WallpaperStatusTracker {
   getState(): WallpaperBannerState;
+  /** Тексты баннера для текущего состояния. */
+  describe(): BannerDescription;
+  /** Строка статуса карточки «Текущий» (по `companion.json`). */
+  getStatusText(): string;
+  /** PNG соответствуют текущей ревизии данных. */
+  isFresh(): boolean;
   /** Действие баннера: iPhone/iPad — «Обновить экран блокировки», иначе — «Сохранить обои». */
   getActionKind(): 'update' | 'save';
   /** Текущая ревизия данных (растёт при изменении задач/событий). */

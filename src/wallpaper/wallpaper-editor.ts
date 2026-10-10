@@ -113,13 +113,26 @@ export function todayOf(clock: Clock): LocalDateString {
   return floatingFromDate(clock.now(), clock.timeZone()).date;
 }
 
+/** Наибольшая высота холста предпросмотра редактора, px. */
+export const PREVIEW_MAX_HEIGHT = 960;
+/** Наибольшая высота холста миниатюры вкладки, px. */
+export const THUMBNAIL_MAX_HEIGHT = 560;
+
+/** Размер холста предпросмотра: пропорции профиля, высота не больше `maxHeight`. */
+export function previewCanvasSize(profile: Pick<WallpaperProfile, 'width' | 'height'>, maxHeight: number): { width: number; height: number } {
+  const scale = Math.min(1, maxHeight / profile.height);
+  return { width: Math.max(1, Math.round(profile.width * scale)), height: Math.max(1, Math.round(profile.height * scale)) };
+}
+
 /**
- * Готовит canvas под профиль: размер в пикселях профиля, пропорции — CSS-переменной.
- * Renderer может изменить размер под себя.
+ * Готовит canvas под профиль: уменьшенный холст с пропорциями профиля (renderer
+ * масштабирует рисунок под размер холста), пропорции рамки — CSS-переменной.
+ * Полное разрешение профиля (~12 МБ на холст) в предпросмотре не нужно.
  */
-export function prepareCanvas(canvas: HTMLCanvasElement, profile: WallpaperProfile): void {
-  if (canvas.width !== profile.width) canvas.width = profile.width;
-  if (canvas.height !== profile.height) canvas.height = profile.height;
+export function prepareCanvas(canvas: HTMLCanvasElement, profile: WallpaperProfile, maxHeight: number = PREVIEW_MAX_HEIGHT): void {
+  const size = previewCanvasSize(profile, maxHeight);
+  if (canvas.width !== size.width) canvas.width = size.width;
+  if (canvas.height !== size.height) canvas.height = size.height;
   canvas.parentElement?.setCssProps({ '--mp-ls-aspect': `${profile.width} / ${profile.height}` });
 }
 

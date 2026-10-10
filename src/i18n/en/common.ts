@@ -33,7 +33,7 @@ export const enCommon = {
     retry: 'Retry',
   },
   errors: {
-    notFound: 'Task not found. It may not be synced yet',
+    notFound: 'Item not found. It may not be synced yet',
     readOnly: 'Data was created by a newer version. Update the plugin',
     stale: 'Data has changed. Refresh the view and try again',
     invalid: 'Check the fields',

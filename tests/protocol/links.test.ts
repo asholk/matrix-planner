@@ -13,12 +13,12 @@ describe('buildPlannerUrl', () => {
   it('builds all link kinds with vault first', () => {
     expect(buildPlannerUrl('Work', { action: 'view', view: 'calendar' })).toBe('obsidian://planner?vault=Work&view=calendar');
     expect(buildPlannerUrl('Work', { action: 'new-task', quadrant: 'do', date: '2026-10-21' })).toBe(
-      'obsidian://planner?vault=Work&action=new-task&quadrant=do&date=2026-10-21',
+      'obsidian://planner?vault=Work&do=new-task&quadrant=do&date=2026-10-21',
     );
-    expect(buildPlannerUrl('Work', { action: 'new-task', quadrant: null, date: null })).toBe('obsidian://planner?vault=Work&action=new-task');
-    expect(buildPlannerUrl('Work', { action: 'open', id: ID })).toBe(`obsidian://planner?vault=Work&action=open&id=${ID}`);
-    expect(buildPlannerUrl('Work', { action: 'wallpaper-done' })).toBe('obsidian://planner?vault=Work&action=wallpaper-done');
-    expect(buildPlannerUrl('Work', { action: 'wallpaper-failed' })).toBe('obsidian://planner?vault=Work&action=wallpaper-failed');
+    expect(buildPlannerUrl('Work', { action: 'new-task', quadrant: null, date: null })).toBe('obsidian://planner?vault=Work&do=new-task');
+    expect(buildPlannerUrl('Work', { action: 'open', id: ID })).toBe(`obsidian://planner?vault=Work&do=open&id=${ID}`);
+    expect(buildPlannerUrl('Work', { action: 'wallpaper-done' })).toBe('obsidian://planner?vault=Work&do=wallpaper-done');
+    expect(buildPlannerUrl('Work', { action: 'wallpaper-failed' })).toBe('obsidian://planner?vault=Work&do=wallpaper-failed');
   });
 
   it('encodes cyrillic, spaces, & and ? in the vault name', () => {
@@ -71,6 +71,14 @@ describe('buildShortcutRunUrl', () => {
 });
 
 describe('parsePlannerUrl', () => {
+  it('reads the action from do= even when Obsidian puts its handler name into action', () => {
+    const parsed = parsePlannerUrl(`obsidian://planner?vault=A&do=open&id=${ID}`);
+    expect(parsed.ok && parsed.result).toEqual({ ok: true, link: { action: 'open', id: ID } });
+    // Старый формат `action=` по-прежнему принимается.
+    const legacy = parsePlannerUrl('obsidian://planner?vault=A&action=wallpaper-done');
+    expect(legacy.ok && legacy.result).toEqual({ ok: true, link: { action: 'wallpaper-done' } });
+  });
+
   it('rejects foreign and malformed links', () => {
     expect(parsePlannerUrl('obsidian://open?vault=A')).toEqual({ ok: false, messageKey: 'protocol.errors.notPlannerLink' });
     expect(parsePlannerUrl('obsidian://planner?vault=%E0%A4%A')).toEqual({ ok: false, messageKey: 'protocol.errors.malformed' });

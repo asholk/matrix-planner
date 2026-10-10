@@ -12,6 +12,17 @@ export const ruApp = {
     completeActiveTask: 'Выполнить задачу в активной заметке',
     postponeActiveTask: 'Перенести задачу в активной заметке на завтра',
     checkIntegrity: 'Проверить целостность данных',
+    openCalendar: 'Открыть календарь',
+    openLockscreen: 'Открыть экран блокировки',
+    createEvent: 'Создать событие',
+    createNote: 'Создать заметку',
+    updateLockscreen: 'Обновить экран блокировки',
+  },
+  settings: {
+    sync: {
+      name: 'Obsidian Sync',
+      desc: 'Если хранилище синхронизируется через Obsidian Sync, включите в его настройках «Другие типы файлов». Иначе служебные файлы «_system/*.json» (кэш календаря, удалённые события, состояние компаньона) не попадут на другие устройства.',
+    },
   },
   notices: {
     taskCompleted: 'Задача выполнена',
