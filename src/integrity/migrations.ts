@@ -296,13 +296,13 @@ async function applyStep(deps: MigrationDeps, step: Migration, from: number): Pr
 // ---------------------------------------------------------------------------
 
 export interface VaultMigrationOptions {
-  getPaths(): PlannerPaths;
+  getPaths: () => PlannerPaths;
   queue: WriteQueue;
   marker: Pick<MarkerService, 'getState' | 'setMigrating'>;
   clock: Clock;
   migrations?: readonly Migration[];
   targetVersion?: number;
-  log?(message: string, error?: unknown): void;
+  log?: (message: string, error?: unknown) => void;
 }
 
 /**
@@ -358,7 +358,8 @@ export async function listVaultNotes(app: App, paths: PlannerPaths, log?: (messa
   const files: TFile[] = [];
   const stack: TFolder[] = [root];
   while (stack.length > 0) {
-    const folder = stack.pop() as TFolder;
+    const folder = stack.pop();
+    if (!folder) break;
     for (const child of folder.children) {
       if (child instanceof TFolder) {
         if (!isUnder(child.path, paths.system) && !isUnder(child.path, paths.wallpapers)) stack.push(child);

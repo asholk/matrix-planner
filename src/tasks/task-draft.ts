@@ -211,6 +211,9 @@ export function fieldAvailability(state: TaskDraftState): FieldAvailability {
 
 export type DraftFieldError = 'required' | 'invalid';
 
+/** Код ошибки «поле обязательно» (не текст интерфейса: текст берётся из словаря). */
+const REQUIRED_ERROR: DraftFieldError = 'required';
+
 export interface DraftValidation {
   valid: boolean;
   errors: Partial<Record<'title' | 'date' | 'time', DraftFieldError>>;
@@ -218,7 +221,7 @@ export interface DraftValidation {
 
 export function validateDraft(state: TaskDraftState): DraftValidation {
   const errors: DraftValidation['errors'] = {};
-  if (state.title.trim() === '') errors.title = 'required';
+  if (state.title.trim() === '') errors.title = REQUIRED_ERROR;
   if (state.date !== null && !isValidDate(state.date)) errors.date = 'invalid';
   if (state.time !== null && (state.date === null || !isValidTime(state.time))) errors.time = 'invalid';
   return { valid: Object.keys(errors).length === 0, errors };

@@ -18,6 +18,8 @@ import {
 export const MAX_FILE_TITLE_LENGTH = 120;
 
 /** Символы, недопустимые в именах файлов Obsidian/ОС или ломающие ссылки. */
+// Управляющие символы U+0000–U+001F и U+007F запрещены в именах файлов намеренно.
+// eslint-disable-next-line no-control-regex -- проверка управляющих символов — цель этого выражения
 const FORBIDDEN_CHARS_RE = /[\\/:*?"<>|#^[\]\u0000-\u001f\u007f]/g;
 const WINDOWS_RESERVED_RE = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
 

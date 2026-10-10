@@ -27,7 +27,7 @@ export function isMigrationFileName(name: string): boolean {
 
 /** Разбор текста JSON с различением повреждения. */
 export function parseSystemJson(text: string): SystemJsonReadResult {
-  const clean = text.replace(/^﻿/, '');
+  const clean = text.replace(/^\uFEFF/, '');
   if (clean.trim() === '') return { status: 'corrupt', detail: 'empty file' };
   try {
     return { status: 'ok', value: JSON.parse(clean) as unknown };
@@ -63,7 +63,7 @@ export class AdapterSystemJsonStore implements SystemJsonStore {
   }
 
   async read(name: SystemJsonName): Promise<SystemJsonReadResult> {
-    if (!isSystemJsonName(name)) return { status: 'corrupt', detail: `unknown system file: ${name}` };
+    if (!isSystemJsonName(name)) return { status: 'corrupt', detail: `unknown system file: ${String(name)}` };
     return this.readPath(this.path(name));
   }
 
@@ -108,7 +108,7 @@ export class AdapterSystemJsonStore implements SystemJsonStore {
   // -------------------------------------------------------------------------
 
   private checkWritable<T>(name: SystemJsonName): OpResult<T> | null {
-    if (!isSystemJsonName(name)) return errorResult<T>('invalid', `unknown system file: ${name}`);
+    if (!isSystemJsonName(name)) return errorResult<T>('invalid', `unknown system file: ${String(name)}`);
     if (name === SYSTEM_FILES.calendarCache) return errorResult<T>('read-only', 'calendar cache is written by the companion only');
     const guard = isMigrationFileName(name) ? (this.deps.migrationGuard ?? this.deps.guard) : this.deps.guard;
     const blocked = guard.check();

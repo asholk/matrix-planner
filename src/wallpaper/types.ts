@@ -57,7 +57,7 @@ export interface PillColors {
  */
 export interface WallpaperStringsExtra {
   /** «Осталось 83 дня». */
-  daysLeft?(count: number): string;
+  daysLeft?: (count: number) => string;
 }
 
 export type WallpaperLayoutStrings = WallpaperStrings & WallpaperStringsExtra;

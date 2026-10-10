@@ -34,9 +34,7 @@ export function openExternalUrl(url: string): void {
     return;
   }
   if (typeof document !== 'undefined') {
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.rel = 'noopener';
+    const anchor = createEl('a', { href: url, attr: { rel: 'noopener' } });
     anchor.click();
     return;
   }

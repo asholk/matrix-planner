@@ -58,6 +58,12 @@ function fileText(app: MockApp, path: string): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+/** Сырой JSON компаньона для проверок сохранения чужих полей. */
+interface CompanionJson {
+  wallpapers: Record<string, Record<string, unknown>>;
+  [key: string]: unknown;
+}
+
 describe('storage/system-records: tombstones.json', () => {
   let ctx: ReturnType<typeof setup>;
   beforeEach(() => {
@@ -86,7 +92,7 @@ describe('storage/system-records: tombstones.json', () => {
 
   it('объединяет с метками других устройств и сохраняет неизвестные поля', async () => {
     const foreign = { ...tombstonesFixture, extra: { from: 'companion' } };
-    foreign.tombstones = [...foreign.tombstones, { id: 'x', kind: 'note', deleted_at: '2026-10-01T00:00:00Z' } as never];
+    foreign.tombstones = [...foreign.tombstones, { id: 'x', kind: 'note', deleted_at: '2026-10-01T00:00:00Z' }];
     await ctx.app.vault.adapter.write(TOMBSTONES, JSON.stringify(foreign));
     await ctx.tombstones.add(ID_B, 'event');
     const written = readJson(ctx.app, TOMBSTONES);
@@ -100,7 +106,7 @@ describe('storage/system-records: tombstones.json', () => {
   it('метка с id из фикстуры уже есть — ничего не меняется', async () => {
     const text = JSON.stringify(tombstonesFixture);
     await ctx.app.vault.adapter.write(TOMBSTONES, text);
-    const result = await ctx.tombstones.add(tombstonesFixture.tombstones[0]!.id, 'event');
+    const result = await ctx.tombstones.add(tombstonesFixture.tombstones[0].id, 'event');
     expect(result.ok && result.changed).toBe(false);
     expect(fileText(ctx.app, TOMBSTONES)).toBe(text);
   });
@@ -207,12 +213,12 @@ describe('storage/system-records: companion.json', () => {
   });
 
   it('сохраняет чужие поля, другие профили и неизвестные поля профиля', async () => {
-    const original = JSON.parse(JSON.stringify(companionFixture)) as Record<string, any>;
+    const original = JSON.parse(JSON.stringify(companionFixture)) as CompanionJson;
     original['wallpapers'][PROFILE]['future_flag'] = true;
     await ctx.app.vault.adapter.write(COMPANION, JSON.stringify(original));
     const result = await ctx.companion.updateWallpaperStatus(PROFILE, { launchedAt: '2026-10-10T11:00:00.000Z', deviceName: 'iPhone' });
     expect(result.ok && result.changed).toBe(true);
-    const written = readJson(ctx.app, COMPANION) as Record<string, any>;
+    const written = readJson(ctx.app, COMPANION) as CompanionJson;
     expect(written['primary_device']).toBe(original['primary_device']);
     expect(written['last_update']).toBe(original['last_update']);
     expect(written['reminders']).toEqual(original['reminders']);

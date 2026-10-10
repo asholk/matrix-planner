@@ -1,5 +1,6 @@
 import esbuild from 'esbuild';
 import { builtinModules } from 'node:module';
+import process from 'node:process';
 
 const banner = `/*
 Matrix planner — сгенерированный файл. Исходники: src/.

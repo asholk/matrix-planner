@@ -10,10 +10,6 @@ import { MARKER_PATH } from '../../src/storage/paths';
 import { VIEW_TYPE_PLANNER } from '../../src/ui/planner-view';
 import { setLanguageOverride } from '../../src/i18n';
 
-// Вкладки используют `window.setTimeout`; в окружении node его нет.
-const globalWithWindow = globalThis as unknown as { window?: unknown };
-if (globalWithWindow.window === undefined) globalWithWindow.window = globalThis;
-
 const ROOT = 'Планировщик';
 const TODAY = '2026-10-10';
 const PROFILE_DIR = `${ROOT}/Обои/iphone-1179x2556`;

@@ -266,12 +266,12 @@ export function generateLoadTasks(count = 1000): FixtureFile[] {
     const noDue = i % 7 === 0;
     const date = shiftDate(REFERENCE_TODAY, (i % 40) - 10);
     const time = i % 3 === 0 ? null : `${String(8 + (i % 12)).padStart(2, '0')}:${i % 2 === 0 ? '00' : '30'}`;
-    const repeat = noDue ? 'none' : LOAD_REPEATS[i % LOAD_REPEATS.length]!;
+    const repeat = noDue ? 'none' : LOAD_REPEATS[i % LOAD_REPEATS.length];
     const done = repeat === 'none' && i % 9 === 0;
     files.push(
       taskFile(`Нагрузка ${String(i + 1).padStart(4, '0')}`, {
         id: fixtureId('01JS', i + 1),
-        quadrant: LOAD_QUADRANTS[i % LOAD_QUADRANTS.length]!,
+        quadrant: LOAD_QUADRANTS[i % LOAD_QUADRANTS.length],
         due: noDue ? null : time ? `${date}T${time}` : date,
         repeat,
         repeat_anchor: repeat === 'none' || noDue ? null : date,

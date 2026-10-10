@@ -437,7 +437,7 @@ class DatePickerView implements DatePickerHandle {
       this.update(next, true);
     });
 
-    if (focusGrid && focusEl) (focusEl as HTMLElement).focus();
+    if (focusGrid && focusEl) (focusEl).focus();
   }
 
   private renderMonths(root: HTMLElement, focusGrid: boolean): void {

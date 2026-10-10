@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { App } from 'obsidian';
 import { createMockApp, type App as MockApp } from '../__mocks__/obsidian';
 import type { IndexChange, PlannerNoteParser } from '../../src/app/contracts';
-import type { InvalidPlannerNote, ItemKind, MatrixConfig, ParsedNote, PlannerItem } from '../../src/model/types';
+import type { InvalidPlannerNote, MatrixConfig, ParsedNote, PlannerItem } from '../../src/model/types';
 import { MetadataNoteIndex, type IndexTimers } from '../../src/storage/note-index';
 import { createPlannerPaths } from '../../src/storage/paths';
 
@@ -19,7 +19,7 @@ const fakeParser: PlannerNoteParser = {
         path: input.path,
         title: input.title,
         mtime: input.mtime,
-        declaredType: type as ItemKind,
+        declaredType: type,
         frontmatter: fm,
         issues: [{ property: 'id', code: 'missing' }],
       };

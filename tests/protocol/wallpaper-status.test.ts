@@ -146,7 +146,7 @@ describe('XCallbackShortcutLauncher', () => {
     });
     l.launch('A', { profileId: 'iphone-1179x2556' });
     expect(opened).toEqual([buildShortcutRunUrl('V', 'A', { profileId: 'iphone-1179x2556' })]);
-    expect(decodeURIComponent(opened[0]!)).toContain('profile=iphone-1179x2556');
+    expect(decodeURIComponent(opened[0])).toContain('profile=iphone-1179x2556');
   });
 
   it('is unsupported outside iPhone and iPad', () => {

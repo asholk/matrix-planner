@@ -123,7 +123,7 @@ export function renderWeekStrip(parent: HTMLElement, cells: readonly WeekCell[],
     { passive: false },
   );
 
-  if (options.focusSelected && focusEl) (focusEl as HTMLElement).focus({ preventScroll: true });
+  if (options.focusSelected && focusEl) (focusEl).focus({ preventScroll: true });
 }
 
 function arrow(parent: HTMLElement, icon: string, label: string, onClick: () => void): void {

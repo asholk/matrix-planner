@@ -56,8 +56,8 @@ describe('buildShortcutRunUrl', () => {
     expect(outer['x-success']).toBe(buildPlannerUrl(vault, { action: 'wallpaper-done' }));
     expect(outer['x-error']).toBe(buildPlannerUrl(vault, { action: 'wallpaper-failed' }));
 
-    const success = parsePlannerUrl(outer['x-success']!);
-    const error = parsePlannerUrl(outer['x-error']!);
+    const success = parsePlannerUrl(outer['x-success']);
+    const error = parsePlannerUrl(outer['x-error']);
     expect(success.ok && success.vault).toBe(vault);
     expect(error.ok && error.vault).toBe(vault);
     expect(success.ok && success.result).toEqual({ ok: true, link: { action: 'wallpaper-done' } });
@@ -67,7 +67,7 @@ describe('buildShortcutRunUrl', () => {
   it('adds the launch profile to both callbacks', () => {
     const outer = queryOf(buildShortcutRunUrl('Хранилище', 'A', { profileId: 'iphone-1179x2556' }));
     expect(outer['x-success']).toBe(buildPlannerUrl('Хранилище', { action: 'wallpaper-done' }, [['profile', 'iphone-1179x2556']]));
-    for (const callback of [outer['x-success']!, outer['x-error']!]) {
+    for (const callback of [outer['x-success'], outer['x-error']]) {
       const parsed = parsePlannerUrl(callback);
       expect(parsed.ok && parsed.params.profile).toBe('iphone-1179x2556');
       expect(parsed.ok && parsed.params.do).toMatch(/^wallpaper-(done|failed)$/);

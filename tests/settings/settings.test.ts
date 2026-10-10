@@ -94,6 +94,16 @@ function createTab(plugin: Plugin, deps: SettingsTabDeps): PlannerSettingTab {
   return new PlannerSettingTab(plugin.app as unknown as App, plugin as unknown as ObsidianPlugin, deps);
 }
 
+/**
+ * Показ вкладки, как это делает Obsidian при открытии настроек: `getSettingDefinitions()`
+ * пуст, поэтому вызывается `display()` (через тип хоста, а не устаревшую декларацию SDK).
+ */
+function show(tab: PlannerSettingTab): void {
+  expect(tab.getSettingDefinitions()).toEqual([]);
+  const host: { display(): void } = tab;
+  host.display();
+}
+
 beforeEach(() => {
   resetMockState();
   setLanguageOverride('ru');
@@ -178,7 +188,14 @@ describe('неизвестные поля', () => {
     await store.update((draft) => {
       draft.timeFormat = '24h';
     });
-    const saved = plugin.data as Record<string, any>;
+    const saved = plugin.data as {
+      futureFlag: unknown;
+      visibleCalendars: { order: unknown };
+      wallpaper: { futureOption: unknown; background: unknown; palette: unknown };
+      ui: { zoom: unknown; calendarSources: unknown };
+      timeFormat: unknown;
+      reminderTimeForDateOnly: unknown;
+    };
     expect(saved.futureFlag).toEqual({ nested: [1, 2, 3] });
     expect(saved.visibleCalendars.order).toEqual(['c1']);
     expect(saved.wallpaper.futureOption).toBe(42);
@@ -228,7 +245,7 @@ describe('корневая папка', () => {
   it('вкладка показывает ошибку и не сохраняет невалидный корень, а валидный сохраняет по завершении ввода', async () => {
     const { plugin, store } = await createStore();
     const tab = createTab(plugin, { store });
-    tab.display();
+    show(tab);
     const setting = findSetting('Корневая папка');
     const text = component(setting, TextComponent);
     const input = text.inputEl as unknown as MockElement;
@@ -273,7 +290,7 @@ describe('архив через N дней', () => {
   it('вкладка включает режим «Через N дней» и меняет N', async () => {
     const { plugin, store } = await createStore();
     const tab = createTab(plugin, { store });
-    tab.display();
+    show(tab);
     expect(() => findSetting('Через сколько дней')).toThrow();
 
     component(findSetting('Перенос выполненных в архив'), DropdownComponent).simulateChange('after-days');
@@ -293,7 +310,7 @@ describe('архив через N дней', () => {
     expect(store.get().archive).toEqual({ mode: 'after-days', days: 45 });
 
     recorded.settings.length = 0;
-    tab.display();
+    show(tab);
     component(findSetting('Перенос выполненных в архив'), DropdownComponent).simulateChange('never');
     await flush();
     expect(store.get().archive).toEqual({ mode: 'never' });
@@ -305,7 +322,7 @@ describe('сохранение N дней и перерисовка', () => {
     const { plugin, store } = await createStore({ archive: { mode: 'after-days', days: 7 } });
     const updates = vi.spyOn(store, 'update');
     const tab = createTab(plugin, { store });
-    tab.display();
+    show(tab);
     const days = component(findSetting('Через сколько дней'), TextComponent);
     // Набор «30»: промежуточное «3» не сохраняется.
     days.simulateChange('3');
@@ -322,8 +339,9 @@ describe('сохранение N дней и перерисовка', () => {
   it('сохранение после закрытия панели не перерисовывает её', async () => {
     const { plugin, store } = await createStore();
     const tab = createTab(plugin, { store });
-    tab.display();
-    const display = vi.spyOn(tab, 'display');
+    show(tab);
+    // Перерисовка после сохранения идёт через внутренний `renderTab` (его же вызывает `display`).
+    const display = vi.spyOn(tab as unknown as { renderTab(): void }, 'renderTab');
     component(findSetting('Перенос выполненных в архив'), DropdownComponent).simulateChange('after-days');
     tab.hide();
     await flush();
@@ -334,8 +352,9 @@ describe('сохранение N дней и перерисовка', () => {
   it('сохранение во время показа перерисовывает панель', async () => {
     const { plugin, store } = await createStore();
     const tab = createTab(plugin, { store });
-    tab.display();
-    const display = vi.spyOn(tab, 'display');
+    show(tab);
+    // Перерисовка после сохранения идёт через внутренний `renderTab` (его же вызывает `display`).
+    const display = vi.spyOn(tab as unknown as { renderTab(): void }, 'renderTab');
     component(findSetting('Перенос выполненных в архив'), DropdownComponent).simulateChange('after-days');
     await flush();
     expect(display).toHaveBeenCalledTimes(1);
@@ -358,7 +377,7 @@ describe('формат времени и начало недели', () => {
       store,
       format: { get: () => ({ language: 'ru', weekStart: 1, hour12: false }) },
     });
-    tab.display();
+    show(tab);
     expect(findSetting('Неделя начинается с').desc).toBe('Сейчас: Понедельник');
     expect(findSetting('Формат времени').desc).toBe('Сейчас: 24-часовой');
 
@@ -384,7 +403,7 @@ describe('время напоминания 09:00', () => {
   it('вкладка сохраняет только корректное время', async () => {
     const { plugin, store } = await createStore();
     const tab = createTab(plugin, { store });
-    tab.display();
+    show(tab);
     const text = component(findSetting('Время напоминания для задач без времени'), TextComponent);
     expect(text.getValue()).toBe('09:00');
     expect((text.inputEl as unknown as MockElement).getAttribute('type')).toBe('time');
@@ -417,7 +436,7 @@ describe('профиль устройства и быстрая команда',
       store,
       wallpaperProfiles: { list: () => [profile], resolveAuto: () => profile },
     });
-    tab.display();
+    show(tab);
 
     const dropdown = component(findSetting('Профиль устройства'), DropdownComponent);
     expect(Object.keys(dropdown.options)).toEqual(['auto', 'iphone-1179x2556', 'ipad-2048x2732']);
@@ -513,7 +532,7 @@ describe('вкладка настроек', () => {
       onChange: () => () => undefined,
     };
     const tab = createTab(plugin, { store, integrity });
-    tab.display();
+    show(tab);
 
     expect(headings()).toEqual(['Календарь', 'Экран блокировки', 'Компаньон', 'Данные']);
     expect(settingsList()[0]?.heading).toBe(false);
@@ -524,14 +543,14 @@ describe('вкладка настроек', () => {
   it('английские заголовки тоже без слова «settings»', async () => {
     setLanguageOverride('en');
     const { plugin, store } = await createStore();
-    createTab(plugin, { store }).display();
+    show(createTab(plugin, { store }));
     expect(headings()).toEqual(['Calendar', 'Lock screen', 'Companion']);
     for (const name of headings()) expect(name.toLowerCase()).not.toContain('settings');
   });
 
   it('без сервиса целостности раздел «Данные» не показывается, без компаньона — нет кнопки открытия', async () => {
     const { plugin, store } = await createStore();
-    createTab(plugin, { store }).display();
+    show(createTab(plugin, { store }));
     expect(headings()).not.toContain('Данные');
     expect(() => findSetting('Открыть компаньон')).toThrow();
     expect(findSetting('Состояние')).toBeDefined();
@@ -548,7 +567,7 @@ describe('вкладка настроек', () => {
       dispose,
     };
     const tab = createTab(plugin, { store, sections: [section] });
-    tab.display();
+    show(tab);
     const container = tab.containerEl as unknown as MockElement;
     const sections = container.children.filter((child) => child.hasClass('mp-settings-section'));
     // Общие, календарь, доп. раздел (15), экран блокировки, компаньон.
@@ -571,7 +590,7 @@ describe('вкладка настроек', () => {
         onChange: () => () => undefined,
       },
     });
-    tab.display();
+    show(tab);
 
     const defaultCalendar = component(findSetting('Календарь для новых событий'), DropdownComponent);
     expect(Object.keys(defaultCalendar.options)).toEqual(['', 'work']);
@@ -609,7 +628,7 @@ describe('вкладка настроек', () => {
       openCompanion: open,
       lastReminderEditAt: () => now - 5 * 60_000,
     });
-    tab.display();
+    show(tab);
     const container = tab.containerEl as unknown as MockElement;
     expect(findSetting('Состояние').desc).toBe('');
     expect((findSetting('Состояние').descEl as unknown as MockElement).children[0]?.getText()).toContain('не подключён');
@@ -662,7 +681,7 @@ describe('вкладка настроек', () => {
         },
       },
     });
-    tab.display();
+    show(tab);
     expect(findSetting('Требуют внимания').desc).toBe('Проверка ещё не выполнялась.');
 
     component(findSetting('Проверить целостность'), ButtonComponent).click();
@@ -692,7 +711,7 @@ describe('вкладка настроек', () => {
         return { dispose };
       },
     });
-    tab.display();
+    show(tab);
     expect((tab.containerEl as unknown as MockElement).findAllByClass('panel')).toHaveLength(1);
     tab.hide();
     expect(dispose).toHaveBeenCalledTimes(1);

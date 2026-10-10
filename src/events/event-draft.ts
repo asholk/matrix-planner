@@ -317,6 +317,9 @@ export function setEnd(state: EventDraftState, date: LocalDateString, time: Loca
 
 export type EventFieldError = 'required' | 'invalid' | 'before-start';
 
+/** Код ошибки «поле обязательно» (не текст интерфейса: текст берётся из словаря). */
+const REQUIRED_ERROR: EventFieldError = 'required';
+
 export interface EventDraftValidation {
   valid: boolean;
   errors: Partial<Record<'title' | 'start' | 'end', EventFieldError>>;
@@ -324,7 +327,7 @@ export interface EventDraftValidation {
 
 export function validateEventDraft(state: EventDraftState): EventDraftValidation {
   const errors: EventDraftValidation['errors'] = {};
-  if (state.title.trim() === '') errors.title = 'required';
+  if (state.title.trim() === '') errors.title = REQUIRED_ERROR;
   const problem = scheduleError(toEventDraft(state));
   if (problem === 'start') errors.start = 'invalid';
   else if (problem === 'end') errors.end = isValidDate(state.endDate) && isValidTime(state.endTime) ? 'before-start' : 'invalid';

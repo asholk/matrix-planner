@@ -101,7 +101,7 @@ export function readPlatform(): PlatformInfo {
 }
 
 function systemLocale(language: Language): string {
-  const nav = (globalThis as { navigator?: { language?: string } }).navigator;
+  const nav: { language?: string } | undefined = typeof window === 'undefined' ? undefined : window.navigator;
   return nav?.language || language;
 }
 
@@ -207,7 +207,7 @@ export const DAY_CHECK_INTERVAL_MS = 60_000;
 export class AutoArchiveRunner {
   private running: Promise<void> | null = null;
   private again = false;
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private timer: number | null = null;
   private stopped = false;
 
   constructor(
@@ -237,8 +237,8 @@ export class AutoArchiveRunner {
 
   schedule(): void {
     if (this.stopped) return;
-    if (this.timer !== null) clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
+    if (this.timer !== null) window.clearTimeout(this.timer);
+    this.timer = window.setTimeout(() => {
       this.timer = null;
       void this.trigger();
     }, this.delayMs);
@@ -246,7 +246,7 @@ export class AutoArchiveRunner {
 
   stop(): void {
     this.stopped = true;
-    if (this.timer !== null) clearTimeout(this.timer);
+    if (this.timer !== null) window.clearTimeout(this.timer);
     this.timer = null;
   }
 }

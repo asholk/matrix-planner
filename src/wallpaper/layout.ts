@@ -221,7 +221,7 @@ export function createLayoutContext(
   };
   return {
     input,
-    strings: input.strings as WallpaperLayoutStrings,
+    strings: input.strings,
     measurer,
     unit,
     palette,
@@ -287,7 +287,7 @@ export interface WallpaperStringsDeps {
   translate(key: string, params?: Record<string, string | number>): string;
   translatePlural(key: string, count: number): string;
   /** Подпись срока, например через `formatDueLabel` из `src/model/dates.ts`. */
-  formatDue(due: FloatingDateTime, relativeTo: LocalDateString): string;
+  formatDue: (due: FloatingDateTime, relativeTo: LocalDateString) => string;
 }
 
 /** Собирает строки раскладки через переданные функции перевода (`t`, `tPlural`); названия квадрантов — `common.quadrants`. */

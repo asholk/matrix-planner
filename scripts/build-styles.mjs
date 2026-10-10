@@ -1,3 +1,4 @@
+import process from 'node:process';
 // Склеивает styles/*.css по алфавиту в styles.css (артефакт сборки).
 // Без файлов в styles/ создаёт пустой styles.css.
 import { readdir, readFile, writeFile } from 'node:fs/promises';
@@ -21,4 +22,5 @@ for (const name of names) {
 
 const header = '/* Matrix planner — сгенерировано scripts/build-styles.mjs из styles/*.css. Не редактировать. */\n';
 await writeFile(outFile, names.length ? header + '\n' + parts.join('\n') : '', 'utf8');
-console.log(`styles.css: ${names.length} file(s)`);
+process.stdout.write(`styles.css: ${names.length} file(s)
+`);

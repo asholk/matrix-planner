@@ -96,10 +96,15 @@ function fm(app: MockApp, path: string): Record<string, unknown> {
   return splitFrontmatter(text).frontmatter ?? {};
 }
 
-function backup(app: MockApp): Record<string, any> {
+interface BackupJson {
+  notes: Record<string, Record<string, unknown> | undefined>;
+  [key: string]: unknown;
+}
+
+function backup(app: MockApp): BackupJson {
   const text = app.vault.contents.get(BACKUP);
   if (typeof text !== 'string') throw new Error('no backup');
-  return JSON.parse(text) as Record<string, any>;
+  return JSON.parse(text) as BackupJson;
 }
 
 describe('integrity/migrations', () => {
@@ -173,8 +178,8 @@ describe('integrity/migrations', () => {
 
     const data = backup(ctx.app);
     expect(data['status']).toBe('done');
-    expect(data['notes'][`${T}/A.md`]['before']).toEqual({ old_prop: 'alpha' });
-    expect(data['notes'][`${T}/B.md`]['before']).toEqual({ old_prop: 'beta' });
+    expect(data['notes'][`${T}/A.md`]?.['before']).toEqual({ old_prop: 'alpha' });
+    expect(data['notes'][`${T}/B.md`]?.['before']).toEqual({ old_prop: 'beta' });
     expect(fm(ctx.app, `${T}/B.md`)['new_prop']).toBe('beta');
     expect(fm(ctx.app, 'matrix-planner.md')['schema']).toBe(2);
   });

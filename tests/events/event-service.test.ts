@@ -342,7 +342,7 @@ describe('правка всей серии', () => {
   async function seeded() {
     const ctx = setup();
     ctx.store.notes.set(`${paths.events}/Йога.md`, {
-      fm: { ...eventDraftToProperties(draft({ repeat: 'weekly' }), 'EV1'), custom: 'оставить' } as FrontmatterRecord,
+      fm: { ...eventDraftToProperties(draft({ repeat: 'weekly' }), 'EV1'), custom: 'оставить' },
       body: 'тело',
     });
     return ctx;

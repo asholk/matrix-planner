@@ -145,7 +145,7 @@ describe('integrity/VaultIntegrityService', () => {
     const ctx = await setup({ [`${T}/A.md`]: task('AAA'), [`${T}/B.md`]: task('AAA') });
     const first = await ctx.service.check();
     if (!first.ok) throw new Error('check failed');
-    const item = byKind(first.value, 'duplicate-id')[0] as AttentionItem;
+    const item = byKind(first.value, 'duplicate-id')[0];
     const before = new Map(ctx.app.vault.contents);
 
     const kept = await ctx.service.keepVersion(item, `${T}/B.md`);
@@ -163,7 +163,7 @@ describe('integrity/VaultIntegrityService', () => {
     const ctx = await setup({ [`${T}/A.md`]: task('AAA'), [`${T}/B.md`]: task('AAA') });
     const result = await ctx.service.check();
     if (!result.ok) throw new Error('check failed');
-    const item = byKind(result.value, 'duplicate-id')[0] as AttentionItem;
+    const item = byKind(result.value, 'duplicate-id')[0];
     const kept = await ctx.service.keepVersion(item, `${T}/Чужая.md`);
     expect(kept.ok).toBe(false);
     expect(ctx.service.getLastReport()?.items).toContainEqual(item);
@@ -175,7 +175,7 @@ describe('integrity/VaultIntegrityService', () => {
     if (!result.ok) throw new Error('check failed');
     const invalid = byKind(result.value, 'invalid-properties');
     expect(invalid.map((i) => i.paths[0])).toEqual([`${T}/Без id.md`]);
-    const kept = await ctx.service.keepVersion(invalid[0] as AttentionItem, `${T}/Без id.md`);
+    const kept = await ctx.service.keepVersion(invalid[0], `${T}/Без id.md`);
     expect(kept.ok).toBe(false);
   });
 
@@ -204,7 +204,7 @@ describe('integrity/VaultIntegrityService', () => {
     expect(copies[0]?.paths).toEqual([`${T}/Отчёт (conflicted copy).md`, `${T}/Отчёт.md`]);
     expect(copies[0]?.itemId).toBe('R2');
 
-    await ctx.service.keepVersion(copies[0] as AttentionItem, `${T}/Отчёт (conflicted copy).md`);
+    await ctx.service.keepVersion(copies[0], `${T}/Отчёт (conflicted copy).md`);
     const next = await ctx.service.check();
     expect(next.ok && byKind(next.value, 'conflict-copy')).toEqual([]);
     expect(ctx.app.vault.contents.has(`${T}/Отчёт (conflicted copy).md`)).toBe(true);

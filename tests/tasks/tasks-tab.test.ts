@@ -7,10 +7,6 @@ import { parseFloating } from '../../src/model/dates';
 import { setLanguageOverride } from '../../src/i18n';
 import { TASKS_REFRESH_INTERVAL_MS, TasksTab } from '../../src/tasks/tasks-tab';
 
-// Вкладка использует `window.setTimeout`/`setInterval`; в окружении node окна нет.
-const globalScope = globalThis as unknown as { window?: unknown; document?: unknown };
-if (globalScope.window === undefined) globalScope.window = globalThis;
-
 function at(value: string): FloatingDateTime {
   const parsed = parseFloating(value);
   if (!parsed) throw new Error(`bad date ${value}`);
@@ -38,7 +34,7 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
     created: '2026-10-01T10:00',
     archived: false,
     ...overrides,
-  } as Task;
+  };
 }
 
 const OK: OpResult = { ok: true, value: undefined, changed: true };
@@ -108,7 +104,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
-  delete globalScope.document;
+  vi.stubGlobal('document', undefined);
   setLanguageOverride(null);
 });
 
@@ -167,13 +163,13 @@ describe('обновление по времени', () => {
   it('возврат из фона после полуночи сразу перерисовывает; обработчик снимается при unmount', async () => {
     let listeners: Array<() => void> = [];
     let visibility = 'visible';
-    globalScope.document = {
+    vi.stubGlobal('document', {
       get visibilityState() {
         return visibility;
       },
       addEventListener: (_type: string, cb: () => void) => listeners.push(cb),
       removeEventListener: (_type: string, cb: () => void) => (listeners = listeners.filter((l) => l !== cb)),
-    };
+    });
     const ctx = setup([makeTask({ id: 'tomorrow', due: at('2026-10-11') })]);
     ctx.mount();
     ctx.tab.onShow();

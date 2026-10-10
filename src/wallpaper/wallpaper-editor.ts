@@ -30,7 +30,6 @@ import type {
   WallpaperProfile,
   WallpaperSettings,
   WallpaperTemplate,
-  WeekStartSetting,
 } from '../model/types';
 import { PALETTE_SPECS } from './layout';
 import {
@@ -676,7 +675,7 @@ class WallpaperEditor {
         .addOption('sunday', t('lockscreen.editor.params.weekSunday'))
         .setValue(current.weekStart)
         .onChange((value) => {
-          if (value === 'auto' || value === 'monday' || value === 'sunday') this.update(setWeekStart(this.draft, value as WeekStartSetting));
+          if (value === 'auto' || value === 'monday' || value === 'sunday') this.update(setWeekStart(this.draft, value));
         }),
     );
 

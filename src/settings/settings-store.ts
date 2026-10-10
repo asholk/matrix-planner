@@ -127,10 +127,6 @@ export function normalizeProfileId(input: unknown): string | null {
 
 const COLOR_PATTERN = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 
-function pickColor(value: unknown, fallback: string): string {
-  return typeof value === 'string' && COLOR_PATTERN.test(value) ? value : fallback;
-}
-
 function pickFinite(value: unknown, fallback: number, min: number, max: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : fallback;
 }
@@ -142,10 +138,10 @@ function pickFinite(value: unknown, fallback: number, min: number, max: number):
 function normalizeArchive(raw: unknown, fallback: ArchiveSetting): ArchiveSetting {
   if (!isRecord(raw)) return { ...fallback };
   const { mode, days, ...extra } = raw;
-  if (mode === 'never') return { ...extra, mode: 'never' } as ArchiveSetting;
+  if (mode === 'never') return { ...extra, mode: 'never' };
   if (mode === 'after-days') {
     const valid = normalizeArchiveDays(days);
-    if (valid !== null) return { ...extra, mode: 'after-days', days: valid } as ArchiveSetting;
+    if (valid !== null) return { ...extra, mode: 'after-days', days: valid };
   }
   return { ...fallback };
 }
@@ -165,12 +161,12 @@ function normalizeBackground(raw: unknown, fallback: WallpaperBackground): Wallp
   switch (raw.kind) {
     case 'solid':
       if (typeof raw.color === 'string' && COLOR_PATTERN.test(raw.color)) {
-        return { ...raw, kind: 'solid', color: raw.color } as WallpaperBackground;
+        return { ...raw, kind: 'solid', color: raw.color };
       }
       break;
     case 'gradient':
       if (typeof raw.from === 'string' && typeof raw.to === 'string' && COLOR_PATTERN.test(raw.from) && COLOR_PATTERN.test(raw.to)) {
-        return { ...raw, kind: 'gradient', from: raw.from, to: raw.to, angle: pickFinite(raw.angle, 180, -360, 360) } as WallpaperBackground;
+        return { ...raw, kind: 'gradient', from: raw.from, to: raw.to, angle: pickFinite(raw.angle, 180, -360, 360) };
       }
       break;
     case 'image':
@@ -186,7 +182,7 @@ function normalizeBackground(raw: unknown, fallback: WallpaperBackground): Wallp
             centerY: pickFinite(crop.centerY, 0.5, 0, 1),
             scale: pickFinite(crop.scale, 1, 1, 100),
           },
-        } as WallpaperBackground;
+        };
       }
       break;
     default:

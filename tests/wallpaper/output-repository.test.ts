@@ -57,7 +57,7 @@ class MemoryRepository implements OutputRepositoryDeps {
 }
 
 function bytes(text: string): ArrayBuffer {
-  return new TextEncoder().encode(text).buffer as ArrayBuffer;
+  return new TextEncoder().encode(text).buffer;
 }
 
 describe('WallpaperOutputRepository paths', () => {

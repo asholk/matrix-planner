@@ -6,7 +6,7 @@
  */
 
 import { Notice, PluginSettingTab, Setting, setIcon } from 'obsidian';
-import type { App, Plugin } from 'obsidian';
+import type { App, Plugin, SettingDefinitionItem } from 'obsidian';
 import type { SettingsSection } from '../app/contracts';
 import { getCurrentLanguage, registerDictionary, t, tPlural } from '../i18n';
 import { enSettings } from '../i18n/en/settings';
@@ -68,7 +68,21 @@ export class PlannerSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
+  /**
+   * Декларативные определения (Obsidian 1.13+). Пустой список означает, что Obsidian
+   * рисует вкладку через `display()`: плагин поддерживает версии с 1.8.7, где декларативного
+   * API нет, а разделы вкладки живые (подписки на календари, компаньон, целостность).
+   */
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [];
+  }
+
   display(): void {
+    this.renderTab();
+  }
+
+  /** Полная отрисовка вкладки; её же вызывает перерисовка после сохранения. */
+  private renderTab(): void {
     this.disposeAll();
     this.generation += 1;
     this.shown = true;
@@ -118,7 +132,7 @@ export class PlannerSettingTab extends PluginSettingTab {
   private redisplayLater(): () => void {
     const generation = this.generation;
     return () => {
-      if (this.shown && this.generation === generation) this.display();
+      if (this.shown && this.generation === generation) this.renderTab();
     };
   }
 

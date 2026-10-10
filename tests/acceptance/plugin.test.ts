@@ -70,10 +70,6 @@ import {
   type ReferenceVaultOptions,
 } from '../fixtures/reference-vault';
 
-// Вкладки используют `window.setTimeout`; в окружении node его нет.
-const globalWithWindow = globalThis as unknown as { window?: unknown };
-if (globalWithWindow.window === undefined) globalWithWindow.window = globalThis;
-
 const TASKS_DIR = `${REFERENCE_ROOT}/Задачи`;
 const PROFILE_DIR = `${REFERENCE_ROOT}/Обои/iphone-1179x2556`;
 const CONCERT_DAY = '2026-10-21';
@@ -350,7 +346,7 @@ describe('приёмка без компаньона (ТЗ §10)', () => {
 
   it('новая схема — режим только чтения: данные видны, записи не выполняются', async () => {
     ctx = await setup({ schema: 2 });
-    const files = () => [...ctx!.app.vault.contents.entries()].map(([path, content]) => `${path}\n${String(content)}`).sort();
+    const files = () => [...ctx!.app.vault.contents.entries()].map(([path, content]) => `${path}\n${typeof content === 'string' ? content : new Uint8Array(content).join(',')}`).sort();
     const before = files();
 
     expect(planner(ctx).guard.canWrite()).toBe(false);

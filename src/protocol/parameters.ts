@@ -85,7 +85,7 @@ export function parseLinkParams(params: Readonly<Record<string, string | undefin
       if (quadrant !== null && !isQuadrantKey(quadrant)) return fail(LINK_ERROR_KEYS.invalidQuadrant);
       const date = readParam(params, 'date');
       if (date !== null && !isValidDate(date)) return fail(LINK_ERROR_KEYS.invalidDate);
-      return { ok: true, link: { action: 'new-task', quadrant: quadrant as QuadrantKey | null, date } };
+      return { ok: true, link: { action: 'new-task', quadrant: quadrant, date } };
     }
     case 'open': {
       const id = readParam(params, 'id');

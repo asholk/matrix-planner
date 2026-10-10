@@ -74,7 +74,7 @@ class FakeCanvasFactory implements CanvasFactory {
   async toPng(canvas: RenderCanvas): Promise<ArrayBuffer> {
     const fake = canvas as FakeCanvas;
     if (fake.released) throw new Error('canvas already released');
-    return new TextEncoder().encode(JSON.stringify(fake.texts)).buffer as ArrayBuffer;
+    return new TextEncoder().encode(JSON.stringify(fake.texts)).buffer;
   }
 
   release(canvas: RenderCanvas): void {
@@ -322,7 +322,7 @@ describe('PlannerWallpaperService.renderAll', () => {
 
   it('keeps the previous lock.png when today fails to render', async () => {
     const h = setup();
-    h.repo.files.set(LOCK, new TextEncoder().encode(JSON.stringify(['old'])).buffer as ArrayBuffer);
+    h.repo.files.set(LOCK, new TextEncoder().encode(JSON.stringify(['old'])).buffer);
     h.failDates.add('2026-12-29');
     const result = await h.service.renderAll();
     expect(result.ok).toBe(true);
@@ -334,7 +334,7 @@ describe('PlannerWallpaperService.renderAll', () => {
 
   it('removes a stale dated file for today when the new one cannot be written', async () => {
     const h = setup();
-    h.repo.files.set(dated('2026-12-29'), new TextEncoder().encode(JSON.stringify(['old'])).buffer as ArrayBuffer);
+    h.repo.files.set(dated('2026-12-29'), new TextEncoder().encode(JSON.stringify(['old'])).buffer);
     h.repo.failWrite.add(dated('2026-12-29'));
     const result = await h.service.renderAll();
     expect(result.ok && result.value.failed.map((f) => f.date)).toEqual(['2026-12-29']);
@@ -346,7 +346,7 @@ describe('PlannerWallpaperService.renderAll', () => {
 
   it('fails without touching files when nothing can be written', async () => {
     const h = setup();
-    h.repo.files.set(LOCK, new TextEncoder().encode(JSON.stringify(['old'])).buffer as ArrayBuffer);
+    h.repo.files.set(LOCK, new TextEncoder().encode(JSON.stringify(['old'])).buffer);
     h.repo.readOnly = true;
     const result = await h.service.renderAll();
     expect(result.ok).toBe(false);

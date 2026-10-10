@@ -12,6 +12,7 @@ import type {
   WallpaperCrop,
   WallpaperPalette,
   WallpaperProfile,
+  WallpaperProfileSetting,
   WallpaperSettings,
   WallpaperTemplate,
   WeekStartSetting,
@@ -316,7 +317,7 @@ export function setWeekStart(draft: WallpaperDraft, weekStart: WeekStartSetting)
 }
 
 /** Ручной профиль устройства или `auto`. Неизвестный id не принимается. */
-export function setProfile(draft: WallpaperDraft, profile: 'auto' | string): WallpaperDraft {
+export function setProfile(draft: WallpaperDraft, profile: WallpaperProfileSetting): WallpaperDraft {
   if (profile !== 'auto' && !parseProfileId(profile)) return draft;
   return withCurrent(draft, { profile });
 }
@@ -332,7 +333,7 @@ export interface ProfileOption {
  * Варианты выпадающего списка профилей: «Автоматически», известные iPhone
  * и сохранённый ручной профиль, если его нет в списке.
  */
-export function profileOptions(current: 'auto' | string, autoProfile: WallpaperProfile | null): ProfileOption[] {
+export function profileOptions(current: WallpaperProfileSetting, autoProfile: WallpaperProfile | null): ProfileOption[] {
   const options: ProfileOption[] = [{ id: 'auto', profile: autoProfile }];
   for (const profile of KNOWN_PROFILES) options.push({ id: profile.id, profile });
   if (current !== 'auto' && !KNOWN_PROFILES.some((p) => p.id === current)) {

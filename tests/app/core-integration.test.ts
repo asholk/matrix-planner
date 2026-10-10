@@ -5,7 +5,6 @@ import {
   Plugin as MockPlugin,
   resetMockState,
   type App as MockApp,
-  type TFile as MockTFile,
 } from '../__mocks__/obsidian';
 import type { Clock, Notifier } from '../../src/app/contracts';
 import type { Task, TaskDraft } from '../../src/model/types';
@@ -16,10 +15,6 @@ import { emptyAttentionState } from '../../src/integrity/integrity-service';
 import { MARKER_PATH } from '../../src/storage/paths';
 import { VIEW_TYPE_PLANNER } from '../../src/ui/planner-view';
 import { setLanguageOverride } from '../../src/i18n';
-
-// Вкладка «Задачи» использует `window.setTimeout`; в окружении node его нет.
-const globalWithWindow = globalThis as unknown as { window?: unknown };
-if (globalWithWindow.window === undefined) globalWithWindow.window = globalThis;
 
 const ROOT = 'Планировщик';
 const TASKS = `${ROOT}/Задачи`;
@@ -78,7 +73,7 @@ async function createTask(ctx: Ctx, title: string, extra: Partial<TaskDraft> = {
 }
 
 async function openInEditor(ctx: Ctx, path: string): Promise<void> {
-  const file = ctx.app.vault.getFileByPath(path) as MockTFile | null;
+  const file = ctx.app.vault.getFileByPath(path);
   if (!file) throw new Error(`нет файла ${path}`);
   await ctx.app.workspace.getLeaf().openFile(file);
 }
@@ -188,7 +183,7 @@ describe('сборка ядра', () => {
     await tick();
     const leaves = ctx.app.workspace.getLeavesOfType(VIEW_TYPE_PLANNER);
     expect(leaves).toHaveLength(1);
-    expect(leaves[0]!.view).toBe(first);
+    expect(leaves[0].view).toBe(first);
     expect(first!.getActiveTab()).toBe('tasks');
   });
 
@@ -250,7 +245,7 @@ describe('сборка ядра', () => {
 describe('data.json: настройки и «Требуют внимания»', () => {
   function memorySource(initial: unknown) {
     const source = {
-      data: initial as unknown,
+      data: initial,
       async loadData(): Promise<unknown> {
         return source.data === null ? null : structuredClone(source.data);
       },
@@ -303,7 +298,6 @@ describe('data.json: настройки и «Требуют внимания»',
 
 describe('фоновый автоархив', () => {
   type Listener = () => void;
-  const globalDoc = globalThis as unknown as { document?: unknown };
   let listeners: Listener[] = [];
   let visibility = 'visible';
   let current = new Date(2026, 9, 10, 9, 0, 0);
@@ -316,7 +310,7 @@ describe('фоновый автоархив', () => {
     listeners = [];
     visibility = 'visible';
     current = new Date(2026, 9, 10, 9, 0, 0);
-    globalDoc.document = {
+    vi.stubGlobal('document', {
       get visibilityState() {
         return visibility;
       },
@@ -326,13 +320,13 @@ describe('фоновый автоархив', () => {
       removeEventListener: (_type: string, cb: Listener) => {
         listeners = listeners.filter((l) => l !== cb);
       },
-    };
+    });
   });
 
   afterEach(() => {
     plugin?.unload();
     plugin = null;
-    delete globalDoc.document;
+    vi.stubGlobal('document', undefined);
     vi.useRealTimers();
     setLanguageOverride(null);
   });

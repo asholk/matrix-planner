@@ -76,7 +76,7 @@ export function detectConflictCopy(path: VaultPath, exists: (path: VaultPath) =>
 
   const numbered = NUMBERED_RE.exec(base);
   if (numbered) {
-    const original = joinName(folder, numbered[1] as string, ext);
+    const original = joinName(folder, numbered[1], ext);
     if (original !== path && exists(original)) return { path, originalPath: original, pattern: 'numbered' };
   }
   return null;

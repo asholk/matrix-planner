@@ -24,7 +24,7 @@ function setup() {
       return 1;
     },
     clearInterval,
-    doc: doc as unknown as Document,
+    doc: doc,
   });
   return {
     watcher,

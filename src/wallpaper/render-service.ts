@@ -66,7 +66,8 @@ function describeError(error: unknown): string {
 }
 
 function defaultScreen(): ScreenInfo | null {
-  const g = globalThis as { screen?: { width: number; height: number }; devicePixelRatio?: number };
+  if (typeof window === 'undefined') return null;
+  const g = window as { screen?: { width: number; height: number }; devicePixelRatio?: number };
   if (!g.screen) return null;
   return { width: g.screen.width, height: g.screen.height, devicePixelRatio: g.devicePixelRatio ?? 1 };
 }

@@ -21,6 +21,7 @@
  *  - `failNextWrite(path)` — следующая запись по пути бросит ошибку.
  */
 
+import { vi } from 'vitest';
 import { parse as parseYamlLib, stringify as stringifyYamlLib } from 'yaml';
 
 // ===========================================================================
@@ -28,7 +29,7 @@ import { parse as parseYamlLib, stringify as stringifyYamlLib } from 'yaml';
 // ===========================================================================
 
 export function normalizePath(path: string): string {
-  let result = path.replace(/\\/g, '/').replace(/ | /g, ' ');
+  let result = path.replace(/\\/g, '/').replace(/\u00A0|\u202F/g, ' ');
   result = result.replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '');
   return result === '' ? '/' : result;
 }
@@ -245,6 +246,11 @@ export class MockElement {
   }
 
   createEl(tag: string, info?: DomElementInfo | string, callback?: (el: MockElement) => void): MockElement {
+    return this.createChild(tag, info, callback);
+  }
+
+  /** Общая реализация createEl/createDiv/createSpan. */
+  private createChild(tag: string, info?: DomElementInfo | string, callback?: (el: MockElement) => void): MockElement {
     const el = new MockElement(tag);
     const options: DomElementInfo = typeof info === 'string' ? { cls: info } : info ?? {};
     if (options.cls) el.addClass(...(Array.isArray(options.cls) ? options.cls : options.cls.split(/\s+/)));
@@ -264,11 +270,11 @@ export class MockElement {
   }
 
   createDiv(info?: DomElementInfo | string, callback?: (el: MockElement) => void): MockElement {
-    return this.createEl('div', info, callback);
+    return this.createChild('div', info, callback);
   }
 
   createSpan(info?: DomElementInfo | string, callback?: (el: MockElement) => void): MockElement {
-    return this.createEl('span', info, callback);
+    return this.createChild('span', info, callback);
   }
 
   appendChild<T extends MockElement>(child: T): T {
@@ -631,7 +637,8 @@ export class Vault extends Events {
   /** Удалённые в корзину файлы: путь → содержимое. */
   readonly trashed = new Map<string, FileContent>();
   readonly adapter: DataAdapter;
-  configDir = '.obsidian';
+  /** Нестандартная папка настроек: код плагина не должен полагаться на значение по умолчанию. */
+  configDir = '.vault-config';
   private vaultName = 'Test vault';
   private failingWrites = new Set<string>();
   /** Вызывается при каждом изменении содержимого (MetadataCache подписывается). */
@@ -1295,7 +1302,7 @@ export class Workspace extends Events {
 
   getActiveViewOfType<T extends View>(type: abstract new (...args: never[]) => T): T | null {
     const view = this.activeLeaf?.view;
-    return view instanceof type ? (view as T) : null;
+    return view instanceof type ? (view) : null;
   }
 
   getActiveFile(): TFile | null {
@@ -1931,23 +1938,33 @@ export async function requestUrl(): Promise<never> {
 }
 
 // ===========================================================================
-// Глобальное окно: в node у `globalThis` нет addEventListener/removeEventListener.
+// Глобальное окно: в node нет `window`, поэтому мок подставляет своё.
 // ===========================================================================
 
 type GlobalListener = (event: unknown) => void;
+type TimerId = Parameters<typeof clearTimeout>[0];
 const globalListeners = new Map<string, GlobalListener[]>();
-const globalScope = globalThis as unknown as {
-  addEventListener?: (type: string, listener: GlobalListener) => void;
-  removeEventListener?: (type: string, listener: GlobalListener) => void;
-};
-if (typeof globalScope.addEventListener !== 'function') {
-  globalScope.addEventListener = (type, listener) => {
+
+/**
+ * Окно для кода плагина (`window.setTimeout`, `registerDomEvent(window, …)` и т. п.).
+ * Таймеры берутся из глобальных функций в момент вызова, чтобы работали `vi.useFakeTimers()`.
+ */
+const mockWindow = {
+  setTimeout: (handler: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => setTimeout(handler, ms, ...args),
+  clearTimeout: (id: unknown) => clearTimeout(id as TimerId),
+  setInterval: (handler: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => setInterval(handler, ms, ...args),
+  clearInterval: (id: unknown) => clearInterval(id as TimerId),
+  addEventListener: (type: string, listener: GlobalListener): void => {
     globalListeners.set(type, [...(globalListeners.get(type) ?? []), listener]);
-  };
-  globalScope.removeEventListener = (type, listener) => {
+  },
+  removeEventListener: (type: string, listener: GlobalListener): void => {
     globalListeners.set(type, (globalListeners.get(type) ?? []).filter((l) => l !== listener));
-  };
-}
+  },
+  get navigator(): Navigator {
+    return navigator;
+  },
+};
+vi.stubGlobal('window', mockWindow);
 
 /** Вызывает обработчики, повешенные на глобальное окно (для тестов). */
 export function dispatchWindowEvent(type: string, event: unknown = { type }): void {

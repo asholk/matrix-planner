@@ -28,6 +28,12 @@ export type LocalTimeString = string;
 /** Плавающая дата-время без смещения `YYYY-MM-DDTHH:mm`. */
 export type LocalDateTimeString = string;
 
+/** Локальная дата `YYYY-MM-DD` или дата-время `YYYY-MM-DDTHH:mm` (`LocalDateString` либо `LocalDateTimeString`). */
+export type LocalDateOrDateTimeString = string;
+
+/** Настройка профиля обоев: `auto` — по размеру экрана, иначе id профиля (например `iphone-1179x2556`). */
+export type WallpaperProfileSetting = string;
+
 /** Момент времени в ISO 8601 со смещением/`Z` (служебные JSON). */
 export type IsoInstantString = string;
 
@@ -222,7 +228,7 @@ export interface TaskProperties {
   id: ItemId;
   quadrant: QuadrantKey;
   /** `YYYY-MM-DD` или `YYYY-MM-DDTHH:mm`; `null` — без срока. */
-  due: LocalDateString | LocalDateTimeString | null;
+  due: LocalDateOrDateTimeString | null;
   repeat: RepeatRule;
   /** Исходная дата серии; для неповторяющейся может быть `null`. */
   repeat_anchor: LocalDateString | null;
@@ -288,9 +294,9 @@ export interface EventProperties {
   type: 'event';
   id: ItemId;
   /** Дата-время или дата (при `all_day`). */
-  start: LocalDateString | LocalDateTimeString;
+  start: LocalDateOrDateTimeString;
   /** При `all_day` — дата, не включается (событие на 21 окт.: end 2026-10-22). */
-  end: LocalDateString | LocalDateTimeString;
+  end: LocalDateOrDateTimeString;
   all_day: boolean;
   /** IANA-зона; `null` — плавающее время. */
   tz: string | null;
@@ -491,7 +497,7 @@ export interface WallpaperSettings {
   palette: WallpaperPalette;
   background: WallpaperBackground;
   /** `auto` — по размеру экрана; иначе id профиля (например `iphone-1179x2556`). */
-  profile: 'auto' | string;
+  profile: WallpaperProfileSetting;
   /** Название быстрой команды для установки обоев. */
   shortcutName: string;
   tasksPerQuadrant: 2 | 3;

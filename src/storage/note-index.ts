@@ -33,8 +33,8 @@ export interface IndexTimers {
 }
 
 const defaultTimers: IndexTimers = {
-  set: (callback, ms) => globalThis.setTimeout(callback, ms),
-  clear: (handle) => globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
+  set: (callback, ms) => window.setTimeout(callback, ms),
+  clear: (handle) => window.clearTimeout(handle as number),
 };
 
 export interface NoteIndexDeps {

@@ -176,8 +176,9 @@ export class SystemTombstoneWriter implements TombstoneWriter {
     const result = await this.deps.store.update(SYSTEM_FILES.tombstones, (current) => {
       const base = current ?? { version: TOMBSTONES_VERSION, tombstones: [] };
       checkVersion(base, TOMBSTONES_VERSION);
-      const list = base['tombstones'] ?? [];
-      if (!Array.isArray(list)) throw new ShapeError('"tombstones" is not an array');
+      const raw = base['tombstones'] ?? [];
+      if (!Array.isArray(raw)) throw new ShapeError('"tombstones" is not an array');
+      const list: readonly unknown[] = raw;
       const same = list.filter((entry) => isRecord(entry) && entry['id'] === id);
       // Полноценная метка с этим id уже есть (своя или другого устройства) — ничего не меняем.
       if (same.some((entry) => isTombstoneFor(entry, id))) return base;

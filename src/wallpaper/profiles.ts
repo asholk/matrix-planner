@@ -3,7 +3,7 @@
  * Размер — `screen × devicePixelRatio` в портретной ориентации; профиль — имя папки в `Обои/`.
  */
 
-import type { WallpaperProfile } from '../model/types';
+import type { WallpaperProfile, WallpaperProfileSetting } from '../model/types';
 
 /** Верхняя безопасная зона: 0–38 % высоты (дата, часы, виджеты iOS). */
 export const SAFE_TOP = 0.38;
@@ -97,7 +97,7 @@ export function parseProfileId(id: string): WallpaperProfile | null {
 }
 
 /** Профиль по настройке: `auto` — по экрану, иначе выбранный вручную (неизвестный id → авто). */
-export function resolveProfile(setting: 'auto' | string, screen: ScreenInfo | null): WallpaperProfile {
+export function resolveProfile(setting: WallpaperProfileSetting, screen: ScreenInfo | null): WallpaperProfile {
   if (setting !== 'auto') {
     const manual = parseProfileId(setting);
     if (manual) return manual;
