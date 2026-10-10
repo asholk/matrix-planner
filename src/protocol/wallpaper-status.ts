@@ -17,7 +17,6 @@ import type {
   FormatPreferencesProvider,
   Notifier,
   PlatformInfo,
-  ShortcutLauncher,
   WallpaperBannerState,
   WallpaperService,
   WallpaperStatusTracker,
@@ -25,7 +24,10 @@ import type {
 import { registerDictionary, t } from '../i18n';
 import { enProtocol } from '../i18n/en/protocol';
 import { ruProtocol } from '../i18n/ru/protocol';
-import { floatingFromDate, formatTimeLabel, parseDateParts } from '../model/dates';
+import { floatingFromDate, formatTimeLabel, isValidTimeZone, parseDateParts } from '../model/dates';
+import { parseProfileId } from '../wallpaper/profiles';
+import type { WallpaperCallbackContext } from './handler';
+import type { ProfileShortcutLauncher } from './shortcut-launcher';
 import type { CompanionState, LocalDateString, Unsubscribe, WallpaperStatusRecord } from '../model/types';
 
 registerDictionary('ru', 'protocol', ruProtocol);
@@ -134,7 +136,8 @@ export function wallpaperRecordOf(state: CompanionState, profileId: string): Wal
 export interface WallpaperStatusDeps {
   wallpaper: Pick<WallpaperService, 'renderAll' | 'resolveProfile'>;
   companion: Pick<CompanionStore, 'getState' | 'updateWallpaperStatus'>;
-  launcher: ShortcutLauncher;
+  /** Запуск с профилем: ссылки возврата несут `profile=` (фейк без второго параметра тоже подходит). */
+  launcher: ProfileShortcutLauncher;
   platform: Pick<PlatformInfo, 'isIos'>;
   clock: Clock;
   notifier: Notifier;
@@ -149,8 +152,11 @@ export interface WallpaperStatusDeps {
 export class PlannerWallpaperStatusTracker implements WallpaperStatusTracker {
   private state: WallpaperBannerState = { kind: 'idle' };
   private revision = 0;
-  /** Ревизия данных, по которой сохранены PNG; `null` — в этом сеансе не сохранялись. */
-  private savedRevision: number | null = null;
+  /**
+   * Полный пакет PNG, сохранённый в этом сеансе: ревизия данных, день и зона рендера.
+   * `null` — не сохранялся или сохранён не полностью.
+   */
+  private saved: { revision: number; day: LocalDateString; zone: string } | null = null;
   private running = false;
   private readonly listeners = new Set<(state: WallpaperBannerState) => void>();
 
@@ -168,9 +174,11 @@ export class PlannerWallpaperStatusTracker implements WallpaperStatusTracker {
     return this.revision;
   }
 
-  /** PNG соответствуют текущим данным. */
+  /** PNG соответствуют текущим данным, сегодняшней дате и часовому поясу. */
   isFresh(): boolean {
-    return this.savedRevision !== null && this.savedRevision === this.revision;
+    if (this.saved === null || this.saved.revision !== this.revision) return false;
+    const now = this.currentDay();
+    return this.saved.day === now.day && this.saved.zone === now.zone;
   }
 
   markDataChanged(): void {
@@ -207,6 +215,7 @@ export class PlannerWallpaperStatusTracker implements WallpaperStatusTracker {
       }
 
       const revisionAtStart = this.revision;
+      const dayAtStart = this.currentDay();
       this.setState({ kind: 'rendering' });
       let rendered: Awaited<ReturnType<WallpaperService['renderAll']>>;
       try {
@@ -223,8 +232,22 @@ export class PlannerWallpaperStatusTracker implements WallpaperStatusTracker {
 
       const profileId = rendered.value.profile.id;
       const savedAt = this.nowIso();
-      this.savedRevision = revisionAtStart;
+      const failedDates = rendered.value.failed.map((failure) => failure.date);
+      // Неполный пакет не считается свежим: следующее нажатие нарисует его заново.
+      this.saved = failedDates.length === 0 ? { revision: revisionAtStart, ...dayAtStart } : null;
       await this.persist(profileId, { savedAt });
+
+      if (failedDates.length > 0) {
+        this.deps.notifier.show(this.translate('wallpaperRender.errors.render', { date: failedDates.map((d) => formatShortDate(d, this.translate)).join(', ') }));
+        // Файл на сегодня не записан, а для «Сохранить обои» пакет неполон — команду не запускаем.
+        if (kind === 'save' || failedDates.includes(dayAtStart.day)) {
+          this.setState({ kind: 'failed', reason: 'render' });
+          return;
+        }
+        this.setState({ kind: 'saved', at: savedAt });
+        await this.launchShortcut(profileId);
+        return;
+      }
 
       if (kind === 'save') {
         this.setState(this.isFresh() ? { kind: 'saved', at: savedAt } : { kind: 'dirty' });
@@ -238,12 +261,17 @@ export class PlannerWallpaperStatusTracker implements WallpaperStatusTracker {
     }
   }
 
-  async onWallpaperCallback(result: 'done' | 'failed'): Promise<void> {
-    const profileId = this.deps.wallpaper.resolveProfile().id;
+  /**
+   * Возврат из быстрой команды. Статус пишется в профиль из ссылки возврата
+   * (профиль запуска; при холодном запуске — единственный источник), иначе — в текущий.
+   */
+  async onWallpaperCallback(result: 'done' | 'failed', context?: WallpaperCallbackContext): Promise<void> {
+    const fromLink = context?.profileId ?? null;
+    const profileId = fromLink !== null && parseProfileId(fromLink) !== null ? fromLink : this.deps.wallpaper.resolveProfile().id;
     const at = this.nowIso();
     if (result === 'done') {
       // Данные могли измениться, пока работала команда: тогда снова «есть изменения».
-      this.setState(this.savedRevision !== null && !this.isFresh() ? { kind: 'dirty' } : { kind: 'confirmed', at });
+      this.setState(this.saved !== null && !this.isFresh() ? { kind: 'dirty' } : { kind: 'confirmed', at });
       this.deps.notifier.show(this.translate('protocol.wallpaper.confirmed'));
       await this.persist(profileId, { confirmedAt: at });
     } else {
@@ -262,6 +290,12 @@ export class PlannerWallpaperStatusTracker implements WallpaperStatusTracker {
 
   private readonly translate: Translate = (key, params) => (this.deps.translate ?? t)(key, params);
 
+  /** День и зона рендера (как в сервисе обоев: неверная зона — зона устройства). */
+  private currentDay(): { day: LocalDateString; zone: string } {
+    const zone = this.deps.clock.timeZone();
+    return { day: floatingFromDate(this.deps.clock.now(), isValidTimeZone(zone) ? zone : undefined).date, zone };
+  }
+
   /** Запуск синхронный до вызова `launcher.launch`; запись статуса — после. */
   private async launchShortcut(profileId: string): Promise<void> {
     const name = this.deps.getShortcutName().trim();
@@ -269,9 +303,9 @@ export class PlannerWallpaperStatusTracker implements WallpaperStatusTracker {
       this.failShortcut();
       return;
     }
-    let outcome: ReturnType<ShortcutLauncher['launch']>;
+    let outcome: ReturnType<ProfileShortcutLauncher['launch']>;
     try {
-      outcome = this.deps.launcher.launch(name);
+      outcome = this.deps.launcher.launch(name, { profileId });
     } catch {
       this.failShortcut();
       return;

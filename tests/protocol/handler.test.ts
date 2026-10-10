@@ -12,6 +12,7 @@ function setup(options: { ready?: boolean; known?: string[] } = {}) {
   const messages: string[] = [];
   const calls: string[] = [];
   const callbacks: Array<'done' | 'failed'> = [];
+  const callbackProfiles: Array<string | null | undefined> = [];
   const forms: TaskFormRequest[] = [];
   const handler = new PlannerProtocolHandler({
     index: {
@@ -31,13 +32,14 @@ function setup(options: { ready?: boolean; known?: string[] } = {}) {
     },
     notifier: { show: (message) => messages.push(message) },
     wallpaperStatus: {
-      onWallpaperCallback: async (result) => {
+      onWallpaperCallback: async (result, context) => {
         callbacks.push(result);
+        callbackProfiles.push(context?.profileId);
       },
     },
     translate: (key) => key,
   });
-  return { handler, messages, calls, callbacks, forms, resolveReady: () => resolveReady() };
+  return { handler, messages, calls, callbacks, callbackProfiles, forms, resolveReady: () => resolveReady() };
 }
 
 describe('PlannerProtocolHandler', () => {
@@ -93,6 +95,15 @@ describe('PlannerProtocolHandler', () => {
     await s.handler.handle({ action: 'wallpaper-done', vault: 'V' });
     await s.handler.handle({ action: 'wallpaper-failed', vault: 'V' });
     expect(s.callbacks).toEqual(['done', 'failed']);
+    expect(s.callbackProfiles).toEqual([null, null]);
+  });
+
+  it('passes the launch profile from the callback link', async () => {
+    const s = setup();
+    await s.handler.handle({ action: 'planner', do: 'wallpaper-done', vault: 'V', profile: 'iphone-1179x2556' });
+    await s.handler.handle({ action: 'planner', do: 'wallpaper-failed', vault: 'V', profile: ' screen-1080x2400 ' });
+    expect(s.callbacks).toEqual(['done', 'failed']);
+    expect(s.callbackProfiles).toEqual(['iphone-1179x2556', 'screen-1080x2400']);
   });
 
   it('shows a message when an action throws and keeps working', async () => {

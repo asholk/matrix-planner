@@ -10,7 +10,8 @@
  * проверки этапа 0 (ТЗ §8.1.4); запасной путь — клик по временной ссылке `<a>`.
  */
 
-import type { Clock, LinkBuilder, PlatformInfo, ShortcutLauncher } from '../app/contracts';
+import type { Clock, PlatformInfo, ShortcutLauncher } from '../app/contracts';
+import type { ProfileLinkBuilder, ShortcutRunOptions } from './links';
 
 /** Повторный запуск в течение этого времени пропускается (ТЗ §5.5). */
 export const RELAUNCH_GUARD_MS = 10_000;
@@ -18,7 +19,7 @@ export const RELAUNCH_GUARD_MS = 10_000;
 export type UrlOpener = (url: string) => void;
 
 export interface ShortcutLauncherDeps {
-  links: Pick<LinkBuilder, 'shortcutRunUrl'>;
+  links: Pick<ProfileLinkBuilder, 'shortcutRunUrl'>;
   platform: Pick<PlatformInfo, 'isIos'>;
   clock: Pick<Clock, 'now'>;
   /** По умолчанию — `openExternalUrl`. */
@@ -42,13 +43,18 @@ export function openExternalUrl(url: string): void {
   throw new Error('No way to open external URL');
 }
 
-export class XCallbackShortcutLauncher implements ShortcutLauncher {
+/** `ShortcutLauncher`, который передаёт профиль запуска в ссылки возврата. */
+export interface ProfileShortcutLauncher extends ShortcutLauncher {
+  launch(shortcutName: string, options?: ShortcutRunOptions): ReturnType<ShortcutLauncher['launch']>;
+}
+
+export class XCallbackShortcutLauncher implements ProfileShortcutLauncher {
   private lastLaunchMs: number | null = null;
 
   constructor(private readonly deps: ShortcutLauncherDeps) {}
 
   /** Бросает исключение, только если открыть ссылку не удалось. */
-  launch(shortcutName: string): { ok: true } | { ok: false; reason: 'unsupported' | 'recently-launched' } {
+  launch(shortcutName: string, options?: ShortcutRunOptions): { ok: true } | { ok: false; reason: 'unsupported' | 'recently-launched' } {
     if (!this.deps.platform.isIos) return { ok: false, reason: 'unsupported' };
     const now = this.deps.clock.now().getTime();
     const guard = this.deps.guardMs ?? RELAUNCH_GUARD_MS;
@@ -56,7 +62,7 @@ export class XCallbackShortcutLauncher implements ShortcutLauncher {
     if (this.lastLaunchMs !== null && now >= this.lastLaunchMs && now - this.lastLaunchMs < guard) {
       return { ok: false, reason: 'recently-launched' };
     }
-    const url = this.deps.links.shortcutRunUrl(shortcutName);
+    const url = this.deps.links.shortcutRunUrl(shortcutName, options);
     (this.deps.open ?? openExternalUrl)(url);
     this.lastLaunchMs = now;
     return { ok: true };

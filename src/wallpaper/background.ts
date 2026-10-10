@@ -22,6 +22,8 @@ export interface DecodedImage {
 /** Чтение двоичного файла картинки фона; `null` — файла нет. */
 export interface BackgroundImageReader {
   read(path: VaultPath): Promise<ArrayBuffer | null>;
+  /** Версия файла (mtime/size) для ключа кэша; `null` — файла нет или версия неизвестна. */
+  version?(path: VaultPath): string | null | Promise<string | null>;
 }
 
 export type ImageDecoder = (data: ArrayBuffer, mime: string) => Promise<DecodedImage>;
@@ -32,6 +34,10 @@ export function createVaultImageReader(vault: Pick<Vault, 'getFileByPath' | 'rea
     async read(path) {
       const file = vault.getFileByPath(path);
       return file ? vault.readBinary(file) : null;
+    },
+    version(path) {
+      const file = vault.getFileByPath(path);
+      return file ? `${file.stat.mtime}:${file.stat.size}` : null;
     },
   };
 }
@@ -198,36 +204,120 @@ export function paintBackground(
   }
 }
 
+/** Выданная потребителю картинка; `release()` — потребитель закончил рисовать. */
+export interface ImageLease {
+  image: DecodedImage;
+  release(): void;
+}
+
+interface CacheEntry {
+  key: string;
+  pending: Promise<DecodedImage | null>;
+  /** Число незавершённых потребителей (рендер пакета, предпросмотр). */
+  refs: number;
+  /** Запись — текущая в кэше (держится до `release()` или смены файла). */
+  retained: boolean;
+  freed: boolean;
+}
+
+/** Ключ кэша: путь + версия файла (mtime/size), чтобы замена файла по тому же пути перечитывалась. */
+function cacheKey(path: VaultPath, version: string | null): string {
+  return version === null ? path : `${path}|${version}`;
+}
+
 /**
  * Загрузчик картинок фона с кэшем последней картинки: пакет из семи PNG
- * декодирует файл один раз; `release()` освобождает память после пакета.
+ * декодирует файл один раз. Картинка освобождается, только когда она уже не
+ * текущая (`release()` после пакета или смена файла) и все выданные `ImageLease`
+ * возвращены — параллельный предпросмотр не рисует закрытый ImageBitmap.
  */
 export class BackgroundImageCache {
-  private cached: { path: VaultPath; image: DecodedImage } | null = null;
+  private current: CacheEntry | null = null;
 
   constructor(
     private readonly reader: BackgroundImageReader,
     private readonly decode: ImageDecoder = decodeImageInBrowser,
   ) {}
 
-  /** `null` — файла нет или он не декодируется (рисуется запасной фон). */
-  async load(path: VaultPath): Promise<DecodedImage | null> {
-    if (this.cached && this.cached.path === path) return this.cached.image;
-    this.release();
-    let image: DecodedImage | null = null;
+  /** `null` — файла нет или он не декодируется (рисуется запасной фон). Выданную картинку вернуть `lease.release()`. */
+  async acquire(path: VaultPath): Promise<ImageLease | null> {
+    let version: string | null = null;
     try {
-      const data = await this.reader.read(path);
-      if (data) image = await this.decode(data, mimeFromPath(path));
+      version = (await this.reader.version?.(path)) ?? null;
     } catch {
-      image = null;
+      version = null;
     }
-    // Отсутствие не кэшируется: файл могут добавить, пока открыт предпросмотр.
-    if (image) this.cached = { path, image };
-    return image;
+    const key = cacheKey(path, version);
+    let entry = this.current;
+    if (!entry || entry.key !== key) {
+      entry = { key, pending: this.readAndDecode(path), refs: 0, retained: true, freed: false };
+      this.drop(this.current);
+      this.current = entry;
+    }
+    entry.refs += 1;
+    const image = await entry.pending;
+    if (!image) {
+      // Отсутствие не кэшируется: файл могут добавить, пока открыт предпросмотр.
+      entry.refs -= 1;
+      if (this.current === entry) this.current = null;
+      entry.retained = false;
+      return null;
+    }
+    const owner = entry;
+    let returned = false;
+    return {
+      image,
+      release: () => {
+        if (returned) return;
+        returned = true;
+        owner.refs -= 1;
+        this.freeIfUnused(owner);
+      },
+    };
   }
 
-  release(): void {
-    this.cached?.image.release();
-    this.cached = null;
+  /** Сбрасывает текущую картинку (файл фона изменён, удалён или переименован). */
+  invalidate(): void {
+    this.release();
   }
+
+  /** Конец пакета: картинка освобождается, когда её вернут все потребители. */
+  release(): void {
+    const entry = this.current;
+    this.current = null;
+    this.drop(entry);
+  }
+
+  private drop(entry: CacheEntry | null): void {
+    if (!entry) return;
+    entry.retained = false;
+    this.freeIfUnused(entry);
+  }
+
+  private freeIfUnused(entry: CacheEntry): void {
+    if (entry.freed || entry.retained || entry.refs > 0) return;
+    entry.freed = true;
+    void entry.pending.then(
+      (image) => image?.release(),
+      () => undefined,
+    );
+  }
+
+  private async readAndDecode(path: VaultPath): Promise<DecodedImage | null> {
+    try {
+      const data = await this.reader.read(path);
+      return data ? await this.decode(data, mimeFromPath(path)) : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
+ * Затрагивает ли событие хранилища выбранный файл фона (изменение, удаление,
+ * переименование: `oldPath` — прежний путь).
+ */
+export function backgroundAffectedBy(background: WallpaperBackground, path: VaultPath, oldPath?: VaultPath | null): boolean {
+  if (background.kind !== 'image') return false;
+  return background.path === path || (oldPath != null && background.path === oldPath);
 }

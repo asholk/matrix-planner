@@ -49,6 +49,13 @@ export class WallpaperOutputRepository {
     return this.repository.writeBinary(this.lockPath(profileId), png);
   }
 
+  /** Удаляет датированный файл (например, устаревший файл на сегодня, если новый не записался). */
+  async removeDated(profileId: string, date: LocalDateString): Promise<OpResult> {
+    const path = this.datedPath(profileId, date);
+    if (!this.repository.exists(path)) return { ok: true, value: undefined, changed: false };
+    return this.repository.trash(path);
+  }
+
   /** Удаляет `lock-ГГГГ-ММ-ДД.png` с датой раньше `today` в папке профиля (без вложенных папок). */
   async cleanup(profileId: string, today: LocalDateString): Promise<CleanupResult> {
     const result: CleanupResult = { removed: [], failed: [] };

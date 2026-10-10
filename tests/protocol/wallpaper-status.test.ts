@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { ShortcutLauncher, WallpaperRenderResult } from '../../src/app/contracts';
+import type { WallpaperRenderResult } from '../../src/app/contracts';
 import type { CompanionState, OpResult, WallpaperProfile, WallpaperStatusRecord } from '../../src/model/types';
 import { buildShortcutRunUrl } from '../../src/protocol/links';
-import { XCallbackShortcutLauncher } from '../../src/protocol/shortcut-launcher';
+import { XCallbackShortcutLauncher, type ProfileShortcutLauncher } from '../../src/protocol/shortcut-launcher';
 import {
   describeBanner,
   formatShortDate,
@@ -35,12 +35,13 @@ function record(patch: Partial<WallpaperStatusRecord>): WallpaperStatusRecord {
 }
 
 class FakeClock {
+  zone = 'UTC';
   constructor(public ms: number) {}
   now(): Date {
     return new Date(this.ms);
   }
   timeZone(): string {
-    return 'UTC';
+    return this.zone;
   }
 }
 
@@ -134,6 +135,20 @@ describe('XCallbackShortcutLauncher', () => {
     expect(opened).toHaveLength(2);
   });
 
+  it('passes the launch profile into callback links', () => {
+    const clock = new FakeClock(Date.parse('2026-10-10T10:00:00Z'));
+    const opened: string[] = [];
+    const l = new XCallbackShortcutLauncher({
+      links: { shortcutRunUrl: (name, options) => buildShortcutRunUrl('V', name, options) },
+      platform: { isIos: true },
+      clock,
+      open: (url) => opened.push(url),
+    });
+    l.launch('A', { profileId: 'iphone-1179x2556' });
+    expect(opened).toEqual([buildShortcutRunUrl('V', 'A', { profileId: 'iphone-1179x2556' })]);
+    expect(decodeURIComponent(opened[0]!)).toContain('profile=iphone-1179x2556');
+  });
+
   it('is unsupported outside iPhone and iPad', () => {
     const { l, opened } = launcher(false);
     expect(l.launch('A')).toEqual({ ok: false, reason: 'unsupported' });
@@ -149,11 +164,13 @@ function renderOk(): OpResult<WallpaperRenderResult> {
   return { ok: true, changed: true, value: { profile: PROFILE, written: ['Планировщик/Обои/iphone-1179x2556/lock-2026-10-10.png'], failed: [], lockUpdated: true, dataRevision: 0 } };
 }
 
-function setupTracker(options: { isIos: boolean; launch?: ShortcutLauncher['launch']; render?: () => Promise<OpResult<WallpaperRenderResult>>; shortcutName?: string }) {
+function setupTracker(options: { isIos: boolean; launch?: ProfileShortcutLauncher['launch']; render?: () => Promise<OpResult<WallpaperRenderResult>>; shortcutName?: string }) {
   const clock = new FakeClock(Date.parse('2026-10-10T13:32:00Z'));
   const patches: Array<Partial<WallpaperStatusRecord>> = [];
   const messages: string[] = [];
   const launches: string[] = [];
+  const launchProfiles: Array<string | null | undefined> = [];
+  const patchProfiles: string[] = [];
   let renders = 0;
   const tracker = new PlannerWallpaperStatusTracker({
     wallpaper: {
@@ -165,16 +182,18 @@ function setupTracker(options: { isIos: boolean; launch?: ShortcutLauncher['laun
     },
     companion: {
       getState: (): CompanionState => ({ status: 'missing' }),
-      updateWallpaperStatus: async (_profileId, patch) => {
+      updateWallpaperStatus: async (profileId, patch) => {
         patches.push(patch);
+        patchProfiles.push(profileId);
         return { ok: true, value: undefined, changed: true };
       },
     },
     launcher: {
       launch:
         options.launch ??
-        ((name) => {
+        ((name, launchOptions) => {
           launches.push(name);
+          launchProfiles.push(launchOptions?.profileId);
           return { ok: true };
         }),
     },
@@ -184,7 +203,7 @@ function setupTracker(options: { isIos: boolean; launch?: ShortcutLauncher['laun
     getShortcutName: () => options.shortcutName ?? 'Обои Планировщика',
     translate: keys,
   });
-  return { tracker, clock, patches, messages, launches, renders: () => renders };
+  return { tracker, clock, patches, messages, launches, launchProfiles, patchProfiles, renders: () => renders };
 }
 
 describe('PlannerWallpaperStatusTracker', () => {
@@ -309,6 +328,74 @@ describe('PlannerWallpaperStatusTracker', () => {
     ios.tracker.markDataChanged();
     await ios.tracker.onWallpaperCallback('done');
     expect(ios.tracker.getState()).toEqual({ kind: 'dirty' });
+  });
+
+  it('day change: files are stale after the pack ends, second tap renders again', async () => {
+    const s = setupTracker({ isIos: true });
+    await s.tracker.run();
+    expect(s.tracker.isFresh()).toBe(true);
+    s.clock.ms += 8 * 86_400_000;
+    expect(s.tracker.isFresh()).toBe(false);
+    await s.tracker.run();
+    expect(s.renders()).toBe(2);
+    // Уже следующий день делает lock.png устаревшим.
+    s.clock.ms += 86_400_000;
+    expect(s.tracker.isFresh()).toBe(false);
+  });
+
+  it('time zone change: files are stale', async () => {
+    const s = setupTracker({ isIos: true });
+    await s.tracker.run();
+    s.clock.zone = 'Asia/Tokyo';
+    expect(s.tracker.isFresh()).toBe(false);
+    await s.tracker.run();
+    expect(s.renders()).toBe(2);
+  });
+
+  it('partial pack (future date failed): launches, reports failure, not fresh', async () => {
+    const partial = renderOk();
+    if (partial.ok) partial.value.failed = [{ date: '2026-10-12', detail: 'write-failed' }];
+    const s = setupTracker({ isIos: true, render: async () => partial });
+    await s.tracker.run();
+    expect(s.launches).toHaveLength(1);
+    expect(s.messages).toContain('wallpaperRender.errors.render');
+    expect(s.tracker.isFresh()).toBe(false);
+    await s.tracker.run();
+    expect(s.renders()).toBe(2);
+  });
+
+  it('partial pack with today failed: no launch, render failure', async () => {
+    const partial = renderOk();
+    if (partial.ok) partial.value.failed = [{ date: '2026-10-10', detail: 'write-failed' }];
+    const s = setupTracker({ isIos: true, render: async () => partial });
+    await s.tracker.run();
+    expect(s.launches).toEqual([]);
+    expect(s.tracker.getState()).toEqual({ kind: 'failed', reason: 'render' });
+    expect(s.tracker.isFresh()).toBe(false);
+  });
+
+  it('desktop: partial pack is a render failure', async () => {
+    const partial = renderOk();
+    if (partial.ok) partial.value.failed = [{ date: '2026-10-14', detail: 'render' }];
+    const s = setupTracker({ isIos: false, render: async () => partial });
+    await s.tracker.run();
+    expect(s.tracker.getState()).toEqual({ kind: 'failed', reason: 'render' });
+    expect(s.messages).not.toContain('protocol.wallpaper.saved');
+  });
+
+  it('launch carries the profile; callback writes into the profile from the link', async () => {
+    const s = setupTracker({ isIos: true });
+    await s.tracker.run();
+    expect(s.launchProfiles).toEqual([PROFILE.id]);
+    await s.tracker.onWallpaperCallback('done', { profileId: 'iphone-1170x2532' });
+    expect(s.patchProfiles.at(-1)).toBe('iphone-1170x2532');
+    await s.tracker.onWallpaperCallback('failed', { profileId: 'iphone-1170x2532' });
+    expect(s.patchProfiles.at(-1)).toBe('iphone-1170x2532');
+    // Нет профиля или он некорректен — текущий профиль.
+    await s.tracker.onWallpaperCallback('done', { profileId: '../evil' });
+    expect(s.patchProfiles.at(-1)).toBe(PROFILE.id);
+    await s.tracker.onWallpaperCallback('done', { profileId: null });
+    expect(s.patchProfiles.at(-1)).toBe(PROFILE.id);
   });
 
   it('notifies listeners and supports unsubscribe', async () => {

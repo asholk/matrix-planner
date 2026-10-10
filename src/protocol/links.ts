@@ -20,9 +20,22 @@ function toQuery(pairs: ReadonlyArray<readonly [string, string]>): string {
   return pairs.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join('&');
 }
 
-/** `obsidian://planner?vault=…&…` — `vault` всегда первым. */
-export function buildPlannerUrl(vaultName: string, link: PlannerLink): string {
-  return `${PLANNER_URL_PREFIX}?${toQuery([['vault', vaultName], ...linkToParams(link)])}`;
+/** Параметр ссылок возврата быстрой команды: профиль, для которого она запущена. */
+export const PROFILE_PARAM = 'profile';
+
+/** Привязка запуска быстрой команды к профилю обоев. */
+export interface ShortcutRunOptions {
+  profileId?: string | null;
+}
+
+/** `LinkBuilder`, ссылка запуска которого может нести профиль. */
+export interface ProfileLinkBuilder extends LinkBuilder {
+  shortcutRunUrl(shortcutName: string, options?: ShortcutRunOptions): string;
+}
+
+/** `obsidian://planner?vault=…&…` — `vault` всегда первым; `extra` — после параметров ссылки. */
+export function buildPlannerUrl(vaultName: string, link: PlannerLink, extra: ReadonlyArray<readonly [string, string]> = []): string {
+  return `${PLANNER_URL_PREFIX}?${toQuery([['vault', vaultName], ...linkToParams(link), ...extra])}`;
 }
 
 /**
@@ -30,11 +43,13 @@ export function buildPlannerUrl(vaultName: string, link: PlannerLink): string {
  * Ссылки возврата целиком кодируются как значения параметров, поэтому их
  * собственные `?`/`&`/`=` и уже закодированное название хранилища не смешиваются с внешними.
  */
-export function buildShortcutRunUrl(vaultName: string, shortcutName: string): string {
+export function buildShortcutRunUrl(vaultName: string, shortcutName: string, options: ShortcutRunOptions = {}): string {
+  // Профиль запуска: подтверждение пишется в него, даже если профиль сменили до возврата.
+  const extra: Array<[string, string]> = options.profileId ? [[PROFILE_PARAM, options.profileId]] : [];
   return `${SHORTCUT_RUN_PREFIX}?${toQuery([
     ['name', shortcutName],
-    ['x-success', buildPlannerUrl(vaultName, { action: 'wallpaper-done' })],
-    ['x-error', buildPlannerUrl(vaultName, { action: 'wallpaper-failed' })],
+    ['x-success', buildPlannerUrl(vaultName, { action: 'wallpaper-done' }, extra)],
+    ['x-error', buildPlannerUrl(vaultName, { action: 'wallpaper-failed' }, extra)],
   ])}`;
 }
 
@@ -78,9 +93,9 @@ export function parsePlannerUrl(url: string): ParsedPlannerUrl {
 }
 
 /** `LinkBuilder` поверх текущего названия хранилища (`app.vault.getName()`). */
-export function createLinkBuilder(getVaultName: () => string): LinkBuilder {
+export function createLinkBuilder(getVaultName: () => string): ProfileLinkBuilder {
   return {
     build: (link) => buildPlannerUrl(getVaultName(), link),
-    shortcutRunUrl: (shortcutName) => buildShortcutRunUrl(getVaultName(), shortcutName),
+    shortcutRunUrl: (shortcutName, options) => buildShortcutRunUrl(getVaultName(), shortcutName, options),
   };
 }

@@ -11,6 +11,7 @@ import { registerDictionary, t } from '../i18n';
 import { enProtocol } from '../i18n/en/protocol';
 import { ruProtocol } from '../i18n/ru/protocol';
 import type { PlannerLink } from '../model/types';
+import { PROFILE_PARAM } from './links';
 import { parseLinkParams } from './parameters';
 
 registerDictionary('ru', 'protocol', ruProtocol);
@@ -24,9 +25,25 @@ export interface ProtocolHandlerDeps {
   actions: Pick<PlannerActions, 'showTab' | 'openTaskForm' | 'openItem'>;
   notifier: Notifier;
   /** На этапе 1 статуса обоев нет: `wallpaper-*` тогда игнорируются. */
-  wallpaperStatus?: Pick<WallpaperStatusTracker, 'onWallpaperCallback'> | null;
+  wallpaperStatus?: WallpaperCallbackReceiver | null;
   /** Перевод (подменяется в тестах). */
   translate?: (key: string) => string;
+}
+
+/** Контекст возврата быстрой команды: профиль из ссылки `x-success`/`x-error`. */
+export interface WallpaperCallbackContext {
+  profileId: string | null;
+}
+
+export interface WallpaperCallbackReceiver {
+  onWallpaperCallback(result: Parameters<WallpaperStatusTracker['onWallpaperCallback']>[0], context?: WallpaperCallbackContext): Promise<void>;
+}
+
+/** Профиль из ссылки возврата; пустой — `null` (трекер возьмёт текущий). */
+function callbackContext(params: Readonly<Record<string, string>>): WallpaperCallbackContext {
+  const raw = params[PROFILE_PARAM];
+  const profileId = typeof raw === 'string' ? raw.trim() : '';
+  return { profileId: profileId === '' ? null : profileId };
 }
 
 export class PlannerProtocolHandler implements ProtocolHandler {
@@ -62,13 +79,13 @@ export class PlannerProtocolHandler implements ProtocolHandler {
     try {
       await this.deps.index.whenReady();
       if (this.disposed) return;
-      await this.dispatch(parsed.link);
+      await this.dispatch(parsed.link, params);
     } catch {
       if (!this.disposed) this.deps.notifier.show(this.translate(LINK_FAILED_KEY));
     }
   }
 
-  private async dispatch(link: PlannerLink): Promise<void> {
+  private async dispatch(link: PlannerLink, params: Readonly<Record<string, string>>): Promise<void> {
     const { actions, index, wallpaperStatus } = this.deps;
     switch (link.action) {
       case 'view':
@@ -85,10 +102,10 @@ export class PlannerProtocolHandler implements ProtocolHandler {
         await actions.openItem(link.id);
         return;
       case 'wallpaper-done':
-        await wallpaperStatus?.onWallpaperCallback('done');
+        await wallpaperStatus?.onWallpaperCallback('done', callbackContext(params));
         return;
       case 'wallpaper-failed':
-        await wallpaperStatus?.onWallpaperCallback('failed');
+        await wallpaperStatus?.onWallpaperCallback('failed', callbackContext(params));
         return;
     }
   }

@@ -141,6 +141,8 @@ export class PlannerWallpaperService implements WallpaperService {
         } else {
           result.failed.push({ date, detail: written.error.detail ?? written.error.code });
           lastError = written.error;
+          // Иначе быстрая команда взяла бы прежний файл на сегодня вместо нового `lock.png`.
+          if (date === today) await this.deps.output.removeDated(profile.id, date).catch(() => undefined);
         }
         if (date === today) todayPng = png;
       }

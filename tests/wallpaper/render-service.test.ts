@@ -332,6 +332,18 @@ describe('PlannerWallpaperService.renderAll', () => {
     expect(h.repo.order).not.toContain(LOCK);
   });
 
+  it('removes a stale dated file for today when the new one cannot be written', async () => {
+    const h = setup();
+    h.repo.files.set(dated('2026-12-29'), new TextEncoder().encode(JSON.stringify(['old'])).buffer as ArrayBuffer);
+    h.repo.failWrite.add(dated('2026-12-29'));
+    const result = await h.service.renderAll();
+    expect(result.ok && result.value.failed.map((f) => f.date)).toEqual(['2026-12-29']);
+    expect(result.ok && result.value.lockUpdated).toBe(true);
+    // Быстрая команда не найдёт файла на сегодня и возьмёт новый lock.png.
+    expect(h.repo.exists(dated('2026-12-29'))).toBe(false);
+    expect(h.repo.exists(LOCK)).toBe(true);
+  });
+
   it('fails without touching files when nothing can be written', async () => {
     const h = setup();
     h.repo.files.set(LOCK, new TextEncoder().encode(JSON.stringify(['old'])).buffer as ArrayBuffer);

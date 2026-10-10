@@ -7,7 +7,7 @@
 import { getIcon } from 'obsidian';
 import type { TextMeasurer, WallpaperRenderer, WallpaperRenderRequest } from '../app/contracts';
 import type { DrawCommand, FontSpec, TextMetrics } from '../model/types';
-import { BackgroundImageCache, loadImage, paintBackground, type DecodedImage } from './background';
+import { BackgroundImageCache, loadImage, paintBackground, type DecodedImage, type ImageLease } from './background';
 
 /** Системный шрифт, близкий к шрифту экрана блокировки. */
 export const SYSTEM_FONT_STACK = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -261,6 +261,13 @@ function drawCommand(ctx: CanvasRenderingContext2D, command: DrawCommand, icons:
 // Renderer
 // ---------------------------------------------------------------------------
 
+interface PreparedResources {
+  image: DecodedImage | null;
+  /** Картинка фона, выданная кэшем; вернуть после рисования. */
+  lease: ImageLease | null;
+  icons: Map<string, CanvasImageSource | null>;
+}
+
 export interface CanvasRendererDeps {
   canvases: CanvasFactory;
   /** Загрузчик картинок фона (кэш на пакет). */
@@ -281,22 +288,30 @@ export class CanvasWallpaperRenderer implements WallpaperRenderer {
     const { width, height } = request.layout;
     // Ресурсы загружаются до создания холста, чтобы не держать его дольше нужного.
     const resources = await this.prepare(request);
-    const canvas = this.deps.canvases.create(width, height);
     try {
-      this.paint(canvas, request, resources);
-      return await this.deps.canvases.toPng(canvas);
+      const canvas = this.deps.canvases.create(width, height);
+      try {
+        this.paint(canvas, request, resources);
+        return await this.deps.canvases.toPng(canvas);
+      } finally {
+        this.deps.canvases.release(canvas);
+      }
     } finally {
-      this.deps.canvases.release(canvas);
+      resources.lease?.release();
     }
   }
 
   async renderTo(canvas: HTMLCanvasElement, request: WallpaperRenderRequest): Promise<void> {
     const resources = await this.prepare(request);
-    if (canvas.width === 0 || canvas.height === 0) {
-      canvas.width = request.layout.width;
-      canvas.height = request.layout.height;
+    try {
+      if (canvas.width === 0 || canvas.height === 0) {
+        canvas.width = request.layout.width;
+        canvas.height = request.layout.height;
+      }
+      this.paint(canvas, request, resources);
+    } finally {
+      resources.lease?.release();
     }
-    this.paint(canvas, request, resources);
   }
 
   /** Освобождает декодированную картинку фона и кэш значков (после пакета). */
@@ -305,8 +320,8 @@ export class CanvasWallpaperRenderer implements WallpaperRenderer {
     this.icons.release?.();
   }
 
-  private async prepare(request: WallpaperRenderRequest): Promise<{ image: DecodedImage | null; icons: Map<string, CanvasImageSource | null> }> {
-    const image = request.background.kind === 'image' ? await this.deps.images.load(request.background.path) : null;
+  private async prepare(request: WallpaperRenderRequest): Promise<PreparedResources> {
+    const lease = request.background.kind === 'image' ? await this.deps.images.acquire(request.background.path) : null;
     const icons = new Map<string, CanvasImageSource | null>();
     for (const command of request.layout.commands) {
       if (command.op !== 'icon') continue;
@@ -320,13 +335,13 @@ export class CanvasWallpaperRenderer implements WallpaperRenderer {
       }
       icons.set(key, source);
     }
-    return { image, icons };
+    return { image: lease?.image ?? null, lease, icons };
   }
 
   private paint(
     canvas: RenderCanvas,
     request: WallpaperRenderRequest,
-    resources: { image: DecodedImage | null; icons: Map<string, CanvasImageSource | null> },
+    resources: PreparedResources,
   ): void {
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('2d context unavailable');

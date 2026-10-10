@@ -64,6 +64,18 @@ describe('buildShortcutRunUrl', () => {
     expect(error.ok && error.result).toEqual({ ok: true, link: { action: 'wallpaper-failed' } });
   });
 
+  it('adds the launch profile to both callbacks', () => {
+    const outer = queryOf(buildShortcutRunUrl('Хранилище', 'A', { profileId: 'iphone-1179x2556' }));
+    expect(outer['x-success']).toBe(buildPlannerUrl('Хранилище', { action: 'wallpaper-done' }, [['profile', 'iphone-1179x2556']]));
+    for (const callback of [outer['x-success']!, outer['x-error']!]) {
+      const parsed = parsePlannerUrl(callback);
+      expect(parsed.ok && parsed.params.profile).toBe('iphone-1179x2556');
+      expect(parsed.ok && parsed.params.do).toMatch(/^wallpaper-(done|failed)$/);
+    }
+    const viaBuilder = createLinkBuilder(() => 'Хранилище').shortcutRunUrl('A', { profileId: 'iphone-1179x2556' });
+    expect(viaBuilder).toBe(buildShortcutRunUrl('Хранилище', 'A', { profileId: 'iphone-1179x2556' }));
+  });
+
   it('encodes & and ? in shortcut name', () => {
     const outer = queryOf(buildShortcutRunUrl('V', 'A&B?C=D'));
     expect(outer.name).toBe('A&B?C=D');
