@@ -1,0 +1,189 @@
+/* Формы события и заметки, просмотр внешнего события (S2.T2, ТЗ §4.3, кадры 11–12).
+   Общие поля (карточки, строки, таблетки) — из 30-task-form.css. */
+
+/* Палитра цветов события: ключ свойства `color` → цвет темы. */
+body {
+  --mp-event-blue: var(--color-blue);
+  --mp-event-red: var(--color-red);
+  --mp-event-orange: var(--color-orange);
+  --mp-event-yellow: var(--color-yellow);
+  --mp-event-green: var(--color-green);
+  --mp-event-teal: var(--color-cyan);
+  --mp-event-sky: color-mix(in srgb, var(--color-blue) 55%, var(--color-cyan));
+  --mp-event-purple: var(--color-purple);
+}
+
+/* Значок + название в одной строке. */
+.mp-event-form-head {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-3);
+}
+
+.mp-event-form .mp-event-form-icon {
+  --mp-event-color: var(--mp-event-blue);
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--mp-touch);
+  height: var(--mp-touch);
+  padding: 0;
+  border: none;
+  border-radius: var(--mp-radius-pill);
+  background: color-mix(in srgb, var(--mp-event-color) 18%, transparent);
+  color: var(--mp-event-color);
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-event-form .mp-event-form-icon.is-empty {
+  color: var(--text-faint);
+}
+
+.mp-event-form .mp-event-form-icon .svg-icon {
+  width: 1.25em;
+  height: 1.25em;
+}
+
+.mp-event-form input.mp-event-form-url {
+  min-height: auto;
+}
+
+.mp-event-form .mp-form-row.is-invalid .mp-form-row-label {
+  color: var(--text-error);
+}
+
+.mp-event-form .mp-form-row.is-invalid .mp-form-pill {
+  box-shadow: inset 0 0 0 1px var(--text-error);
+}
+
+.mp-event-form-error {
+  color: var(--text-error);
+}
+
+/* Цвет: 8 кружков. */
+.mp-event-form-color-row .mp-form-row-value {
+  max-width: none;
+}
+
+.mp-event-form-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--size-4-2);
+}
+
+.mp-event-form .mp-event-form-swatch {
+  --mp-event-color: var(--mp-event-blue);
+  width: 1.75em;
+  height: 1.75em;
+  min-width: 1.75em;
+  padding: 0;
+  border: none;
+  border-radius: var(--mp-radius-pill);
+  background: var(--mp-event-color);
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-event-form .mp-event-form-swatch.is-selected {
+  box-shadow:
+    0 0 0 2px var(--background-secondary),
+    0 0 0 4px var(--text-normal);
+}
+
+.mp-event-form .mp-event-form-swatch:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 3px;
+}
+
+/* Точка цвета календаря. */
+.mp-event-calendar-dot {
+  --mp-calendar-color: var(--text-faint);
+  display: inline-block;
+  flex: none;
+  width: 0.6em;
+  height: 0.6em;
+  margin-right: var(--size-4-1);
+  border-radius: var(--mp-radius-pill);
+  background: var(--mp-calendar-color);
+}
+
+.mp-event-form-actions {
+  display: flex;
+  justify-content: center;
+  padding: var(--size-4-2) 0;
+}
+
+.mp-event-form .mp-event-form-delete {
+  width: 100%;
+  min-height: var(--mp-touch);
+}
+
+/* Просмотр внешнего события. */
+.mp-event-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mp-gap);
+}
+
+.mp-event-details-head {
+  padding-top: var(--size-4-3);
+  padding-bottom: var(--size-4-3);
+}
+
+.mp-event-details-title {
+  margin: 0 0 var(--size-4-1);
+  font-size: var(--font-ui-large);
+  font-weight: var(--font-semibold);
+  overflow-wrap: anywhere;
+}
+
+.mp-event-details-range {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.mp-event-details-value {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mp-event-details-notes {
+  padding-top: var(--size-4-3);
+  padding-bottom: var(--size-4-3);
+}
+
+.mp-event-details-label {
+  margin-bottom: var(--size-4-1);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.mp-event-details-notes-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.mp-event-details-hint {
+  padding: 0 var(--size-4-2);
+}
+
+.mp-event-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Заметка: текст выше обычного поля заметок задачи. */
+.mp-note-form textarea.mp-note-form-body {
+  min-height: 6em;
+}
