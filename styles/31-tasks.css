@@ -1,0 +1,554 @@
+/* Вкладка «Задачи» (S1.T8, ТЗ §4.2; кадры 01, 07, 08).
+   Цвета квадрантов — `--mp-q-*`; переопределения из «Матрица.md» ставятся на `.mp-tasks`. */
+
+.mp-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mp-gap);
+}
+
+/* Цвет текущего квадранта для вложенных элементов. */
+.mp-tasks .mp-q-do,
+.mp-task-drag-ghost.mp-q-do {
+  --mp-q: var(--mp-q-do);
+  --mp-q-tint: var(--mp-q-do-bg);
+}
+
+.mp-tasks .mp-q-plan,
+.mp-task-drag-ghost.mp-q-plan {
+  --mp-q: var(--mp-q-plan);
+  --mp-q-tint: var(--mp-q-plan-bg);
+}
+
+.mp-tasks .mp-q-urgent,
+.mp-task-drag-ghost.mp-q-urgent {
+  --mp-q: var(--mp-q-urgent);
+  --mp-q-tint: var(--mp-q-urgent-bg);
+}
+
+.mp-tasks .mp-q-someday,
+.mp-task-drag-ghost.mp-q-someday {
+  --mp-q: var(--mp-q-someday);
+  --mp-q-tint: var(--mp-q-someday-bg);
+}
+
+/* --- Шапка --- */
+
+.mp-tasks-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-1);
+}
+
+.mp-tasks-greeting {
+  margin: 0;
+  font-size: var(--h1-size);
+  font-weight: var(--font-bold);
+  line-height: var(--line-height-tight);
+  color: var(--text-normal);
+}
+
+.mp-tasks-subtitle {
+  color: var(--text-muted);
+  font-size: var(--font-ui-medium);
+}
+
+/* --- Строка управления --- */
+
+.mp-tasks-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.mp-tasks-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--size-4-2);
+}
+
+.mp-tasks-done-filter {
+  background: var(--mp-surface);
+  font-weight: var(--font-semibold);
+}
+
+.mp-tasks-done-filter .mp-tasks-done-icon {
+  display: inline-flex;
+  color: var(--color-green);
+}
+
+.mp-tasks-done-filter.is-active .mp-tasks-done-icon {
+  color: inherit;
+}
+
+.mp-tasks-done-count {
+  color: var(--text-muted);
+}
+
+.mp-tasks-done-icon .svg-icon {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+.mp-segmented {
+  display: inline-flex;
+  padding: var(--size-2-1);
+  gap: var(--size-2-1);
+  border-radius: var(--mp-radius-pill);
+  background: var(--mp-surface);
+}
+
+.mp-segment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5em;
+  height: 2em;
+  padding: 0;
+  border: none;
+  border-radius: var(--mp-radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-segment.is-active {
+  background: var(--mp-ink);
+  color: var(--mp-ink-inverse);
+}
+
+.mp-segment .svg-icon {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+.mp-tasks-grouping {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--size-4-2);
+}
+
+/* --- Сетка 2 × 2 --- */
+
+.mp-matrix {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--mp-gap);
+}
+
+.mp-quadrant {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 16em;
+  max-height: 26em;
+  padding: var(--size-4-3);
+  border-radius: calc(var(--mp-radius-card) * 1.5);
+  background: var(--mp-surface);
+  border: 2px solid transparent;
+  transition: border-color var(--mp-transition), background-color var(--mp-transition);
+}
+
+.mp-quadrant-header,
+.mp-list-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  min-height: var(--mp-touch);
+  margin-bottom: var(--size-4-2);
+}
+
+.mp-quadrant-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2em;
+  height: 2em;
+  border-radius: var(--mp-radius-pill);
+  background: var(--mp-q-tint);
+  color: var(--mp-q);
+}
+
+.mp-quadrant-icon .svg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+.mp-quadrant-title,
+.mp-list-section-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+  line-height: var(--line-height-tight);
+  color: var(--text-normal);
+}
+
+.mp-quadrant-count {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.mp-quadrant-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2em;
+  height: 2em;
+  padding: 0;
+  border: none;
+  border-radius: var(--mp-radius-pill);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-quadrant-add:hover {
+  background: var(--background-modifier-active-hover);
+  color: var(--text-normal);
+}
+
+.mp-quadrant-add .svg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+.mp-quadrant-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.mp-quadrant.is-drop-target,
+.mp-list-section.is-drop-target {
+  border-color: var(--mp-q);
+  background: var(--mp-q-tint);
+}
+
+/* --- Список --- */
+
+.mp-tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mp-gap);
+}
+
+.mp-list-section {
+  padding: var(--size-4-3);
+  border-radius: calc(var(--mp-radius-card) * 1.5);
+  background: var(--mp-surface);
+  border: 2px solid transparent;
+}
+
+.mp-list-section-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.mp-date-overdue .mp-list-section-title {
+  color: var(--text-error);
+}
+
+/* --- Пустые состояния --- */
+
+.mp-tasks-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-4) var(--size-4-2);
+  text-align: center;
+  color: var(--text-faint);
+  font-size: var(--font-ui-small);
+}
+
+.mp-tasks-empty-icon {
+  display: inline-flex;
+}
+
+.mp-tasks-empty-icon .svg-icon {
+  width: 1.75em;
+  height: 1.75em;
+}
+
+.mp-tasks-loading {
+  padding: var(--size-4-8) 0;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* --- Карточка --- */
+
+.mp-task-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  min-height: var(--mp-touch);
+  padding: var(--size-4-1) var(--size-4-1) var(--size-4-1) var(--size-4-2);
+  border-radius: var(--mp-radius-card);
+  background: var(--mp-q-tint);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transition: opacity var(--mp-transition), transform var(--mp-transition);
+}
+
+.mp-task-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--mp-touch);
+  height: var(--mp-touch);
+  margin: calc(var(--size-4-1) * -1) 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-task-check-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5em;
+  height: 1.5em;
+  border: 2px solid var(--mp-q);
+  border-radius: var(--mp-radius-pill);
+  color: transparent;
+  transition: background-color var(--mp-transition), color var(--mp-transition), transform var(--mp-transition);
+}
+
+.mp-task-check-mark .svg-icon {
+  width: 0.9em;
+  height: 0.9em;
+  stroke-width: 3;
+}
+
+.mp-task-check:hover .mp-task-check-mark {
+  color: var(--mp-q);
+}
+
+.mp-task-card.is-done .mp-task-check-mark,
+.mp-task-card.is-completing .mp-task-check-mark {
+  background: var(--mp-q);
+  color: var(--mp-ink-inverse);
+}
+
+.mp-task-card.is-completing {
+  opacity: 0.55;
+}
+
+.mp-task-card.is-completing .mp-task-check-mark {
+  transform: scale(1.12);
+}
+
+.mp-task-card.is-busy {
+  opacity: 0.7;
+}
+
+.mp-task-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--size-2-1);
+  height: auto;
+  padding: var(--size-4-1) 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-normal);
+  text-align: start;
+  font: inherit;
+  white-space: normal;
+  cursor: var(--cursor);
+}
+
+.mp-task-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-4-1);
+  max-width: 100%;
+}
+
+.mp-task-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: var(--font-ui-medium);
+  line-height: var(--line-height-tight);
+}
+
+.mp-task-flag,
+.mp-task-dot {
+  display: inline-flex;
+  flex: none;
+  margin-top: 0.15em;
+}
+
+.mp-task-flag {
+  color: var(--color-red);
+}
+
+.mp-task-flag .svg-icon {
+  width: 0.9em;
+  height: 0.9em;
+  fill: currentColor;
+}
+
+.mp-task-dot {
+  width: 0.6em;
+  height: 0.6em;
+  margin-top: 0.35em;
+  border-radius: var(--mp-radius-pill);
+  background: var(--mp-q);
+}
+
+.mp-task-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+}
+
+.mp-task-card.is-overdue .mp-task-due {
+  color: var(--text-error);
+}
+
+.mp-task-repeat {
+  display: inline-flex;
+}
+
+.mp-task-repeat .svg-icon {
+  width: 0.9em;
+  height: 0.9em;
+}
+
+/* Выполненные: зачёркнутое название на нейтральном фоне (кадр 08). */
+.mp-task-card.is-done {
+  background: var(--background-modifier-hover);
+}
+
+.mp-task-card.is-done .mp-task-title {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+/* Кнопка действий: видна при наведении/фокусе, всегда доступна диктору. */
+.mp-task-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.75em;
+  height: 1.75em;
+  padding: 0;
+  border: none;
+  border-radius: var(--mp-radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  box-shadow: none;
+  opacity: 0;
+  cursor: var(--cursor);
+}
+
+.mp-task-card:hover .mp-task-more,
+.mp-task-more:focus-visible {
+  opacity: 1;
+}
+
+.mp-task-more .svg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+/* На касаниях кнопка действий визуально скрыта (меню — долгим нажатием), но доступна диктору. */
+.mp-view.is-mobile .mp-task-more:not(:focus-visible) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+/* Маркер перетаскивания (мобильные). */
+.mp-task-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2em;
+  align-self: stretch;
+  color: var(--text-faint);
+  touch-action: none;
+  cursor: grab;
+}
+
+.mp-task-handle .svg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+/* --- Перетаскивание --- */
+
+.mp-tasks.is-dragging {
+  cursor: grabbing;
+}
+
+.mp-task-card.is-dragging {
+  opacity: 0.35;
+}
+
+.mp-task-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: var(--layer-dragged-item);
+  pointer-events: none;
+  font-size: var(--font-ui-medium);
+  color: var(--text-normal);
+  box-shadow: var(--shadow-l);
+  opacity: 0.95;
+  will-change: transform;
+}
+
+.mp-task-drag-ghost .mp-task-more {
+  display: none;
+}
+
+/* Узкий экран без двух колонок по-прежнему 2 × 2, но плотнее. */
+@media (max-width: 380px) {
+  .mp-quadrant {
+    padding: var(--size-4-2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-task-card.is-completing .mp-task-check-mark {
+    transform: none;
+  }
+}
