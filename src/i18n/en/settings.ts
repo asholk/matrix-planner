@@ -53,14 +53,6 @@ export const enSettings = {
       current24: '24-hour',
       current12: '12-hour',
     },
-    showTasksInIos: {
-      name: 'Show tasks in iOS Calendar',
-      desc: 'The iPhone and iPad companion adds tasks with a due date to the “Planner” calendar. Without the companion this option has no effect.',
-    },
-    writeCompleted: {
-      name: 'Write completed tasks to calendar',
-      desc: 'The companion creates an event when you complete a task. Without the companion this option has no effect.',
-    },
     defaultCalendar: {
       name: 'Calendar for new events',
       desc: 'Used by default in the event form.',
@@ -72,7 +64,7 @@ export const enSettings = {
       desc: 'Calendars whose events appear on the Calendar tab.',
       planner: 'Planner',
       birthdays: 'Birthdays',
-      noCache: 'iOS calendars appear here after the companion updates data.',
+      noCache: 'iCloud calendars appear here after sync. Turn it on in the “iOS Calendar” section.',
     },
   },
   lockscreen: {
@@ -94,25 +86,7 @@ export const enSettings = {
     },
   },
   companion: {
-    status: {
-      name: 'Status',
-      missing: 'The companion isn’t connected yet: no companion data in the “_system” folder.',
-      corrupt: 'Couldn’t read companion data. The “_system/companion.json” file is damaged.',
-      unavailable: 'Companion status isn’t available.',
-      lastUpdate: 'Last update: {value}',
-      lastUpdateNever: 'Last update: no data',
-      primaryDevice: 'Primary device: {value}',
-      primaryDeviceNone: 'No primary device selected',
-    },
-    instructions: {
-      name: 'How it works',
-      desc: 'The companion is a separate iPhone and iPad app. iOS Calendar events, reminders and widgets work only through it. Planner tasks, calendar and wallpapers work without it.',
-    },
-    open: {
-      name: 'Open companion',
-      button: 'Open',
-    },
-    reminderBanner: 'The reminder will be scheduled after the companion updates data',
+    note: 'A companion app for iPhone widgets is in development. Calendar sync is set up in the “iOS Calendar” section.',
   },
   data: {
     check: {

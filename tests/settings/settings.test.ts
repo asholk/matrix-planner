@@ -28,7 +28,7 @@ import {
 } from '../__mocks__/obsidian';
 import type { SettingsSection } from '../../src/app/contracts';
 import { setLanguageOverride } from '../../src/i18n';
-import type { CompanionState, IntegrityReport, OpResult, PlannerSettings } from '../../src/model/types';
+import type { IntegrityReport, OpResult, PlannerSettings } from '../../src/model/types';
 import { DEFAULT_ROOT_FOLDER } from '../../src/model/types';
 import {
   DEFAULT_REMINDER_TIME,
@@ -46,7 +46,7 @@ import {
   normalizeTime,
   validateRootFolder,
 } from '../../src/settings/settings-store';
-import { PlannerSettingTab, isReminderSchedulingPending } from '../../src/settings/settings-tab';
+import { PlannerSettingTab, SETTINGS_SECTION_ORDER } from '../../src/settings/settings-tab';
 import type { SettingsTabDeps } from '../../src/settings/types';
 
 /** Дождаться цепочки промисов сохранения. */
@@ -164,6 +164,28 @@ describe('значения по умолчанию', () => {
     expect(migrateSettings({ rootFolder: 'A' })).toEqual({ rootFolder: 'A' });
     expect(normalizeSettings({}).version).toBe(SETTINGS_VERSION);
     expect(normalizeSettings({ version: SETTINGS_VERSION + 5 }).version).toBe(SETTINGS_VERSION + 5);
+  });
+
+  it('переключатели 0.1 переносятся в calendarSync, если его ещё нет', () => {
+    const migrated = normalizeSettings({ showTasksInIosCalendar: false, writeCompletedTasksToCalendar: true });
+    expect(migrated.calendarSync.tasksToCalendar).toBe(false);
+    expect(migrated.calendarSync.completedTasksToCalendar).toBe(true);
+    expect(migrated.calendarSync.enabled).toBe(false);
+  });
+
+  it('при наличии calendarSync старые переключатели не учитываются', () => {
+    const loaded = normalizeSettings({
+      showTasksInIosCalendar: false,
+      writeCompletedTasksToCalendar: true,
+      calendarSync: { tasksToCalendar: true },
+    });
+    expect(loaded.calendarSync.tasksToCalendar).toBe(true);
+    expect(loaded.calendarSync.completedTasksToCalendar).toBe(false);
+  });
+
+  it('lastTab «settings» не запоминается: при загрузке откатывается на «tasks»', async () => {
+    const { store } = await createStore({ ui: { lastTab: 'settings' } });
+    expect(store.get().ui.lastTab).toBe('tasks');
   });
 });
 
@@ -548,12 +570,29 @@ describe('вкладка настроек', () => {
     for (const name of headings()) expect(name.toLowerCase()).not.toContain('settings');
   });
 
-  it('без сервиса целостности раздел «Данные» не показывается, без компаньона — нет кнопки открытия', async () => {
+  it('без сервиса целостности раздел «Данные» не показывается', async () => {
     const { plugin, store } = await createStore();
     show(createTab(plugin, { store }));
     expect(headings()).not.toContain('Данные');
-    expect(() => findSetting('Открыть компаньон')).toThrow();
-    expect(findSetting('Состояние')).toBeDefined();
+  });
+
+  it('в разделе «Календарь» нет переключателей эпохи компаньона', async () => {
+    const { plugin, store } = await createStore();
+    show(createTab(plugin, { store }));
+    expect(() => findSetting('Показывать задачи в «Календаре» iOS')).toThrow();
+    expect(() => findSetting('Записывать выполненные задачи в календарь')).toThrow();
+  });
+
+  it('раздел «Календарь iOS» (order = календарь + 1) встаёт сразу после «Календаря»', async () => {
+    const { plugin, store } = await createStore();
+    const section: SettingsSection = {
+      order: SETTINGS_SECTION_ORDER.calendar + 1,
+      render: (el) => {
+        new Setting(el).setName('Календарь iOS').setHeading();
+      },
+    };
+    show(createTab(plugin, { store, sections: [section] }));
+    expect(headings()).toEqual(['Календарь', 'Календарь iOS', 'Экран блокировки', 'Компаньон']);
   });
 
   it('дополнительные разделы встают по order и освобождаются при скрытии', async () => {
@@ -607,46 +646,22 @@ describe('вкладка настроек', () => {
     expect(store.get().visibleCalendars).toEqual({ planner: false, birthdays: true, calendarIds: ['holidays'] });
   });
 
-  it('компаньон: состояние, кнопка открытия и баннер о напоминании', async () => {
+  it('компаньон: только строка о будущем приложении, без кнопок и состояния', async () => {
     const { plugin, store } = await createStore();
-    let state: CompanionState = { status: 'missing' };
-    const hub: { listener: ((value: CompanionState) => void) | null } = { listener: null };
     const open = vi.fn();
-    const now = Date.parse('2026-10-10T12:00:00Z');
     const tab = createTab(plugin, {
       store,
-      clock: { now: () => new Date(now), timeZone: () => 'UTC' },
-      companion: {
-        getState: () => state,
-        onChange: (cb) => {
-          hub.listener = cb;
-          return () => {
-            hub.listener = null;
-          };
-        },
-      },
+      companion: { getState: () => ({ status: 'missing' }), onChange: () => () => undefined },
       openCompanion: open,
-      lastReminderEditAt: () => now - 5 * 60_000,
+      lastReminderEditAt: () => 0,
     });
     show(tab);
     const container = tab.containerEl as unknown as MockElement;
-    expect(findSetting('Состояние').desc).toBe('');
-    expect((findSetting('Состояние').descEl as unknown as MockElement).children[0]?.getText()).toContain('не подключён');
-    expect(container.findAllByClass('mp-settings-banner')).toHaveLength(1);
-
-    component(findSetting('Открыть компаньон'), ButtonComponent).click();
-    expect(open).toHaveBeenCalledTimes(1);
-
-    // Компаньон обновил данные после правки — раздел перерисовывается, баннер исчезает.
-    state = { status: 'ok', primaryDevice: 'iPhone Анны', lastUpdate: '2026-10-10T11:58:00Z', wallpapers: {} };
-    recorded.settings.length = 0;
-    hub.listener?.(state);
-    const lines = (findSetting('Состояние').descEl as unknown as MockElement).children.map((child) => child.getText());
-    expect(lines[1]).toBe('Основное устройство: iPhone Анны');
+    const notes = container.findAllByClass('mp-settings-note').map((el) => el.getText());
+    expect(notes).toContain('Приложение-компаньон для виджетов iPhone — в разработке. Синхронизация с календарём настраивается в разделе «Календарь iOS».');
+    expect(() => findSetting('Открыть компаньон')).toThrow();
+    expect(() => findSetting('Состояние')).toThrow();
     expect(container.findAllByClass('mp-settings-banner')).toHaveLength(0);
-
-    tab.hide();
-    expect(hub.listener).toBeNull();
   });
 
   it('данные: проверка целостности и простой список «Требуют внимания»', async () => {
@@ -715,20 +730,5 @@ describe('вкладка настроек', () => {
     expect((tab.containerEl as unknown as MockElement).findAllByClass('panel')).toHaveLength(1);
     tab.hide();
     expect(dispose).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('баннер о планировании напоминания', () => {
-  const edit = Date.parse('2026-10-10T12:00:00Z');
-
-  it('показывается, если компаньон не обновлялся больше минуты после правки', () => {
-    expect(isReminderSchedulingPending(null, edit, edit + 61_000)).toBe(true);
-    expect(isReminderSchedulingPending('2026-10-10T11:00:00Z', edit, edit + 120_000)).toBe(true);
-  });
-
-  it('не показывается в первую минуту, после обновления компаньона и без правок', () => {
-    expect(isReminderSchedulingPending(null, edit, edit + 30_000)).toBe(false);
-    expect(isReminderSchedulingPending('2026-10-10T12:00:30Z', edit, edit + 120_000)).toBe(false);
-    expect(isReminderSchedulingPending(null, null, edit)).toBe(false);
   });
 });

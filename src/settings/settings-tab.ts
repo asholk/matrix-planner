@@ -5,7 +5,7 @@
  * `SettingsTabDeps`; недостающие сервисы просто сужают показываемую часть.
  */
 
-import { Notice, PluginSettingTab, Setting, setIcon } from 'obsidian';
+import { Notice, PluginSettingTab, Setting } from 'obsidian';
 import type { App, Plugin, SettingDefinitionItem } from 'obsidian';
 import type { SettingsSection } from '../app/contracts';
 import { getCurrentLanguage, registerDictionary, t, tPlural } from '../i18n';
@@ -28,20 +28,6 @@ export const SETTINGS_SECTION_ORDER = {
   companion: 30,
   data: 40,
 } as const;
-
-/** Задержка, после которой правка с напоминанием считается не подхваченной компаньоном. */
-export const REMINDER_PENDING_DELAY_MS = 60_000;
-
-/**
- * Баннер «Напоминание будет запланировано…»: правка с напоминанием была позже последнего
- * обновления компаньона, и с неё прошло больше минуты.
- */
-export function isReminderSchedulingPending(lastCompanionUpdate: string | null, lastReminderEditMs: number | null, nowMs: number): boolean {
-  if (lastReminderEditMs === null) return false;
-  if (nowMs - lastReminderEditMs <= REMINDER_PENDING_DELAY_MS) return false;
-  const updateMs = lastCompanionUpdate ? Date.parse(lastCompanionUpdate) : Number.NaN;
-  return Number.isNaN(updateMs) || updateMs < lastReminderEditMs;
-}
 
 /** Текст ошибки проверки корневой папки. */
 export function rootFolderErrorText(result: RootFolderValidation): string | null {
@@ -125,7 +111,7 @@ export class PlannerSettingsRenderer {
       { order: SETTINGS_SECTION_ORDER.general, render: (el) => this.renderGeneral(el) },
       { order: SETTINGS_SECTION_ORDER.calendar, render: (el) => this.mountLive(el, (inner) => this.renderCalendar(inner), this.deps.calendars ? (refresh) => this.deps.calendars?.onChange(refresh) : undefined) },
       { order: SETTINGS_SECTION_ORDER.lockscreen, render: (el) => this.renderLockscreen(el) },
-      { order: SETTINGS_SECTION_ORDER.companion, render: (el) => this.mountLive(el, (inner) => this.renderCompanion(inner), this.deps.companion ? (refresh) => this.deps.companion?.onChange(refresh) : undefined) },
+      { order: SETTINGS_SECTION_ORDER.companion, render: (el) => this.renderCompanion(el) },
     ];
     if (this.deps.integrity) {
       const integrity = this.deps.integrity;
@@ -297,28 +283,6 @@ export class PlannerSettingsRenderer {
         });
     });
 
-    new Setting(el)
-      .setName(t('settings.calendar.showTasksInIos.name'))
-      .setDesc(t('settings.calendar.showTasksInIos.desc'))
-      .addToggle((toggle) =>
-        toggle.setValue(settings.showTasksInIosCalendar).onChange((value) => {
-          void this.save((draft) => {
-            draft.showTasksInIosCalendar = value;
-          });
-        }),
-      );
-
-    new Setting(el)
-      .setName(t('settings.calendar.writeCompleted.name'))
-      .setDesc(t('settings.calendar.writeCompleted.desc'))
-      .addToggle((toggle) =>
-        toggle.setValue(settings.writeCompletedTasksToCalendar).onChange((value) => {
-          void this.save((draft) => {
-            draft.writeCompletedTasksToCalendar = value;
-          });
-        }),
-      );
-
     const calendars: readonly CachedCalendar[] = this.deps.calendars?.getCalendars() ?? [];
 
     new Setting(el)
@@ -445,41 +409,10 @@ export class PlannerSettingsRenderer {
   // Компаньон
   // -------------------------------------------------------------------------
 
+  /** Компаньон необязателен (виджеты в будущем): календарь iOS синхронизирует сам плагин. */
   private renderCompanion(el: HTMLElement): void {
     heading(el, t('settings.headings.companion'));
-    const state = this.deps.companion?.getState() ?? null;
-
-    const lastEdit = this.deps.lastReminderEditAt?.() ?? null;
-    const lastUpdate = state?.status === 'ok' ? state.lastUpdate : null;
-    if (isReminderSchedulingPending(lastUpdate, lastEdit, this.now())) {
-      const banner = el.createDiv({ cls: 'mp-settings-banner', attr: { role: 'status' } });
-      setIcon(banner.createSpan({ cls: 'mp-settings-banner-icon' }), 'bell');
-      banner.createSpan({ text: t('settings.companion.reminderBanner') });
-    }
-
-    const status = new Setting(el).setName(t('settings.companion.status.name'));
-    const lines: string[] = [];
-    if (!state) {
-      lines.push(t('settings.companion.status.unavailable'));
-    } else if (state.status === 'missing') {
-      lines.push(t('settings.companion.status.missing'));
-    } else if (state.status === 'corrupt') {
-      lines.push(t('settings.companion.status.corrupt'));
-    } else {
-      const formatted = state.lastUpdate ? this.formatInstant(state.lastUpdate) : null;
-      lines.push(formatted ? t('settings.companion.status.lastUpdate', { value: formatted }) : t('settings.companion.status.lastUpdateNever'));
-      lines.push(state.primaryDevice ? t('settings.companion.status.primaryDevice', { value: state.primaryDevice }) : t('settings.companion.status.primaryDeviceNone'));
-    }
-    for (const line of lines) status.descEl.createDiv({ text: line });
-
-    new Setting(el).setName(t('settings.companion.instructions.name')).setDesc(t('settings.companion.instructions.desc'));
-
-    const open = this.deps.openCompanion;
-    if (open) {
-      new Setting(el).setName(t('settings.companion.open.name')).addButton((button) =>
-        button.setButtonText(t('settings.companion.open.button')).onClick(() => open()),
-      );
-    }
+    el.createDiv({ cls: 'mp-settings-note', text: t('settings.companion.note') });
   }
 
   // -------------------------------------------------------------------------
@@ -597,10 +530,6 @@ export class PlannerSettingsRenderer {
   private notify(message: string): void {
     if (this.deps.notifier) this.deps.notifier.show(message);
     else new Notice(message);
-  }
-
-  private now(): number {
-    return this.deps.clock ? this.deps.clock.now().getTime() : Date.now();
   }
 
   private language(): Language {

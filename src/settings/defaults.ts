@@ -67,6 +67,7 @@ export function createDefaultSettings(): PlannerSettings {
     reminderTimeForDateOnly: DEFAULT_REMINDER_TIME,
     weekStart: 'auto',
     timeFormat: 'auto',
+    // Устаревшие поля 0.1: заменены `calendarSync.tasksToCalendar`/`completedTasksToCalendar`.
     showTasksInIosCalendar: true,
     writeCompletedTasksToCalendar: false,
     defaultEventCalendarId: null,

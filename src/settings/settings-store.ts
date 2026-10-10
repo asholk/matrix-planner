@@ -260,6 +260,19 @@ function normalizeCalendarSync(raw: unknown, fallback: CalendarSyncSettings): Ca
   };
 }
 
+/**
+ * Запасные параметры синхронизации для данных версии 0.1, где `calendarSync` ещё не было:
+ * переключатели эпохи компаньона переносятся в `tasksToCalendar`/`completedTasksToCalendar`.
+ */
+function legacyCalendarSyncFallback(source: UnknownRecord, fallback: CalendarSyncSettings): CalendarSyncSettings {
+  if (isRecord(source.calendarSync)) return fallback;
+  return {
+    ...fallback,
+    tasksToCalendar: pickBoolean(source.showTasksInIosCalendar, fallback.tasksToCalendar),
+    completedTasksToCalendar: pickBoolean(source.writeCompletedTasksToCalendar, fallback.completedTasksToCalendar),
+  };
+}
+
 function normalizeSources(raw: unknown, fallback: CalendarSourceFilter): CalendarSourceFilter {
   const source = asRecord(raw);
   return {
@@ -275,6 +288,7 @@ function normalizeUi(raw: unknown, fallback: PlannerSettings['ui']): PlannerSett
   const source = asRecord(raw);
   return {
     ...source,
+    // Вкладка «Настройки» вида не запоминается: при открытии показываются задачи.
     lastTab: pickEnum(source.lastTab, ['tasks', 'calendar', 'lockscreen'] as const, fallback.lastTab),
     tasksLayout: pickEnum(source.tasksLayout, ['grid', 'list'] as const, fallback.tasksLayout),
     tasksListGrouping: pickEnum(source.tasksListGrouping, ['quadrant', 'date'] as const, fallback.tasksListGrouping),
@@ -302,6 +316,7 @@ export function normalizeSettings(raw: unknown, fallback: PlannerSettings = crea
     reminderTimeForDateOnly: normalizeTime(source.reminderTimeForDateOnly) ?? fallback.reminderTimeForDateOnly,
     weekStart: pickEnum(source.weekStart, ['auto', 'monday', 'sunday'] as const, fallback.weekStart),
     timeFormat: pickEnum(source.timeFormat, ['auto', '24h', '12h'] as const, fallback.timeFormat),
+    // Устаревшие поля 0.1 (заменены `calendarSync`): хранятся только для совместимости.
     showTasksInIosCalendar: pickBoolean(source.showTasksInIosCalendar, fallback.showTasksInIosCalendar),
     writeCompletedTasksToCalendar: pickBoolean(source.writeCompletedTasksToCalendar, fallback.writeCompletedTasksToCalendar),
     defaultEventCalendarId:
@@ -310,7 +325,7 @@ export function normalizeSettings(raw: unknown, fallback: PlannerSettings = crea
         : fallback.defaultEventCalendarId,
     visibleCalendars: normalizeVisibleCalendars(source.visibleCalendars, fallback.visibleCalendars),
     wallpaper: normalizeWallpaper(source.wallpaper, fallback.wallpaper),
-    calendarSync: normalizeCalendarSync(source.calendarSync, fallback.calendarSync),
+    calendarSync: normalizeCalendarSync(source.calendarSync, legacyCalendarSyncFallback(source, fallback.calendarSync)),
     ui: normalizeUi(source.ui, fallback.ui),
   };
 }
