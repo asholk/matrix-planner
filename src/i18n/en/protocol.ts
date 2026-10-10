@@ -1,0 +1,57 @@
+import type { Dictionary } from '../index';
+
+/** obsidian://planner links, shortcut launch and wallpaper status. */
+export const enProtocol = {
+  errors: {
+    missingAction: 'The planner link has no action',
+    unknownAction: 'Unknown action in the planner link',
+    invalidView: 'Unknown tab in the planner link',
+    invalidQuadrant: 'Unknown quadrant in the planner link',
+    invalidDate: 'Invalid date in the planner link',
+    missingId: 'The planner link has no task ID',
+    invalidId: 'Invalid ID in the planner link',
+    notPlannerLink: 'This is not a planner link',
+    malformed: 'The planner link is damaged',
+    failed: 'Couldn’t open the planner link',
+  },
+  shortcut: {
+    recentlyLaunched: 'The shortcut is already running. Wait a few seconds',
+    unsupported: 'Shortcuts are available only on iPhone and iPad',
+  },
+  wallpaper: {
+    actionUpdate: 'Update lock screen',
+    actionSave: 'Save wallpaper',
+    dirtyUpdate: 'There are changes. Tap to move them to the lock screen',
+    dirtySave: 'There are changes. Click to save the wallpaper',
+    rendering: 'Drawing wallpaper…',
+    saved: 'Wallpaper saved',
+    launched: 'Shortcut started. Not confirmed yet',
+    confirmed: 'Lock screen updated',
+    failedRender: 'Couldn’t draw the wallpaper',
+    failedShortcut: 'Couldn’t start the shortcut',
+    failedCallback: 'Couldn’t update the lock screen',
+    howToSetUp: 'How to set up',
+    status: {
+      confirmed: 'Wallpaper updated {date} at {time}',
+      notConfirmedSince: 'No confirmed update since {date}',
+      neverConfirmed: 'No confirmed update',
+      saved: 'Wallpaper saved {date} at {time}',
+      neverSaved: 'Wallpaper not saved yet',
+    },
+    months: {
+      m1: 'Jan',
+      m2: 'Feb',
+      m3: 'Mar',
+      m4: 'Apr',
+      m5: 'May',
+      m6: 'Jun',
+      m7: 'Jul',
+      m8: 'Aug',
+      m9: 'Sep',
+      m10: 'Oct',
+      m11: 'Nov',
+      m12: 'Dec',
+    },
+    dayMonth: '{month} {day}',
+  },
+} satisfies Dictionary;
