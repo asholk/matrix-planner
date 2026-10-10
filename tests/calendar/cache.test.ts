@@ -385,3 +385,11 @@ describe('calendar/cache-reader: смена часового пояса', () => 
     expect(listener).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('linkedItemIdOf: регистр ULID', () => {
+  it('строчный ULID в item_id и в URL приводится к верхнему регистру', () => {
+    const ulid = '01JA7Q3K8Z6Y2V5N4M0C1B2D3E';
+    expect(linkedItemIdOf(ulid.toLowerCase(), null)).toBe(ulid);
+    expect(linkedItemIdOf(null, `matrixplanner://item/${ulid.toLowerCase()}`)).toBe(ulid);
+  });
+});

@@ -534,5 +534,35 @@ describe('финальные исправления', () => {
       await vi.waitFor(() => expect(listener).toHaveBeenCalled());
       expect(day(provider)).toHaveLength(0);
     });
+
+    it('prepare() загружает метки до первого снимка (обои)', async () => {
+      const { provider } = make(['GONE']);
+      await provider.prepare();
+      expect(day(provider)).toHaveLength(0);
+    });
+  });
+
+  it('метка со строчным ULID скрывает событие кэша с прописным ID', async () => {
+    const ulid = '01JA7Q3K8Z6Y2V5N4M0C1B2D3E';
+    const ext = cached({ occurrenceKey: 'ek|2', linkedItemId: ulid, start: { date: '2026-10-10', time: '10:00' }, end: { date: '2026-10-10', time: '11:00' } });
+    const provider = new PlannerDayItemsProvider({
+      index: { getTasks: () => [], getEvents: () => [], getNotes: () => [], getMatrix: () => matrix, onChange: () => () => {} },
+      settings: {
+        get: () =>
+          ({
+            visibleCalendars: { planner: true, birthdays: true, calendarIds: ['work'] },
+            wallpaper: { calendarIds: null },
+            ui: { calendarSources: { tasks: true, events: true, notes: true, external: true } },
+          }) as unknown as PlannerSettings,
+        onChange: () => () => {},
+      },
+      cache: { getState: () => cacheState([ext]), onChange: () => () => {} },
+      clock: { now: () => new Date('2026-10-10T08:00:00Z'), timeZone: () => 'Europe/Moscow' },
+      tombstones: {
+        list: () => ({ ok: true as const, value: [{ id: ulid.toLowerCase(), kind: 'event' as const, deletedAt: '2026-10-10T07:00:00Z' }], changed: false }),
+      },
+    });
+    await provider.prepare();
+    expect(all(provider.getDays({ from: '2026-10-10', to: '2026-10-10' }).get('2026-10-10'))).toHaveLength(0);
   });
 });

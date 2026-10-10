@@ -24,7 +24,7 @@ import type {
   LocalDateString,
 } from '../model/types';
 import { addDays, compareDates, floatingFromDate, isDateInRange, isValidDate, isValidTimeZone } from '../model/dates';
-import { isUlid } from '../model/ids';
+import { canonicalId, isUlid } from '../model/ids';
 
 /** Поддерживаемая версия формата кэша. */
 export const CALENDAR_CACHE_VERSION = 1;
@@ -123,9 +123,9 @@ function normalizeKind(value: unknown): CachedCalendarKind {
 
 /** `id` заметки из явного `item_id` или из URL `matrixplanner://item/<id>`. */
 export function linkedItemIdOf(itemId: unknown, url: unknown): ItemId | null {
-  if (isUlid(itemId)) return itemId;
+  if (typeof itemId === 'string' && isUlid(canonicalId(itemId))) return canonicalId(itemId);
   if (typeof url === 'string' && url.startsWith(ITEM_URL_PREFIX)) {
-    const candidate = url.slice(ITEM_URL_PREFIX.length).split(/[/?#]/)[0] ?? '';
+    const candidate = canonicalId(url.slice(ITEM_URL_PREFIX.length).split(/[/?#]/)[0] ?? '');
     if (isUlid(candidate)) return candidate;
   }
   return null;

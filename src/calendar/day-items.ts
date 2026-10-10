@@ -45,6 +45,7 @@ import { QUADRANT_KEYS } from '../model/types';
 import type { CalendarCacheReader, Clock, DayItemsBuilder, DayItemsOptions, DayItemsProvider, NoteIndex, SettingsStore } from '../app/contracts';
 import { addDays, datesInRange, floatingFromDate, isValidTimeZone, timeToMinutes } from '../model/dates';
 import { DEFAULT_QUADRANT_STYLE } from '../model/defaults';
+import { canonicalId } from '../model/ids';
 import { occurrencesInRange } from '../model/recurrence';
 import { expandEventOccurrences, spanIntersects, splitSpanByDays, type DayPiece, type TimeSpan } from './event-occurrences';
 import { partitionCacheEvents, shouldUseCacheOccurrences, uniqueByKey } from './deduplicate';
@@ -527,10 +528,15 @@ export class PlannerDayItemsProvider implements DayItemsProvider {
     }
     // Ошибка чтения — оставляем прежний набор.
     if (seq !== this.tombstonesSeq || !listed.ok) return;
-    const next = new Set(listed.value.map((record) => record.id));
+    const next = new Set(listed.value.map((record) => canonicalId(record.id)));
     if (next.size === this.deletedIds.size && [...next].every((id) => this.deletedIds.has(id))) return;
     this.deletedIds = next;
     this.notify();
+  }
+
+  /** Перечитывает метки удаления, чтобы синхронный `getDays` их учёл. */
+  async prepare(): Promise<void> {
+    await this.refreshTombstones();
   }
 
   getDays(range: DateRange, options: DayItemsOptions = {}): DayItemsByDate {

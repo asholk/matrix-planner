@@ -45,7 +45,7 @@ export type BatchWallpaperRenderer = WallpaperRenderer;
 export interface WallpaperRenderServiceDeps {
   settings: Pick<SettingsStore, 'get'>;
   index: Pick<NoteIndex, 'getTasks' | 'getMatrix'>;
-  dayItems: Pick<DayItemsProvider, 'getDays'>;
+  dayItems: Pick<DayItemsProvider, 'getDays' | 'prepare'>;
   output: WallpaperOutputRepository;
   renderer: BatchWallpaperRenderer;
   clock: Clock;
@@ -94,6 +94,7 @@ export class PlannerWallpaperService implements WallpaperService {
 
   async renderPreview(canvas: HTMLCanvasElement, draft: WallpaperSettings, date: LocalDateString): Promise<void> {
     const profile = this.resolveProfile(draft);
+    await this.deps.dayItems.prepare?.();
     // Календари черновика, а не сохранённых настроек.
     const snapshot = this.snapshot([date], draft.calendarIds);
     const layout = this.layoutFor(date, draft, profile, snapshot);
@@ -121,6 +122,7 @@ export class PlannerWallpaperService implements WallpaperService {
     try {
       let snapshot: RenderSnapshot;
       try {
+        await this.deps.dayItems.prepare?.();
         snapshot = this.snapshot(dates);
       } catch (error) {
         return { ok: false, error: { code: 'unknown', messageKey: 'wallpaperRender.errors.nothingSaved', detail: describeError(error), cause: error } };

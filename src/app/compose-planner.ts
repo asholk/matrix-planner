@@ -244,6 +244,13 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
   };
   plugin.register(index.onChange(() => markDataChanged()));
   plugin.register(calendarCache.onChange(() => markDataChanged()));
+  // Новая метка удаления (своя или с другого устройства) меняет состав обоев.
+  plugin.register(
+    tombstones.onChange(() => {
+      void dayItems.refreshTombstones();
+      markDataChanged();
+    }),
+  );
   // Файл фона изменён, удалён или переименован — сбросить кэш картинки и пометить обои устаревшими.
   const onBackgroundFile = (file: TAbstractFile, oldPath?: string): void => {
     if (!backgroundAffectedBy(settings.get().wallpaper.background, file.path, oldPath)) return;

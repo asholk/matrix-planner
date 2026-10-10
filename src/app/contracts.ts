@@ -379,6 +379,8 @@ export interface DayItemsProvider {
   /** Элементы дней диапазона с текущими фильтрами источников. */
   getDays(range: DateRange, options?: DayItemsOptions): DayItemsByDate;
   onChange(listener: () => void): Unsubscribe;
+  /** Дождаться загрузки вспомогательных данных (меток удаления) перед снимком — например, для обоев. */
+  prepare?(): Promise<void>;
 }
 
 // ===========================================================================
