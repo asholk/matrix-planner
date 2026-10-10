@@ -441,3 +441,98 @@ describe('PlannerDayItemsProvider', () => {
     expect(wallpaperFilters(s).sources.notes).toBe(false);
   });
 });
+
+describe('финальные исправления', () => {
+  it('кэшированное повторение, начавшееся до начала кэша и продолжающееся в нём, не теряется', () => {
+    const ev = event({ id: 'N', mtime: Date.parse('2026-10-01T00:00:00Z'), repeat: 'daily', start: { date: '2026-10-01', time: '22:00' }, end: { date: '2026-10-02', time: '02:00' } });
+    const linked = [
+      // Повторение 9-го изменено в iOS: заканчивается в 03:00.
+      cached({ occurrenceKey: 'n|09', linkedItemId: 'N', start: { date: '2026-10-09', time: '22:00' }, end: { date: '2026-10-10', time: '03:00' } }),
+      cached({ occurrenceKey: 'n|10', linkedItemId: 'N', start: { date: '2026-10-10', time: '22:00' }, end: { date: '2026-10-11', time: '02:00' } }),
+    ];
+    const days = buildDayItems(input({ range: { from: '2026-10-10', to: '2026-10-10' }, events: [ev], cache: cacheState(linked, { from: '2026-10-10', to: '2026-10-12' }) }));
+    const timed = days.get('2026-10-10')!.timed;
+    expect(timed.map((i) => [i.startMinute, i.endMinute])).toEqual([
+      [0, 180],
+      [1320, 1440],
+    ]);
+  });
+
+  it('изменённое в iOS повторение берёт название из кэша, цвет и значок — заметки', () => {
+    const ev = event({ id: 'S', title: 'Йога', color: 'green', icon: 'star', mtime: Date.parse('2026-10-01T00:00:00Z'), repeat: 'daily', start: { date: '2026-10-01', time: '09:00' }, end: { date: '2026-10-01', time: '09:30' } });
+    const linked = [
+      cached({ occurrenceKey: 's|10', linkedItemId: 'S', title: 'Йога в парке', start: { date: '2026-10-10', time: '15:00' }, end: { date: '2026-10-10', time: '16:00' } }),
+    ];
+    const days = buildDayItems(input({ range: { from: '2026-10-10', to: '2026-10-10' }, events: [ev], cache: cacheState(linked, { to: '2026-10-10' }) }));
+    expect(days.get('2026-10-10')!.timed[0]).toMatchObject({ source: 'event', title: 'Йога в парке', color: EVENT_COLOR_CSS.green, icon: 'star', startMinute: 900 });
+  });
+
+  it('событие с концом 9999-12-31 не разворачивается по всем дням', () => {
+    const ev = event({ id: 'L', allDay: true, start: { date: '2026-01-01', time: null }, end: { date: '9999-12-31', time: null } });
+    const ext = cached({ occurrenceKey: 'l|1', allDay: true, start: { date: '2026-01-01', time: null }, end: { date: '9999-12-31', time: null } });
+    const started = Date.now();
+    const days = buildDayItems(input({ events: [ev], cache: cacheState([ext]) }));
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(days.get('2026-10-10')!.allDay.map((i) => [i.source, i.continuesFromPrevious, i.continuesToNext])).toEqual([
+      ['event', true, true],
+      ['external', true, true],
+    ]);
+  });
+
+  describe('PlannerDayItemsProvider: метки удаления', () => {
+    const linkedEvent = cached({ occurrenceKey: 'ek|1', linkedItemId: 'GONE', start: { date: '2026-10-10', time: '10:00' }, end: { date: '2026-10-10', time: '11:00' } });
+    const cache = cacheState([linkedEvent]);
+
+    function make(tombstoneIds: string[]) {
+      let ids = tombstoneIds;
+      const tombstoneListeners: Array<() => void> = [];
+      const provider = new PlannerDayItemsProvider({
+        index: { getTasks: () => [], getEvents: () => [], getNotes: () => [], getMatrix: () => matrix, onChange: () => () => {} },
+        settings: {
+          get: () =>
+            ({
+              visibleCalendars: { planner: true, birthdays: true, calendarIds: ['work'] },
+              wallpaper: { calendarIds: null },
+              ui: { calendarSources: { tasks: true, events: true, notes: true, external: true } },
+            }) as unknown as PlannerSettings,
+          onChange: () => () => {},
+        },
+        cache: { getState: () => cache, onChange: () => () => {} },
+        clock: { now: () => new Date('2026-10-10T08:00:00Z'), timeZone: () => 'Europe/Moscow' },
+        tombstones: {
+          list: async () => ({ ok: true as const, value: ids.map((id) => ({ id, kind: 'event' as const, deletedAt: '2026-10-10T07:00:00Z' })), changed: false }),
+          onChange: (l) => {
+            tombstoneListeners.push(l);
+            return () => {};
+          },
+        },
+      });
+      return {
+        provider,
+        setIds: (next: string[]) => {
+          ids = next;
+          for (const l of tombstoneListeners) l();
+        },
+      };
+    }
+
+    const day = (provider: PlannerDayItemsProvider) => all(provider.getDays({ from: '2026-10-10', to: '2026-10-10' }).get('2026-10-10'));
+
+    it('запись кэша, связанная с удалённой заметкой, не возвращается как внешнее событие', async () => {
+      const { provider } = make(['GONE']);
+      await provider.refreshTombstones();
+      expect(day(provider)).toHaveLength(0);
+    });
+
+    it('без метки запись остаётся внешней; новая метка — оповещение и скрытие', async () => {
+      const { provider, setIds } = make([]);
+      const listener = vi.fn();
+      provider.onChange(listener);
+      await provider.refreshTombstones();
+      expect(day(provider).map((i) => i.source)).toEqual(['external']);
+      setIds(['GONE']);
+      await vi.waitFor(() => expect(listener).toHaveBeenCalled());
+      expect(day(provider)).toHaveLength(0);
+    });
+  });
+});

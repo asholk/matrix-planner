@@ -96,6 +96,78 @@ export interface CalendarTabDeps {
   datePicker?: DatePickerFactory;
 }
 
+/** Период проверки смены суток, пока вкладка показана, мс. */
+export const DAY_CHECK_INTERVAL_MS = 60_000;
+
+export interface DayChangeWatcherDeps {
+  /** Текущая дата в зоне устройства. */
+  today: () => LocalDateString;
+  /** Вызывается при смене даты (и при возвращении из фона — для пересчёта зоны и т. п.). */
+  onCheck: (dayChanged: boolean) => void;
+  setInterval: (callback: () => void, ms: number) => number;
+  clearInterval: (id: number) => void;
+  /** Документ для `visibilitychange`; `null` — без подписки. */
+  doc: Pick<Document, 'addEventListener' | 'removeEventListener' | 'visibilityState'> | null;
+}
+
+/**
+ * Следит за сменой суток: таймер раз в минуту (только между `start` и `stop`) и
+ * `visibilitychange` (возвращение из фона, между `attach` и `detach`).
+ */
+export class DayChangeWatcher {
+  private timer: number | null = null;
+  private lastDay: LocalDateString;
+  private readonly onVisibility = () => {
+    if (this.deps.doc?.visibilityState === 'visible') this.check(true);
+  };
+  private attached = false;
+
+  constructor(private readonly deps: DayChangeWatcherDeps) {
+    this.lastDay = deps.today();
+  }
+
+  /** Запоминает текущий день (после отрисовки). */
+  sync(day: LocalDateString): void {
+    this.lastDay = day;
+  }
+
+  attach(): void {
+    if (this.attached || !this.deps.doc) return;
+    this.attached = true;
+    this.deps.doc.addEventListener('visibilitychange', this.onVisibility);
+  }
+
+  detach(): void {
+    if (!this.attached || !this.deps.doc) return;
+    this.attached = false;
+    this.deps.doc.removeEventListener('visibilitychange', this.onVisibility);
+  }
+
+  start(): void {
+    if (this.timer !== null) return;
+    this.timer = this.deps.setInterval(() => this.check(false), DAY_CHECK_INTERVAL_MS);
+  }
+
+  stop(): void {
+    if (this.timer === null) return;
+    this.deps.clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  dispose(): void {
+    this.stop();
+    this.detach();
+  }
+
+  /** `always` — сообщить о проверке, даже если дата не сменилась. */
+  check(always: boolean): void {
+    const day = this.deps.today();
+    const changed = day !== this.lastDay;
+    this.lastDay = day;
+    if (changed || always) this.deps.onCheck(changed);
+  }
+}
+
 /** Фабрика вкладки для `PlannerViewOptions.tabs.calendar`. */
 export function createCalendarTab(deps: CalendarTabDeps): TabFactory {
   return (host) => new CalendarTab(host, deps);
@@ -121,6 +193,7 @@ export class CalendarTab implements TabController {
   /** Прокрутка временной шкалы по дню (сохраняется между перерисовками). */
   private timelineScroll: { date: LocalDateString; top: number } | null = null;
   private timelineEl: HTMLElement | null = null;
+  private dayWatcher: DayChangeWatcher | null = null;
 
   constructor(
     private readonly host: PlannerViewHost,
@@ -128,6 +201,14 @@ export class CalendarTab implements TabController {
   ) {
     this.settingsMode = deps.settings.get().ui.calendarMode;
     this.state = initCalendarState(this.today(), this.settingsMode);
+  }
+
+  /** Смена суток или возвращение из фона: «Сегодня» и выбранный «сегодняшний» день переходят на новую дату. */
+  private onDayCheck(dayChanged: boolean): void {
+    // Обращение к кэшу пересчитывает время событий, если сменилась зона устройства.
+    this.deps.cache?.getState();
+    if (!this.rootEl) return;
+    if (dayChanged || this.state.today !== this.today()) this.render();
   }
 
   // --- Жизненный цикл ---
@@ -146,6 +227,20 @@ export class CalendarTab implements TabController {
     this.subscriptions.push(this.deps.settings.onChange(() => this.scheduleRender()));
     if (this.deps.cache) this.subscriptions.push(this.deps.cache.onChange(() => this.scheduleRender()));
 
+    const doc = (containerEl as { ownerDocument?: Document | null }).ownerDocument ?? (typeof document === 'undefined' ? null : document);
+    const view = doc?.defaultView ?? (typeof window === 'undefined' ? null : window);
+    if (view) {
+      const watcher = new DayChangeWatcher({
+        today: () => this.today(),
+        onCheck: (changed) => this.onDayCheck(changed),
+        setInterval: (callback, ms) => view.setInterval(callback, ms),
+        clearInterval: (id) => view.clearInterval(id),
+        doc,
+      });
+      watcher.attach();
+      this.dayWatcher = watcher;
+    }
+
     const index = this.deps.index;
     if (index && !index.isReady()) {
       this.bodyEl.createDiv({ cls: 'mp-cal-loading', text: t('calendar.loading') });
@@ -158,6 +253,8 @@ export class CalendarTab implements TabController {
   }
 
   unmount(): void {
+    this.dayWatcher?.dispose();
+    this.dayWatcher = null;
     this.closePicker();
     if (this.renderTimer !== null) {
       window.clearTimeout(this.renderTimer);
@@ -174,12 +271,14 @@ export class CalendarTab implements TabController {
   }
 
   onShow(): void {
+    this.dayWatcher?.start();
     this.publishAddContext();
     // «Сегодня» могло смениться, пока вкладка была скрыта.
     if (this.rootEl) this.render();
   }
 
   onHide(): void {
+    this.dayWatcher?.stop();
     this.closePicker();
   }
 
@@ -243,7 +342,9 @@ export class CalendarTab implements TabController {
     if (!this.rootEl || !this.bodyEl || !this.weekEl) return;
     // Режим из настроек применяется только при его изменении (своя запись уже учтена в `changeMode`).
     const settingsMode = this.deps.settings.get().ui.calendarMode;
-    let state = refreshToday(this.state, this.today());
+    const today = this.today();
+    this.dayWatcher?.sync(today);
+    let state = refreshToday(this.state, today);
     if (settingsMode !== this.settingsMode) {
       this.settingsMode = settingsMode;
       state = setMode(state, settingsMode);

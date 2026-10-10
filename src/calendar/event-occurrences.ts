@@ -89,13 +89,16 @@ export function zonedDateTimeToInstant(date: LocalDateString, time: LocalTimeStr
   return wall - before;
 }
 
-/** Перевод местного времени из зоны события в зону устройства. Без перевода, если зоны совпадают/невалидны. */
+/**
+ * Перевод местного времени из зоны события в зону устройства. Без перевода, если зоны невалидны.
+ * При совпадающих зонах перевод тоже идёт через мгновение: несуществующее время сдвигается.
+ */
 export function convertZonedTime(
   value: { date: LocalDateString; time: LocalTimeString },
   fromZone: string | null,
   deviceZone: string,
 ): FloatingDateTime & { time: LocalTimeString } {
-  if (!fromZone || fromZone === deviceZone || !isValidTimeZone(fromZone) || !isValidTimeZone(deviceZone)) {
+  if (!fromZone || !isValidTimeZone(fromZone) || !isValidTimeZone(deviceZone)) {
     return { date: value.date, time: value.time };
   }
   const instant = zonedDateTimeToInstant(value.date, value.time, fromZone);
@@ -145,7 +148,8 @@ export function expandEventOccurrences(
   // Запас на длительность и на сдвиг даты при переводе зоны.
   const margin = Math.ceil(wallDuration / MINUTES_PER_DAY) + 1;
   const dates = occurrencesInRange(event.repeat, event.start.date, { from: addDays(range.from, -margin), to: addDays(range.to, 1) }, { limit });
-  const zoned = event.tz !== null && event.tz !== deviceTimeZone && isValidTimeZone(event.tz) && isValidTimeZone(deviceTimeZone);
+  // Через мгновение и при совпадении зон: иначе пропущенное при переходе время показывалось бы как есть.
+  const zoned = event.tz !== null && isValidTimeZone(event.tz) && isValidTimeZone(deviceTimeZone);
 
   for (const date of dates) {
     let span: TimeSpan;
@@ -167,38 +171,28 @@ export function expandEventOccurrences(
   return result;
 }
 
+/** Первый и последний день интервала (как у частей `splitSpanByDays`). */
+export function spanDayBounds(span: TimeSpan): { first: LocalDateString; last: LocalDateString } {
+  if (span.allDay) {
+    const days = Math.max(1, diffDays(span.start.date, span.end.date));
+    return { first: span.start.date, last: addDays(span.start.date, days - 1) };
+  }
+  const { startDate, endDate } = normalizeTimed(span);
+  return { first: startDate, last: endDate };
+}
+
 /** Пересекает ли интервал диапазон дат (включительно). */
 export function spanIntersects(span: TimeSpan, range: DateRange): boolean {
-  return splitSpanByDays(span).some((piece) => piece.date >= range.from && piece.date <= range.to);
+  const { first, last } = spanDayBounds(span);
+  return first <= range.to && last >= range.from;
 }
 
 // ---------------------------------------------------------------------------
 // Разбиение по дням
 // ---------------------------------------------------------------------------
 
-/**
- * Делит интервал на части по дням.
- * - all-day: каждый день от `start` до `end − 1`;
- * - со временем: конец ровно в 00:00 не создаёт часть на следующий день;
- *   полностью занятые промежуточные дни многодневного события попадают в «Весь день».
- */
-export function splitSpanByDays(span: TimeSpan): DayPiece[] {
-  const pieces: DayPiece[] = [];
-  if (span.allDay) {
-    const days = Math.max(1, diffDays(span.start.date, span.end.date));
-    for (let i = 0; i < days; i++) {
-      pieces.push({
-        date: addDays(span.start.date, i),
-        allDay: true,
-        startMinute: null,
-        endMinute: null,
-        continuesFromPrevious: i > 0,
-        continuesToNext: i < days - 1,
-      });
-    }
-    return pieces;
-  }
-
+/** Начало и конец интервала со временем: конец не раньше начала, конец в 00:00 — минута 1440 предыдущего дня. */
+function normalizeTimed(span: TimeSpan): { startDate: LocalDateString; startMinute: number; endDate: LocalDateString; endMinute: number } {
   const startDate = span.start.date;
   const startMinute = timeToMinutes(safeTime(span.start.time));
   let endDate = span.end.date;
@@ -207,25 +201,58 @@ export function splitSpanByDays(span: TimeSpan): DayPiece[] {
     endDate = startDate;
     endMinute = startMinute;
   }
-  if (endDate === startDate) {
-    return [{ date: startDate, allDay: false, startMinute, endMinute, continuesFromPrevious: false, continuesToNext: false }];
-  }
-  if (endMinute === 0) {
+  if (endDate !== startDate && endMinute === 0) {
     endDate = addDays(endDate, -1);
     endMinute = MINUTES_PER_DAY;
   }
-  const days = diffDays(startDate, endDate);
-  for (let i = 0; i <= days; i++) {
+  return { startDate, startMinute, endDate, endMinute };
+}
+
+/**
+ * Делит интервал на части по дням.
+ * - all-day: каждый день от `start` до `end − 1`;
+ * - со временем: конец ровно в 00:00 не создаёт часть на следующий день;
+ *   полностью занятые промежуточные дни многодневного события попадают в «Весь день».
+ * `clip` ограничивает части диапазоном до разбиения (признаки продолжения сохраняются),
+ * чтобы очень длинный интервал не разворачивался по всем дням.
+ */
+export function splitSpanByDays(span: TimeSpan, clip?: DateRange): DayPiece[] {
+  const pieces: DayPiece[] = [];
+  const { first, last } = spanDayBounds(span);
+  const total = diffDays(first, last);
+  const fromIndex = clip ? Math.max(0, diffDays(first, clip.from)) : 0;
+  const toIndex = clip ? Math.min(total, diffDays(first, clip.to)) : total;
+  if (fromIndex > toIndex) return pieces;
+
+  if (span.allDay) {
+    for (let i = fromIndex; i <= toIndex; i++) {
+      pieces.push({
+        date: addDays(first, i),
+        allDay: true,
+        startMinute: null,
+        endMinute: null,
+        continuesFromPrevious: i > 0,
+        continuesToNext: i < total,
+      });
+    }
+    return pieces;
+  }
+
+  const { startMinute, endMinute } = normalizeTimed(span);
+  if (total === 0) {
+    return [{ date: first, allDay: false, startMinute, endMinute, continuesFromPrevious: false, continuesToNext: false }];
+  }
+  for (let i = fromIndex; i <= toIndex; i++) {
     const from = i === 0 ? startMinute : 0;
-    const to = i === days ? endMinute : MINUTES_PER_DAY;
-    const fullDay = days > 0 && from === 0 && to === MINUTES_PER_DAY;
+    const to = i === total ? endMinute : MINUTES_PER_DAY;
+    const fullDay = from === 0 && to === MINUTES_PER_DAY;
     pieces.push({
-      date: addDays(startDate, i),
+      date: addDays(first, i),
       allDay: fullDay,
       startMinute: fullDay ? null : from,
       endMinute: fullDay ? null : to,
       continuesFromPrevious: i > 0,
-      continuesToNext: i < days,
+      continuesToNext: i < total,
     });
   }
   return pieces;

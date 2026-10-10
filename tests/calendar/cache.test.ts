@@ -353,3 +353,35 @@ describe('calendar/cache-reader', () => {
     expect(b.status).toBe('ok');
   });
 });
+
+describe('calendar/cache-reader: смена часового пояса', () => {
+  it('после смены зоны getState отдаёт время в новой зоне и оповещает подписчиков', async () => {
+    const app: MockApp = createMockApp();
+    const store = new AdapterSystemJsonStore(app as unknown as App, {
+      getPaths: () => createPlannerPaths('Планировщик'),
+      queue: new KeyedWriteQueue(),
+      guard: allowAll,
+    });
+    let zone = TZ;
+    const clock: Clock = { now: () => new Date('2026-10-10T12:00:00Z'), timeZone: () => zone };
+    const reader = new SystemCalendarCacheReader({ store, clock });
+    await writeCache(app, fixture);
+    await reader.refresh();
+    const listener = vi.fn();
+    reader.onChange(listener);
+
+    zone = 'Asia/Tokyo';
+    const state = reader.getState();
+    const dentist = state.status === 'ok' ? state.data.events.find((e) => e.eventId === 'E7A1:0002') : undefined;
+    expect(dentist?.start).toEqual({ date: '2026-10-10', time: '23:00' });
+    await Promise.resolve();
+    expect(listener).toHaveBeenCalledTimes(1);
+    // Повторное обращение без смены зоны — без оповещений и пересчёта.
+    expect(reader.getState()).toBe(state);
+    await Promise.resolve();
+    expect(listener).toHaveBeenCalledTimes(1);
+    // Перечитывание того же файла в новой зоне не оповещает повторно.
+    await reader.refresh();
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+});

@@ -316,3 +316,60 @@ describe('storage/system-records: companion.json', () => {
     expect(parseCompanion([]).status).toBe('corrupt');
   });
 });
+
+describe('storage/system-records: финальные исправления', () => {
+  let ctx: ReturnType<typeof setup>;
+  beforeEach(() => {
+    ctx = setup();
+  });
+
+  it('запись с тем же id, но без kind: event — tombstone-failed, файл не меняется', async () => {
+    for (const entry of [{ id: ID_A }, { id: ID_A, kind: 'note', deleted_at: '2026-10-01T00:00:00Z' }]) {
+      const text = JSON.stringify({ version: 1, tombstones: [entry] });
+      await ctx.app.vault.adapter.write(TOMBSTONES, text);
+      const result = await ctx.tombstones.add(ID_A, 'event');
+      expect(!result.ok && result.error.code).toBe('tombstone-failed');
+      expect(fileText(ctx.app, TOMBSTONES)).toBe(text);
+      expect(await ctx.tombstones.has(ID_A)).toBe(false);
+    }
+  });
+
+  it('повреждённая запись рядом с полноценной меткой того же id — метка готова', async () => {
+    const text = JSON.stringify({ version: 1, tombstones: [{ id: ID_A }, { id: ID_A, kind: 'event', deleted_at: '2026-10-01T00:00:00Z' }] });
+    await ctx.app.vault.adapter.write(TOMBSTONES, text);
+    const result = await ctx.tombstones.add(ID_A, 'event');
+    expect(result.ok && result.changed).toBe(false);
+    expect(await ctx.tombstones.has(ID_A)).toBe(true);
+  });
+
+  it('onChange оповещает о новой метке, но не о повторной', async () => {
+    const listener = vi.fn();
+    ctx.tombstones.onChange(listener);
+    await ctx.tombstones.add(ID_A, 'event');
+    await ctx.tombstones.add(ID_A, 'event');
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('запоздалое чтение не заменяет состояние после updateWallpaperStatus', async () => {
+    await ctx.app.vault.adapter.write(COMPANION, JSON.stringify({ version: 1, wallpapers: {} }));
+    const realRead = ctx.store.read.bind(ctx.store);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // Чтение получает старое содержимое, но завершается после записи.
+    const spy = vi.spyOn(ctx.store, 'read').mockImplementationOnce(async (name) => {
+      const old = await realRead(name);
+      await gate;
+      return old;
+    });
+    const pending = ctx.companion.read();
+    expect((await ctx.companion.updateWallpaperStatus(PROFILE, { savedAt: '2026-10-10T10:00:00Z' })).ok).toBe(true);
+    release();
+    const state = await pending;
+    spy.mockRestore();
+    const current = ctx.companion.getState();
+    expect(current.status === 'ok' && current.wallpapers[PROFILE]?.savedAt).toBe('2026-10-10T10:00:00Z');
+    expect(state).toBe(current);
+  });
+});

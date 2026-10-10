@@ -41,10 +41,14 @@ export class SystemCalendarCacheReader implements CalendarCacheReader {
   private readonly listeners = new Set<(state: CalendarCacheState) => void>();
   private inFlight: Promise<CalendarCacheState> | null = null;
   private rerun = false;
+  /** Исходный JSON и зона последнего успешного разбора — для пересчёта при смене зоны. */
+  private parsed: { value: unknown; timeZone: string } | null = null;
+  private notifyScheduled = false;
 
   constructor(private readonly deps: CalendarCacheReaderDeps) {}
 
   getState(): CalendarCacheState {
+    this.checkTimeZone();
     const state = this.state;
     if (state.status !== 'ok') return state;
     const stale = isCacheStale(state.data, this.deps.clock.now().getTime(), this.staleAfterMs());
@@ -74,10 +78,29 @@ export class SystemCalendarCacheReader implements CalendarCacheReader {
   }
 
   coverage(date: LocalDateString): CacheCoverage {
+    this.checkTimeZone();
     return cacheCoverage(this.state, date);
   }
 
+  /**
+   * Зона устройства сменилась после разбора — время событий пересчитывается из сохранённого
+   * JSON, подписчики оповещаются (асинхронно, чтобы не вызывать перерисовку внутри отрисовки).
+   * Возвращает `true`, если состояние пересчитано.
+   */
+  checkTimeZone(): boolean {
+    const parsed = this.parsed;
+    if (!parsed) return false;
+    const timeZone = this.deps.clock.timeZone();
+    if (timeZone === parsed.timeZone) return false;
+    this.parsed = { value: parsed.value, timeZone };
+    this.signature = `ok:${timeZone}:${JSON.stringify(parsed.value)}`;
+    this.state = toCacheState(parseCalendarCache(parsed.value, { timeZone }), this.deps.clock.now().getTime(), this.staleAfterMs());
+    this.scheduleNotify();
+    return true;
+  }
+
   getCalendars(): readonly CachedCalendar[] {
+    this.checkTimeZone();
     return this.state.status === 'ok' ? this.state.data.calendars : EMPTY_CALENDARS;
   }
 
@@ -113,13 +136,28 @@ export class SystemCalendarCacheReader implements CalendarCacheReader {
       if (signature === this.signature) return;
       const parsed = parseCalendarCache(read.value, { timeZone });
       next = toCacheState(parsed, this.deps.clock.now().getTime(), this.staleAfterMs());
+      this.parsed = { value: read.value, timeZone };
     } else {
       next = read;
       signature = read.status === 'corrupt' ? `corrupt:${read.detail}` : 'missing';
       if (signature === this.signature) return;
+      this.parsed = null;
     }
     this.signature = signature;
     this.state = next;
+    this.emit(next);
+  }
+
+  private scheduleNotify(): void {
+    if (this.notifyScheduled) return;
+    this.notifyScheduled = true;
+    queueMicrotask(() => {
+      this.notifyScheduled = false;
+      this.emit(this.getState());
+    });
+  }
+
+  private emit(next: CalendarCacheState): void {
     for (const listener of [...this.listeners]) {
       try {
         listener(next);

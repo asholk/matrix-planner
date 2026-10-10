@@ -221,14 +221,15 @@ export class VaultEventService implements EventService {
     const found = this.find(id);
     if (!found.ok) return found;
     const event = found.value;
+    // Предварительная проверка по индексу: ошибки формы — до записи.
     const props = this.propertiesPatch(event, patch);
     if (!props.ok) return props;
 
     let path = event.path;
     let changed = false;
-    const written = props.value;
+    let written = props.value;
     if (Object.keys(written).length > 0) {
-      const box: { mismatch: boolean | null } = { mismatch: null };
+      const box: { mismatch: boolean | null; failure: OpResult | null } = { mismatch: null, failure: null };
       const result = await this.deps.repository.updateFrontmatter(path, (frontmatter) => {
         const current = parseEvent({
           path: event.path,
@@ -239,11 +240,20 @@ export class VaultEventService implements EventService {
           deletedInCalendar: event.deletedInCalendar,
         });
         box.mismatch = current.kind !== 'event' || current.id !== id;
-        if (!box.mismatch) applyFrontmatterPatch<EventProperties>(frontmatter, written);
+        if (box.mismatch || current.kind !== 'event') return;
+        // Частичный патч расписания дополняется фактическими свойствами файла, а не индексом.
+        const actual = this.propertiesPatch(current, patch);
+        if (!actual.ok) {
+          box.failure = actual;
+          return;
+        }
+        written = actual.value;
+        applyFrontmatterPatch<EventProperties>(frontmatter, written);
       });
       if (!result.ok) return result;
       if (box.mismatch === null) return errorResult('unknown', 'frontmatter callback was not called');
       if (box.mismatch) return errorResult('stale', 'id-mismatch');
+      if (box.failure) return box.failure;
       changed = result.changed;
     }
 

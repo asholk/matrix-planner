@@ -118,3 +118,28 @@ describe('splitSpanByDays', () => {
     expect(pieces.map((p) => p.date)).toEqual(['2026-10-10']);
   });
 });
+
+describe('финальные исправления', () => {
+  it('зона события совпадает с зоной устройства: несуществующее 02:30 при переходе на летнее время сдвигается', () => {
+    const ev = timed('2026-03-29T02:30', '2026-03-29T03:30', { tz: 'Europe/Berlin' });
+    const occ = expandEventOccurrences(ev, { from: '2026-03-29', to: '2026-03-29' }, 'Europe/Berlin');
+    expect(occ).toHaveLength(1);
+    expect(occ[0].span.start).toEqual({ date: '2026-03-29', time: '03:30' });
+    expect(convertZonedTime({ date: '2026-03-29', time: '02:30' }, 'Europe/Berlin', 'Europe/Berlin')).toEqual({ date: '2026-03-29', time: '03:30' });
+  });
+
+  it('очень длинный интервал ограничивается диапазоном до разбиения, признаки продолжения сохраняются', () => {
+    const span = { start: { date: '2026-01-01', time: '10:00' }, end: { date: '9999-12-31', time: '10:00' }, allDay: false };
+    const pieces = splitSpanByDays(span, { from: '2026-10-10', to: '2026-10-11' });
+    expect(pieces.map((p) => p.date)).toEqual(['2026-10-10', '2026-10-11']);
+    expect(pieces[0]).toMatchObject({ allDay: true, continuesFromPrevious: true, continuesToNext: true });
+    const allDaySpan = { start: { date: '2026-10-11', time: null }, end: { date: '9999-12-31', time: null }, allDay: true };
+    const allDayPieces = splitSpanByDays(allDaySpan, { from: '2026-10-10', to: '2026-10-12' });
+    expect(allDayPieces.map((p) => [p.date, p.continuesFromPrevious, p.continuesToNext])).toEqual([
+      ['2026-10-11', false, true],
+      ['2026-10-12', true, true],
+    ]);
+    const occ = expandEventOccurrences(allDay('2026-01-01', '9999-12-31'), { from: '2026-10-10', to: '2026-10-16' }, 'UTC');
+    expect(occ).toHaveLength(1);
+  });
+});

@@ -31,11 +31,13 @@ import type {
   LocalDateString,
   MatrixConfig,
   NoteDayItem,
+  OpResult,
   PlannerEvent,
   PlannerSettings,
   QuadrantKey,
   Task,
   TaskDayItem,
+  TombstoneRecord,
   Unsubscribe,
   VisibleCalendarsSetting,
 } from '../model/types';
@@ -44,7 +46,7 @@ import type { CalendarCacheReader, Clock, DayItemsBuilder, DayItemsOptions, DayI
 import { addDays, datesInRange, floatingFromDate, isValidTimeZone, timeToMinutes } from '../model/dates';
 import { DEFAULT_QUADRANT_STYLE } from '../model/defaults';
 import { occurrencesInRange } from '../model/recurrence';
-import { expandEventOccurrences, splitSpanByDays, type DayPiece, type TimeSpan } from './event-occurrences';
+import { expandEventOccurrences, spanIntersects, splitSpanByDays, type DayPiece, type TimeSpan } from './event-occurrences';
 import { partitionCacheEvents, shouldUseCacheOccurrences, uniqueByKey } from './deduplicate';
 
 // ---------------------------------------------------------------------------
@@ -209,14 +211,13 @@ function eventItemsFromSpan(
   span: TimeSpan,
   occurrenceStart: EventDayItem['occurrenceStart'],
   range: DateRange,
+  title: string = event.title,
 ): EventDayItem[] {
   const occurrenceId = `${occurrenceStart.date}T${occurrenceStart.time ?? ''}`;
-  return splitSpanByDays(span)
-    .filter((piece) => inRange(piece.date, range))
-    .map((piece) => ({
+  return splitSpanByDays(span, range).map((piece) => ({
       key: `event:${event.id}:${occurrenceId}@${piece.date}`,
       source: 'event' as const,
-      title: event.title,
+      title,
       ...pieceFields(piece),
       color: EVENT_COLOR_CSS[event.color] ?? EVENT_COLOR_CSS.blue,
       icon: event.icon,
@@ -243,15 +244,19 @@ export function buildEventItems(
   const useCache = cache !== null && shouldUseCacheOccurrences(event, linked, cache);
   const result: EventDayItem[] = [];
 
+  // Свежий кэш — источник истины для повторений, пересекающих его диапазон
+  // (в том числе начавшихся до его начала): чего в кэше нет, то удалено в «Календаре» iOS.
   for (const occurrence of expandEventOccurrences(event, range, timeZone)) {
-    // Повторение внутри диапазона свежего кэша, которого в кэше нет, удалено в «Календаре» iOS.
-    if (useCache && cache && inRange(occurrence.span.start.date, cache.range)) continue;
+    if (useCache && cache && spanIntersects(occurrence.span, cache.range)) continue;
     result.push(...eventItemsFromSpan(event, occurrence.span, occurrence.occurrenceStart, range));
   }
   if (useCache && cache && linked) {
     for (const cached of linked) {
-      if (!inRange(cached.start.date, cache.range)) continue;
-      result.push(...eventItemsFromSpan(event, cacheSpan(cached), cached.start, range));
+      const span = cacheSpan(cached);
+      if (!spanIntersects(span, cache.range)) continue;
+      // Изменённое в iOS повторение: время и название из кэша, цвет и значок — заметки.
+      const title = cached.title.trim() !== '' ? cached.title : event.title;
+      result.push(...eventItemsFromSpan(event, span, cached.start, range, title));
     }
   }
   return result;
@@ -263,9 +268,7 @@ export function buildExternalItems(
   calendar: CachedCalendar | undefined,
   range: DateRange,
 ): ExternalDayItem[] {
-  return splitSpanByDays(cacheSpan(event))
-    .filter((piece) => inRange(piece.date, range))
-    .map((piece) => ({
+  return splitSpanByDays(cacheSpan(event), range).map((piece) => ({
       key: `external:${event.occurrenceKey}@${piece.date}`,
       source: 'external' as const,
       title: event.title,
@@ -453,8 +456,35 @@ export interface DayItemsProviderDeps {
   settings: Pick<SettingsStore, 'get' | 'onChange'>;
   cache: Pick<CalendarCacheReader, 'getState' | 'onChange'>;
   clock: Clock;
+  /**
+   * Метки удаления (`tombstones.json`, необязательно). Запись кэша, связанная с удалённой
+   * заметкой, которой уже нет в индексе, не показывается как внешнее событие, пока компаньон
+   * не удалит событие из «Календаря» iOS и не перепишет кэш.
+   */
+  tombstones?: TombstoneSource;
   /** Подмена сборки (тесты). */
   build?: DayItemsBuilder;
+}
+
+/** Источник меток удаления: `TombstoneWriter.list` и (необязательно) подписка на изменения. */
+export interface TombstoneSource {
+  list(): Promise<OpResult<readonly TombstoneRecord[]>> | OpResult<readonly TombstoneRecord[]>;
+  onChange?(listener: () => void): Unsubscribe;
+}
+
+const EMPTY_IDS: ReadonlySet<ItemId> = new Set<ItemId>();
+
+/** Состояние кэша без записей, связанных с удалёнными заметками, которых нет среди известных. */
+export function withoutTombstoned(
+  cache: CalendarCacheState,
+  deletedIds: ReadonlySet<ItemId>,
+  knownIds: ReadonlySet<ItemId>,
+): CalendarCacheState {
+  if (cache.status !== 'ok' || deletedIds.size === 0) return cache;
+  const isGone = (event: CachedCalendarEvent) =>
+    event.linkedItemId !== null && deletedIds.has(event.linkedItemId) && !knownIds.has(event.linkedItemId);
+  if (!cache.data.events.some(isGone)) return cache;
+  return { ...cache, data: { ...cache.data, events: cache.data.events.filter((event) => !isGone(event)) } };
 }
 
 /** Источники и календари обоев: без заметок; `wallpaper.calendarIds` заменяет список календарей. */
@@ -476,8 +506,32 @@ export function wallpaperFilters(
 export class PlannerDayItemsProvider implements DayItemsProvider {
   private readonly listeners = new Set<() => void>();
   private unsubscribes: Unsubscribe[] = [];
+  private deletedIds: ReadonlySet<ItemId> = EMPTY_IDS;
+  private tombstonesLoaded = false;
+  /** Номер последнего запроса меток: устаревшие ответы отбрасываются. */
+  private tombstonesSeq = 0;
 
   constructor(private readonly deps: DayItemsProviderDeps) {}
+
+  /** Перечитывает метки удаления; при изменении набора оповещает слушателей. */
+  async refreshTombstones(): Promise<void> {
+    const source = this.deps.tombstones;
+    if (!source) return;
+    const seq = ++this.tombstonesSeq;
+    this.tombstonesLoaded = true;
+    let listed: OpResult<readonly TombstoneRecord[]>;
+    try {
+      listed = await source.list();
+    } catch {
+      return;
+    }
+    // Ошибка чтения — оставляем прежний набор.
+    if (seq !== this.tombstonesSeq || !listed.ok) return;
+    const next = new Set(listed.value.map((record) => record.id));
+    if (next.size === this.deletedIds.size && [...next].every((id) => this.deletedIds.has(id))) return;
+    this.deletedIds = next;
+    this.notify();
+  }
 
   getDays(range: DateRange, options: DayItemsOptions = {}): DayItemsByDate {
     const settings = this.deps.settings.get();
@@ -487,14 +541,24 @@ export class PlannerDayItemsProvider implements DayItemsProvider {
       : { sources: settings.ui.calendarSources, visibleCalendars: settings.visibleCalendars };
     const timeZone = this.deps.clock.timeZone();
     const zone = isValidTimeZone(timeZone) ? timeZone : undefined;
+    if (this.deps.tombstones && !this.tombstonesLoaded) void this.refreshTombstones();
+    const tasks = this.deps.index.getTasks();
+    const events = this.deps.index.getEvents();
+    const notes = this.deps.index.getNotes();
+    let cache = this.deps.cache.getState();
+    if (this.deletedIds.size > 0) {
+      const known = new Set<ItemId>();
+      for (const item of [...tasks, ...events, ...notes]) known.add(item.id);
+      cache = withoutTombstoned(cache, this.deletedIds, known);
+    }
     const input: DayItemsInput = {
       range,
       today: floatingFromDate(this.deps.clock.now(), zone).date,
       timeZone: zone ?? 'UTC',
-      tasks: this.deps.index.getTasks(),
-      events: this.deps.index.getEvents(),
-      notes: this.deps.index.getNotes(),
-      cache: this.deps.cache.getState(),
+      tasks,
+      events,
+      notes,
+      cache,
       matrix: this.deps.index.getMatrix(),
       sources: filters.sources,
       visibleCalendars: filters.visibleCalendars,
@@ -519,15 +583,24 @@ export class PlannerDayItemsProvider implements DayItemsProvider {
     this.unsubscribe();
   }
 
+  private notify(): void {
+    for (const listener of [...this.listeners]) listener();
+  }
+
   private subscribe(): void {
-    const notify = () => {
-      for (const listener of [...this.listeners]) listener();
-    };
+    const notify = () => this.notify();
+    const tombstones = this.deps.tombstones;
     this.unsubscribes = [
-      this.deps.index.onChange(notify),
+      this.deps.index.onChange(() => {
+        // Удаление заметки обычно идёт после записи метки — перечитываем метки.
+        if (tombstones) void this.refreshTombstones();
+        notify();
+      }),
       this.deps.settings.onChange(notify),
       this.deps.cache.onChange(notify),
     ];
+    if (tombstones?.onChange) this.unsubscribes.push(tombstones.onChange(() => void this.refreshTombstones()));
+    if (tombstones) void this.refreshTombstones();
   }
 
   private unsubscribe(): void {

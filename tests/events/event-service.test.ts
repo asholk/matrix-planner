@@ -16,6 +16,11 @@ import { parsePlannerNote } from '../../src/model/properties';
 import { errorResult, okResult } from '../../src/storage/note-repository';
 import { createPlannerPaths } from '../../src/storage/paths';
 import { VaultEventService, eventDraftToProperties } from '../../src/events/event-service';
+import type { App } from 'obsidian';
+import { createMockApp, type App as MockApp } from '../__mocks__/obsidian';
+import { AdapterSystemJsonStore } from '../../src/storage/system-json-store';
+import { SystemTombstoneWriter } from '../../src/storage/system-records';
+import { KeyedWriteQueue } from '../../src/storage/write-queue';
 
 // ---------------------------------------------------------------------------
 // Фейки: заметки в памяти, индекс на настоящем разборе, метки удаления
@@ -439,5 +444,42 @@ describe('удаление события', () => {
   it('неизвестное событие без метки — not-found', async () => {
     const { service } = await seeded();
     expectError(await service.delete('NOPE'), 'not-found');
+  });
+});
+
+describe('финальные исправления', () => {
+  it('частичный патч расписания считается по фактическим свойствам файла, а не по устаревшему индексу', async () => {
+    const ctx = setup();
+    const path = `${paths.events}/Йога.md`;
+    ctx.store.notes.set(path, { fm: eventDraftToProperties(draft(), 'EV1') as unknown as FrontmatterRecord, body: '' });
+    // Индекс ещё видит 21-е, а файл уже перенесён на 25-е.
+    ctx.index.freeze();
+    const note = ctx.store.notes.get(path)!;
+    note.fm = { ...note.fm, start: '2026-10-25T09:00', end: '2026-10-25T10:00' };
+    expectOk(await ctx.service.update('EV1', { allDay: true }));
+    expect(ctx.store.notes.get(path)?.fm).toMatchObject({ start: '2026-10-25', end: '2026-10-26', all_day: true });
+  });
+
+  it('повреждённая запись с тем же id в tombstones.json: удаление останавливается до корзины', async () => {
+    const app: MockApp = createMockApp();
+    const store = new AdapterSystemJsonStore(app as unknown as App, {
+      getPaths: () => createPlannerPaths('Планировщик'),
+      queue: new KeyedWriteQueue(),
+      guard: { canWrite: () => true, check: () => null },
+    });
+    const ctx = setup();
+    const service = new VaultEventService({
+      repository: fakeRepository(ctx.store),
+      index: ctx.index,
+      ids: idGenerator(),
+      calendars: { getCalendars: () => CALENDARS },
+      tombstones: new SystemTombstoneWriter({ store, clock: { now: () => new Date('2026-10-10T10:00:00Z'), timeZone: () => 'UTC' } }),
+    });
+    const path = `${paths.events}/Концерт.md`;
+    ctx.store.notes.set(path, { fm: eventDraftToProperties(draft(), 'EV1') as unknown as FrontmatterRecord, body: '' });
+    await app.vault.adapter.write('Планировщик/_system/tombstones.json', JSON.stringify({ version: 1, tombstones: [{ id: 'EV1' }] }));
+    expectError(await service.delete('EV1'), 'tombstone-failed', 'tombstone');
+    expect(ctx.store.notes.has(path)).toBe(true);
+    expect(ctx.store.trashed).toHaveLength(0);
   });
 });

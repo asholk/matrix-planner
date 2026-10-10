@@ -129,6 +129,11 @@ export function parseTombstones(value: unknown): TombstoneRecord[] | null {
   return [...byId.values()];
 }
 
+/** Полноценная метка удаления события с этим id (как её принимает `parseTombstones`). */
+function isTombstoneFor(entry: unknown, id: ItemId): boolean {
+  return isRecord(entry) && entry['id'] === id && entry['kind'] === 'event';
+}
+
 export interface SystemRecordsDeps {
   store: Pick<SystemJsonStore, 'read' | 'update' | 'path'>;
   clock: Clock;
@@ -137,7 +142,32 @@ export interface SystemRecordsDeps {
 }
 
 export class SystemTombstoneWriter implements TombstoneWriter {
+  private readonly listeners = new Set<() => void>();
+
   constructor(private readonly deps: SystemRecordsDeps) {}
+
+  /** Подписка на изменения меток (своя запись или изменение файла через `watch`). */
+  onChange(listener: () => void): Unsubscribe {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  /** Оповещает подписчиков при изменении `tombstones.json` в хранилище. Отписку регистрирует вызывающий. */
+  watch(app: App): Unsubscribe {
+    return watchSystemFile(app, () => this.deps.store.path(SYSTEM_FILES.tombstones), () => this.emit());
+  }
+
+  private emit(): void {
+    for (const listener of [...this.listeners]) {
+      try {
+        listener();
+      } catch (error) {
+        console.error('[matrix-planner] tombstones listener failed', error);
+      }
+    }
+  }
 
   async add(id: ItemId, kind: 'event'): Promise<OpResult> {
     if (typeof id !== 'string' || id.trim() === '') return errorResult('invalid', 'empty tombstone id');
@@ -148,8 +178,12 @@ export class SystemTombstoneWriter implements TombstoneWriter {
       checkVersion(base, TOMBSTONES_VERSION);
       const list = base['tombstones'] ?? [];
       if (!Array.isArray(list)) throw new ShapeError('"tombstones" is not an array');
-      // Метка с этим id уже есть (своя или другого устройства) — ничего не меняем.
-      if (list.some((entry) => isRecord(entry) && entry['id'] === id)) return base;
+      const same = list.filter((entry) => isRecord(entry) && entry['id'] === id);
+      // Полноценная метка с этим id уже есть (своя или другого устройства) — ничего не меняем.
+      if (same.some((entry) => isTombstoneFor(entry, id))) return base;
+      // Запись с этим id есть, но не метка события: компаньон её не учтёт, а молча
+      // дописывать вторую запись нельзя — удаление останавливается до корзины.
+      if (same.length > 0) throw new ShapeError(`tombstone "${id}" is damaged`);
       const entry: Record<string, unknown> = { id, kind, deleted_at: deletedAt };
       if (deviceName) entry['device_name'] = deviceName;
       // Новый объект: исходный не меняется, иначе store не увидит изменения.
@@ -162,6 +196,7 @@ export class SystemTombstoneWriter implements TombstoneWriter {
         newer: 'cache.errors.tombstonesNewer',
       });
     }
+    if (result.changed) this.emit();
     return okResult(undefined, result.changed);
   }
 
@@ -250,11 +285,18 @@ export class SystemCompanionStore implements CompanionStore {
   private state: CompanionState = { status: 'missing' };
   private signature = 'missing';
   private readonly listeners = new Set<(state: CompanionState) => void>();
+  /** Номер последней начатой операции и номер операции, чьё состояние применено. */
+  private ticket = 0;
+  private appliedTicket = 0;
 
   constructor(private readonly deps: Pick<SystemRecordsDeps, 'store'>) {}
 
+  /** Чтение, начатое до более нового применённого состояния (запись, другое чтение), отбрасывается. */
   async read(): Promise<CompanionState> {
+    const ticket = ++this.ticket;
     const read = await this.deps.store.read(SYSTEM_FILES.companion);
+    if (ticket < this.appliedTicket) return this.state;
+    this.appliedTicket = ticket;
     if (read.status === 'ok') this.setState(parseCompanion(read.value), `ok:${JSON.stringify(read.value)}`);
     else if (read.status === 'corrupt') this.setState(read, `corrupt:${read.detail}`);
     else this.setState(read, 'missing');
@@ -294,6 +336,8 @@ export class SystemCompanionStore implements CompanionStore {
         newer: 'cache.errors.companionNewer',
       });
     }
+    // Номер — по завершении записи: чтения, начатые раньше, не перезапишут результат.
+    this.appliedTicket = ++this.ticket;
     this.setState(parseCompanion(result.value), `ok:${JSON.stringify(result.value)}`);
     return okResult(undefined, result.changed);
   }
