@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "generated_at": "2026-10-10T06:05:12Z",
+  "device_name": "iPhone Александра",
+  "time_zone": "Europe/Moscow",
+  "range": { "from": "2026-09-10", "to": "2027-04-08" },
+  "calendars": [
+    { "calendar_id": "8C1F2E3A-0001", "title": "Дом", "color": "#34C759", "kind": "caldav", "allows_modifications": true },
+    { "calendar_id": "8C1F2E3A-0002", "title": "Работа", "color": "#007AFF", "kind": "exchange", "allows_modifications": true },
+    { "calendar_id": "8C1F2E3A-0003", "title": "Дни рождения", "color": "#8E8E93", "kind": "birthdays", "allows_modifications": false },
+    { "calendar_id": "8C1F2E3A-0004", "title": "Праздники России", "color": "#FF3B30", "kind": "subscription", "allows_modifications": false }
+  ],
+  "events": [
+    {
+      "id": "E7A1:0001",
+      "calendar_id": "8C1F2E3A-0002",
+      "title": "Планёрка",
+      "all_day": false,
+      "start": "2026-10-12T10:00:00+03:00",
+      "end": "2026-10-12T10:30:00+03:00",
+      "recurrence": "Каждую неделю",
+      "item_id": null,
+      "location": "Переговорная 3",
+      "url": null,
+      "notes": null
+    },
+    {
+      "id": "E7A1:0001",
+      "calendar_id": "8C1F2E3A-0002",
+      "title": "Планёрка",
+      "all_day": false,
+      "start": "2026-10-19T10:00:00+03:00",
+      "end": "2026-10-19T10:30:00+03:00",
+      "recurrence": "Каждую неделю",
+      "item_id": null,
+      "location": "Переговорная 3",
+      "url": null,
+      "notes": null
+    },
+    {
+      "id": "E7A1:0002",
+      "calendar_id": "8C1F2E3A-0001",
+      "title": "Стоматолог",
+      "all_day": false,
+      "start": "2026-10-10T14:00:00Z",
+      "end": "2026-10-10T15:00:00Z",
+      "recurrence": null,
+      "item_id": "01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "location": "ул. Ленина, 5",
+      "url": "matrixplanner://item/01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "notes": "Взять полис"
+    },
+    {
+      "id": "E7A1:0003",
+      "calendar_id": "8C1F2E3A-0003",
+      "title": "День рождения Марии",
+      "all_day": true,
+      "start": "2026-10-11",
+      "end": "2026-10-12",
+      "recurrence": "Каждый год",
+      "item_id": null,
+      "location": null,
+      "url": null,
+      "notes": null
+    },
+    {
+      "id": "E7A1:0004",
+      "calendar_id": "8C1F2E3A-0004",
+      "title": "Новогодние каникулы",
+      "all_day": true,
+      "start": "2027-01-01",
+      "end": "2027-01-09",
+      "recurrence": null,
+      "item_id": null,
+      "location": null,
+      "url": null,
+      "notes": null
+    },
+    {
+      "id": "E7A1:0005",
+      "calendar_id": "8C1F2E3A-0001",
+      "title": "Поездка на дачу",
+      "all_day": false,
+      "start": "2026-10-16T18:00:00+03:00",
+      "end": "2026-10-18T20:00:00+03:00",
+      "recurrence": null,
+      "url": "matrixplanner://item/01JA2B3C4D5E6F7G8H9JKMNPQS"
+    }
+  ]
+}

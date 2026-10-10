@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "primary_device": "iPhone Александра",
+  "last_update": "2026-10-10T06:05:12Z",
+  "wallpapers": {
+    "iphone-1179x2556": {
+      "saved_at": "2026-10-10T10:32:05.000Z",
+      "launched_at": "2026-10-10T10:32:06.000Z",
+      "confirmed_at": "2026-10-10T10:32:09.000Z",
+      "failed_at": null,
+      "device_name": "iPhone Александра"
+    },
+    "ipad-2048x2732": {
+      "saved_at": "2026-10-09T21:00:00.000Z",
+      "launched_at": null,
+      "confirmed_at": null,
+      "failed_at": "2026-10-09T21:00:04.000Z",
+      "device_name": "iPad"
+    }
+  },
+  "reminders": { "scheduled_at": "2026-10-10T06:05:12Z", "count": 4 },
+  "devices": [
+    { "name": "iPhone Александра", "seen_at": "2026-10-10T06:05:12Z" },
+    { "name": "iPad", "seen_at": "2026-10-09T21:00:00Z" }
+  ]
+}
