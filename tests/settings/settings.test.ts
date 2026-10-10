@@ -282,10 +282,13 @@ describe('архив через N дней', () => {
 
     // Вкладка перерисована: появилось поле N.
     const days = component(findSetting('Через сколько дней'), TextComponent);
+    const daysInput = days.inputEl as unknown as MockElement;
     days.simulateChange('0');
+    daysInput.dispatch('change');
     await flush();
     expect(store.get().archive).toEqual({ mode: 'after-days', days: 30 });
     days.simulateChange('45');
+    daysInput.dispatch('change');
     await flush();
     expect(store.get().archive).toEqual({ mode: 'after-days', days: 45 });
 
@@ -294,6 +297,48 @@ describe('архив через N дней', () => {
     component(findSetting('Перенос выполненных в архив'), DropdownComponent).simulateChange('never');
     await flush();
     expect(store.get().archive).toEqual({ mode: 'never' });
+  });
+});
+
+describe('сохранение N дней и перерисовка', () => {
+  it('N сохраняется по завершении ввода, а не на каждый символ', async () => {
+    const { plugin, store } = await createStore({ archive: { mode: 'after-days', days: 7 } });
+    const updates = vi.spyOn(store, 'update');
+    const tab = createTab(plugin, { store });
+    tab.display();
+    const days = component(findSetting('Через сколько дней'), TextComponent);
+    // Набор «30»: промежуточное «3» не сохраняется.
+    days.simulateChange('3');
+    days.simulateChange('30');
+    await flush();
+    expect(store.get().archive).toEqual({ mode: 'after-days', days: 7 });
+    expect(updates).not.toHaveBeenCalled();
+    (days.inputEl as unknown as MockElement).dispatch('change');
+    await flush();
+    expect(store.get().archive).toEqual({ mode: 'after-days', days: 30 });
+    expect(updates).toHaveBeenCalledTimes(1);
+  });
+
+  it('сохранение после закрытия панели не перерисовывает её', async () => {
+    const { plugin, store } = await createStore();
+    const tab = createTab(plugin, { store });
+    tab.display();
+    const display = vi.spyOn(tab, 'display');
+    component(findSetting('Перенос выполненных в архив'), DropdownComponent).simulateChange('after-days');
+    tab.hide();
+    await flush();
+    expect(store.get().archive).toEqual({ mode: 'after-days', days: 30 });
+    expect(display).not.toHaveBeenCalled();
+  });
+
+  it('сохранение во время показа перерисовывает панель', async () => {
+    const { plugin, store } = await createStore();
+    const tab = createTab(plugin, { store });
+    tab.display();
+    const display = vi.spyOn(tab, 'display');
+    component(findSetting('Перенос выполненных в архив'), DropdownComponent).simulateChange('after-days');
+    await flush();
+    expect(display).toHaveBeenCalledTimes(1);
   });
 });
 

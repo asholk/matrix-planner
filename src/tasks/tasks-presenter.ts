@@ -65,7 +65,10 @@ export interface TaskCardModel {
   done: boolean;
   /** Подпись даты выполнения (режим «Выполнено»). */
   completedLabel: string | null;
-  /** Дата выполненного повторения для `uncomplete`; `null` — неповторяющаяся. */
+  /**
+   * Дата повторения: у выполненной карточки — для `uncomplete`, у активной повторяющейся —
+   * показанное повторение (срок) для `complete`; `null` — неповторяющаяся.
+   */
   instanceDate: LocalDateString | null;
 }
 
@@ -135,7 +138,8 @@ export function activeCard(task: Task, now: FloatingDateTime, format: TaskLabelF
     overdue: isTaskOverdue(task, now),
     done: false,
     completedLabel: null,
-    instanceDate: null,
+    // Выполняем именно показанное повторение, даже если срок успеет сдвинуться.
+    instanceDate: task.repeat !== 'none' ? (task.due?.date ?? null) : null,
   };
 }
 

@@ -42,7 +42,7 @@ import { MetadataNoteIndex } from '../storage/note-index';
 import { AdapterSystemJsonStore } from '../storage/system-json-store';
 import { createWriteQueue } from '../storage/write-queue';
 import { createPlannerPaths } from '../storage/paths';
-import { VaultTaskService } from '../tasks/task-service';
+import { VaultTaskService, clockToday } from '../tasks/task-service';
 import { VaultArchiveService } from '../tasks/archive-service';
 import { TaskActions } from '../tasks/task-actions';
 import { openTaskForm } from '../tasks/task-form';
@@ -193,6 +193,62 @@ export function trackReminderEdits(tasks: TaskService, index: Pick<NoteIndex, 'g
     delete: (id) => wrap(id, () => tasks.delete(id)),
     getCompletions: () => tasks.getCompletions(),
   };
+}
+
+/** Задержка автоархива после изменений индекса (синхронизация присылает пачки). */
+export const AUTO_ARCHIVE_DEBOUNCE_MS = 3000;
+/** Как часто проверять смену дня. */
+export const DAY_CHECK_INTERVAL_MS = 60_000;
+
+/**
+ * Запуски автоархива без наложения: пока идёт запуск, новые запросы сливаются
+ * в один повтор после него. `schedule` — отложенный запуск (сбрасывает таймер).
+ */
+export class AutoArchiveRunner {
+  private running: Promise<void> | null = null;
+  private again = false;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private stopped = false;
+
+  constructor(
+    private readonly run: () => Promise<void>,
+    private readonly delayMs = AUTO_ARCHIVE_DEBOUNCE_MS,
+  ) {}
+
+  trigger(): Promise<void> {
+    if (this.stopped) return Promise.resolve();
+    if (this.running) {
+      this.again = true;
+      return this.running;
+    }
+    const running = (async () => {
+      try {
+        do {
+          this.again = false;
+          await this.run();
+        } while (this.again && !this.stopped);
+      } finally {
+        this.running = null;
+      }
+    })();
+    this.running = running;
+    return running;
+  }
+
+  schedule(): void {
+    if (this.stopped) return;
+    if (this.timer !== null) clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.trigger();
+    }, this.delayMs);
+  }
+
+  stop(): void {
+    this.stopped = true;
+    if (this.timer !== null) clearTimeout(this.timer);
+    this.timer = null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -443,6 +499,30 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
     await taskActions.runAutoArchive();
   };
 
+  // Фоновые запуски: смена дня, возврат в приложение, изменения индекса (синхронизация).
+  // Только после первого запуска при старте; при запрете записи — пропуск (без повторных ошибок).
+  let started = false;
+  const archiveRunner = new AutoArchiveRunner(async () => {
+    if (unloaded || !started || guard.check() || settings.get().archive.mode === 'never') return;
+    await autoArchive().catch((error: unknown) => log('Auto archive failed', error));
+  });
+  plugin.register(() => archiveRunner.stop());
+  plugin.register(index.onChange(() => archiveRunner.schedule()));
+  let lastDay = clockToday(clock);
+  plugin.registerInterval(
+    window.setInterval(() => {
+      const today = clockToday(clock);
+      if (today === lastDay) return;
+      lastDay = today;
+      void archiveRunner.trigger();
+    }, DAY_CHECK_INTERVAL_MS),
+  );
+  if (typeof document !== 'undefined') {
+    plugin.registerDomEvent(document, 'visibilitychange', () => {
+      if (document.visibilityState === 'visible') void archiveRunner.trigger();
+    });
+  }
+
   /** Создать маркер/папки и при старой схеме выполнить миграцию. */
   const prepareStorage = async (): Promise<void> => {
     await marker.ensure();
@@ -472,7 +552,9 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
           .catch((error: unknown) => log('Cannot switch root folder', error));
       }
       if (JSON.stringify(next.archive) !== JSON.stringify(previous.archive)) {
-        void autoArchive().catch((error: unknown) => log('Auto archive failed', error));
+        // До первого запуска при старте — сразу, как раньше; дальше — через общий запуск без наложений.
+        if (started && !guard.check()) void archiveRunner.trigger();
+        else void autoArchive().catch((error: unknown) => log('Auto archive failed', error));
       }
     }),
   );
@@ -485,7 +567,11 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
         if (unloaded) return;
         await prepareStorage();
         if (unloaded) return;
-        await autoArchive();
+        try {
+          await autoArchive();
+        } finally {
+          started = true;
+        }
         if (unloaded) return;
         await integrity.check();
       };

@@ -320,6 +320,61 @@ describe('ArchiveService.runAuto', () => {
   });
 });
 
+describe('ArchiveService.runAuto: гонка с «Вернуть в работу»', () => {
+  const A = '01JD0000000000000000000001';
+  const B = '01JD0000000000000000000002';
+
+  it('задача, возвращённая в работу во время пакета, не уходит в архив', async () => {
+    const { store, index, service } = setup();
+    store.put(`${TASKS}/А.md`, doneTask(A, '2026-10-01T12:00'));
+    store.put(`${TASKS}/Б.md`, doneTask(B, '2026-10-01T12:00'));
+    const repository = (service as unknown as { deps: { repository: NoteRepository } }).deps.repository;
+    const move = repository.move.bind(repository);
+    let raced = false;
+    repository.move = async (path, folder) => {
+      if (!raced && path === `${TASKS}/А.md`) {
+        raced = true;
+        // Пока переносится «А», «Б» возвращают в работу; индекс ещё не знает об этом.
+        index.freeze();
+        store.fm(`${TASKS}/Б.md`).done = false;
+        store.fm(`${TASKS}/Б.md`).completed = null;
+      }
+      return move(path, folder);
+    };
+    const result = expectOk(await service.runAuto());
+    expect(result.value).toBe(1);
+    expect(store.notes.has(`${ARCHIVE_OCT}/А.md`)).toBe(true);
+    expect(store.notes.has(`${TASKS}/Б.md`)).toBe(true);
+    expect(store.fm(`${TASKS}/Б.md`)).toMatchObject({ done: false });
+  });
+
+  it('отмена выполнения во время самого переноса — задача возвращается в «Задачи»', async () => {
+    const { store, service } = setup();
+    store.put(`${TASKS}/Б.md`, doneTask(B, '2026-10-01T12:00'));
+    const repository = (service as unknown as { deps: { repository: NoteRepository } }).deps.repository;
+    const move = repository.move.bind(repository);
+    repository.move = async (path, folder) => {
+      const result = await move(path, folder);
+      // «Вернуть в работу» записалось сразу после переноса.
+      if (result.ok && folder === ARCHIVE_OCT) store.fm(result.value).done = false;
+      return result;
+    };
+    const result = expectOk(await service.runAuto());
+    expect(result).toMatchObject({ value: 0, changed: false });
+    expect(store.notes.has(`${TASKS}/Б.md`)).toBe(true);
+    expect(store.notes.has(`${ARCHIVE_OCT}/Б.md`)).toBe(false);
+  });
+
+  it('ручной перенос тоже сверяется с файлом', async () => {
+    const { store, index, service } = setup({ mode: 'never' });
+    store.put(PATH, doneTask(ID, '2026-09-15T08:00'));
+    index.freeze();
+    store.fm(PATH).done = false;
+    expect(expectOk(await service.archive(ID)).changed).toBe(false);
+    expect(store.notes.has(PATH)).toBe(true);
+  });
+});
+
 describe('ArchiveService.archive', () => {
   it('переносит выполненную задачу вручную; повтор — без изменений', async () => {
     const { store, service } = setup({ mode: 'never' });

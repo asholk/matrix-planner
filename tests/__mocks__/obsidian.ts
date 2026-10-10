@@ -190,6 +190,15 @@ type DomElementInfo = {
 };
 
 /** Минимальный элемент с хелперами Obsidian (createDiv/createEl/empty/…). */
+// Общий документ для `el.doc` (создаётся лениво — класс объявлен ниже).
+const mockDocument = {
+  activeElement: null as MockElement | null,
+  bodyEl: null as MockElement | null,
+  get body(): MockElement {
+    return (this.bodyEl ??= new MockElement('body'));
+  },
+};
+
 export class MockElement {
   tagName: string;
   children: MockElement[] = [];
@@ -206,6 +215,13 @@ export class MockElement {
 
   constructor(tagName = 'div') {
     this.tagName = tagName.toUpperCase();
+    // CSSStyleDeclaration: setProperty/removeProperty (неперечислимые, чтобы не мешать сравнению стилей).
+    const style = this.style;
+    Object.defineProperties(style, {
+      setProperty: { value: (name: string, value: string) => void (style[name] = value), enumerable: false },
+      removeProperty: { value: (name: string) => void delete style[name], enumerable: false },
+      getPropertyValue: { value: (name: string) => style[name] ?? '', enumerable: false },
+    });
   }
 
   get className(): string {
@@ -353,6 +369,34 @@ export class MockElement {
       type,
       (this.listeners.get(type) ?? []).filter((l) => l !== listener),
     );
+  }
+
+  /** Размеры: в node раскладки нет — нули (тест может присвоить свои). */
+  clientWidth = 0;
+  clientHeight = 0;
+
+  getBoundingClientRect(): { left: number; top: number; right: number; bottom: number; width: number; height: number; x: number; y: number } {
+    return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 };
+  }
+
+  /** Документ элемента (Obsidian `el.doc`): активного элемента нет, body — общий. */
+  get doc(): { activeElement: MockElement | null; body: MockElement } {
+    return mockDocument;
+  }
+
+  /** Есть ли `node` в поддереве (включая сам элемент). */
+  contains(node: unknown): boolean {
+    let current = node as MockElement | null;
+    while (current) {
+      if (current === this) return true;
+      current = current.parent;
+    }
+    return false;
+  }
+
+  /** Окно элемента (Obsidian `el.win`): минимальная заглушка. */
+  get win(): { innerHeight: number; innerWidth: number } {
+    return { innerHeight: 0, innerWidth: 0 };
   }
 
   /** Вызывает обработчики события (для тестов). */
@@ -1452,6 +1496,53 @@ export class Modal {
   onClose(): void {}
 }
 
+export interface FuzzyMatch<T> {
+  item: T;
+  match: { score: number; matches: Array<[number, number]> };
+}
+
+/** Заглушка выбора из списка: `choose(item)` имитирует выбор пользователя (для тестов). */
+export abstract class SuggestModal<T> extends Modal {
+  placeholder = '';
+  inputEl: HTMLElement = el('input');
+  resultContainerEl: HTMLElement = el();
+
+  setPlaceholder(placeholder: string): void {
+    this.placeholder = placeholder;
+  }
+
+  abstract getSuggestions(query: string): T[] | Promise<T[]>;
+  abstract renderSuggestion(value: T, el: HTMLElement): void;
+  abstract onChooseSuggestion(item: T, evt: MouseEvent | KeyboardEvent): void;
+}
+
+export abstract class FuzzySuggestModal<T> extends SuggestModal<FuzzyMatch<T>> {
+  abstract getItems(): T[];
+  abstract getItemText(item: T): string;
+  abstract onChooseItem(item: T, evt: MouseEvent | KeyboardEvent): void;
+
+  getSuggestions(query: string): FuzzyMatch<T>[] {
+    const q = query.toLowerCase();
+    return this.getItems()
+      .filter((item) => this.getItemText(item).toLowerCase().includes(q))
+      .map((item) => ({ item, match: { score: 0, matches: [] } }));
+  }
+
+  renderSuggestion(value: FuzzyMatch<T>, target: HTMLElement): void {
+    (target as unknown as MockElement).setText(this.getItemText(value.item));
+  }
+
+  onChooseSuggestion(item: FuzzyMatch<T>, evt: MouseEvent | KeyboardEvent): void {
+    this.onChooseItem(item.item, evt);
+  }
+
+  /** Имитирует выбор элемента пользователем (для тестов). */
+  choose(item: T): void {
+    this.close();
+    this.onChooseItem(item, {} as MouseEvent);
+  }
+}
+
 export class Notice {
   static messages: string[] = [];
   noticeEl: HTMLElement = el();
@@ -1837,4 +1928,28 @@ export class Menu {
 /** Заглушка `requestUrl` — плагин не делает сетевых запросов. */
 export async function requestUrl(): Promise<never> {
   throw new Error('Network is not available in tests');
+}
+
+// ===========================================================================
+// Глобальное окно: в node у `globalThis` нет addEventListener/removeEventListener.
+// ===========================================================================
+
+type GlobalListener = (event: unknown) => void;
+const globalListeners = new Map<string, GlobalListener[]>();
+const globalScope = globalThis as unknown as {
+  addEventListener?: (type: string, listener: GlobalListener) => void;
+  removeEventListener?: (type: string, listener: GlobalListener) => void;
+};
+if (typeof globalScope.addEventListener !== 'function') {
+  globalScope.addEventListener = (type, listener) => {
+    globalListeners.set(type, [...(globalListeners.get(type) ?? []), listener]);
+  };
+  globalScope.removeEventListener = (type, listener) => {
+    globalListeners.set(type, (globalListeners.get(type) ?? []).filter((l) => l !== listener));
+  };
+}
+
+/** Вызывает обработчики, повешенные на глобальное окно (для тестов). */
+export function dispatchWindowEvent(type: string, event: unknown = { type }): void {
+  for (const listener of [...(globalListeners.get(type) ?? [])]) listener(event);
 }

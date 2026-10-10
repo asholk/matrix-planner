@@ -56,6 +56,9 @@ export class PlannerSettingTab extends PluginSettingTab {
   private cleanups: Array<() => void> = [];
   /** Последнее N для «Через N дней», чтобы не терять его при переключении на «Никогда». */
   private archiveDays = DEFAULT_ARCHIVE_DAYS;
+  /** Номер показа: меняется при `display`/`hide`, чтобы поздний `save` не перерисовал закрытую панель. */
+  private generation = 0;
+  private shown = false;
 
   constructor(
     app: App,
@@ -67,6 +70,8 @@ export class PlannerSettingTab extends PluginSettingTab {
 
   display(): void {
     this.disposeAll();
+    this.generation += 1;
+    this.shown = true;
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass('mp-settings');
@@ -103,8 +108,18 @@ export class PlannerSettingTab extends PluginSettingTab {
   }
 
   hide(): void {
+    this.generation += 1;
+    this.shown = false;
     this.disposeAll();
     super.hide();
+  }
+
+  /** Перерисовка после сохранения — только если панель всё ещё показана тем же показом. */
+  private redisplayLater(): () => void {
+    const generation = this.generation;
+    return () => {
+      if (this.shown && this.generation === generation) this.display();
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -149,7 +164,7 @@ export class PlannerSettingTab extends PluginSettingTab {
             const days = this.archiveDays;
             void this.save((draft) => {
               draft.archive = mode === 'after-days' ? { mode: 'after-days', days } : { mode: 'never' };
-            }).then(() => this.display());
+            }).then(this.redisplayLater());
           });
       });
 
@@ -163,11 +178,19 @@ export class PlannerSettingTab extends PluginSettingTab {
         text.inputEl.setAttribute('type', 'number');
         text.inputEl.setAttribute('min', String(ARCHIVE_DAYS_MIN));
         text.inputEl.setAttribute('max', String(ARCHIVE_DAYS_MAX));
-        text.setValue(String(archive.days)).onChange((value) => {
+        const validate = (value: string): number | null => {
           const valid = normalizeArchiveDays(value);
           showError(daysError, text.inputEl, valid === null ? t('settings.general.archiveDays.error', { min: ARCHIVE_DAYS_MIN, max: ARCHIVE_DAYS_MAX }) : null);
+          return valid;
+        };
+        text.setValue(String(archive.days)).onChange((value) => void validate(value));
+        // Сохраняем по завершении ввода: иначе «3» при наборе «30» запустит архив.
+        text.inputEl.addEventListener('change', () => {
+          const valid = validate(text.getValue());
           if (valid === null) return;
           this.archiveDays = valid;
+          const current = this.deps.store.get().archive;
+          if (current.mode === 'after-days' && current.days === valid) return;
           void this.save((draft) => {
             draft.archive = { mode: 'after-days', days: valid };
           });
@@ -214,7 +237,7 @@ export class PlannerSettingTab extends PluginSettingTab {
           if (value !== 'auto' && value !== 'monday' && value !== 'sunday') return;
           void this.save((draft) => {
             draft.weekStart = value;
-          }).then(() => this.display());
+          }).then(this.redisplayLater());
         });
     });
 
@@ -232,7 +255,7 @@ export class PlannerSettingTab extends PluginSettingTab {
           if (value !== 'auto' && value !== '24h' && value !== '12h') return;
           void this.save((draft) => {
             draft.timeFormat = value;
-          }).then(() => this.display());
+          }).then(this.redisplayLater());
         });
     });
 
@@ -357,7 +380,7 @@ export class PlannerSettingTab extends PluginSettingTab {
       dropdown.setValue(wallpaper.profile).onChange((value) => {
         void this.save((draft) => {
           draft.wallpaper.profile = value;
-        }).then(() => this.display());
+        }).then(this.redisplayLater());
       });
     });
 

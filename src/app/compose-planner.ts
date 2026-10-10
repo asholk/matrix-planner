@@ -8,7 +8,7 @@
  * регистрируются в `Plugin`, поэтому выгрузка плагина освобождает их без кода в `onunload`.
  */
 
-import { Setting, type ObsidianProtocolData, type Plugin } from 'obsidian';
+import { Setting, type ObsidianProtocolData, type Plugin, type TAbstractFile } from 'obsidian';
 import type {
   CoreServices,
   PlannerActions,
@@ -49,7 +49,7 @@ import { createLinkBuilder } from '../protocol/links';
 import { PROTOCOL_ACTION } from '../protocol/parameters';
 import { XCallbackShortcutLauncher, type UrlOpener } from '../protocol/shortcut-launcher';
 import { PlannerWallpaperStatusTracker } from '../protocol/wallpaper-status';
-import { BackgroundImageCache, createVaultImageReader } from '../wallpaper/background';
+import { BackgroundImageCache, backgroundAffectedBy, createVaultImageReader } from '../wallpaper/background';
 import { CanvasWallpaperRenderer, createDomCanvasFactory } from '../wallpaper/canvas-renderer';
 import { WALLPAPER_LAYOUT_MODULE } from '../wallpaper/layout';
 import { createLockscreenTab } from '../wallpaper/lockscreen-tab';
@@ -139,11 +139,12 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
   const companion = new SystemCompanionStore({ store: systemJson });
   plugin.register(calendarCache.watch(app));
   plugin.register(companion.watch(app));
+  plugin.register(tombstones.watch(app));
 
   // --- События, заметки, элементы дня ---
   const events = new VaultEventService({ repository, index, ids: core.ids, calendars: calendarCache, tombstones });
   const notes = new VaultNoteService({ repository, index, ids: core.ids });
-  const dayItems = new PlannerDayItemsProvider({ index, settings, cache: calendarCache, clock });
+  const dayItems = new PlannerDayItemsProvider({ index, settings, cache: calendarCache, clock, tombstones });
   plugin.register(() => dayItems.dispose());
 
   // --- Ссылки и быстрые команды ---
@@ -151,12 +152,9 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
   const shortcuts = new XCallbackShortcutLauncher({ links, platform, clock, open: overrides.openUrl });
 
   // --- Обои: сервис и трекер ссылаются друг на друга — цикл разорван лямбдами ---
+  const images = new BackgroundImageCache(createVaultImageReader(app.vault));
   const renderer: WallpaperRenderer =
-    overrides.renderer ??
-    new CanvasWallpaperRenderer({
-      canvases: createDomCanvasFactory(),
-      images: new BackgroundImageCache(createVaultImageReader(app.vault)),
-    });
+    overrides.renderer ?? new CanvasWallpaperRenderer({ canvases: createDomCanvasFactory(), images });
   // Трекер обращается к сервису только из лямбд (вызов — после сборки).
   const wallpaperStatus: PlannerWallpaperStatusTracker = new PlannerWallpaperStatusTracker({
     wallpaper: {
@@ -246,6 +244,15 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
   };
   plugin.register(index.onChange(() => markDataChanged()));
   plugin.register(calendarCache.onChange(() => markDataChanged()));
+  // Файл фона изменён, удалён или переименован — сбросить кэш картинки и пометить обои устаревшими.
+  const onBackgroundFile = (file: TAbstractFile, oldPath?: string): void => {
+    if (!backgroundAffectedBy(settings.get().wallpaper.background, file.path, oldPath)) return;
+    images.invalidate();
+    markDataChanged();
+  };
+  plugin.registerEvent(app.vault.on('modify', (file) => onBackgroundFile(file)));
+  plugin.registerEvent(app.vault.on('delete', (file) => onBackgroundFile(file)));
+  plugin.registerEvent(app.vault.on('rename', (file, oldPath) => onBackgroundFile(file, oldPath)));
   plugin.register(
     settings.onChange((next, previous) => {
       if (next.rootFolder !== previous.rootFolder) {

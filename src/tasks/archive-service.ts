@@ -8,8 +8,9 @@
  */
 
 import type { ArchiveService, Clock, NoteIndex, NoteRepository, SettingsStore, TaskService } from '../app/contracts';
-import type { ItemId, LocalDateString, OpResult, PlannerError, Task } from '../model/types';
+import type { ItemId, LocalDateString, OpResult, PlannerError, Task, VaultPath } from '../model/types';
 import { diffDays, localDateOf, parseFloating } from '../model/dates';
+import { parseTask } from '../model/properties';
 import { errorResult, okResult } from '../storage/note-repository';
 import { clockToday, findTask, taskMatches } from './task-service';
 
@@ -60,7 +61,8 @@ export class VaultArchiveService implements ArchiveService {
     let moved = 0;
     let firstError: PlannerError | null = null;
     for (const task of candidates) {
-      const result = await this.moveToArchive(task);
+      // Список мог устареть, пока шли переносы: проверяем свойства в файле.
+      const result = await this.moveToArchive(task, (actual) => selectForAutoArchive([actual], clockToday(this.deps.clock), days, timeZone).length > 0);
       if (result.ok) {
         if (result.changed) moved += 1;
         continue;
@@ -79,7 +81,7 @@ export class VaultArchiveService implements ArchiveService {
     const task = found.value;
     if (task.archived) return okResult(undefined, false);
     if (!isArchivable(task)) return errorResult('invalid', 'not-archivable', undefined, 'taskActions.errors.notArchivable');
-    return this.moveToArchive(task);
+    return this.moveToArchive(task, isArchivable);
   }
 
   async restore(id: ItemId): Promise<OpResult> {
@@ -92,21 +94,60 @@ export class VaultArchiveService implements ArchiveService {
     return this.deps.tasks.uncomplete(id);
   }
 
-  private async moveToArchive(task: Task): Promise<OpResult> {
+  /**
+   * Переносит задачу, если её актуальные свойства (в файле) ещё подходят: индекс мог
+   * отстать от «Вернуть в работу». Если выполнение отменили уже во время переноса,
+   * задача возвращается в «Задачи» — как это делает `uncomplete` для архивной задачи.
+   */
+  private async moveToArchive(task: Task, stillFits: (actual: Task) => boolean): Promise<OpResult> {
+    const before = await this.readActual(task, task.path);
+    if (!before.ok) return before;
+    if (!before.value || !stillFits(before.value)) return okResult(undefined, false);
+
     const timeZone = this.deps.clock.timeZone();
-    const date = completionDateOf(task, timeZone) ?? clockToday(this.deps.clock);
+    const date = completionDateOf(before.value, timeZone) ?? clockToday(this.deps.clock);
     const folder = this.deps.repository.paths.archiveFor(date.slice(0, 7));
     const moved = await this.deps.repository.move(task.path, folder);
     if (!moved.ok) return moved;
-    if (moved.changed) await this.wait(moved.value, task.id);
-    return okResult(undefined, moved.changed);
+    if (!moved.changed) return okResult(undefined, false);
+
+    const after = await this.readActual(task, moved.value);
+    if (after.ok && after.value && !after.value.done) {
+      const back = await this.deps.repository.move(moved.value, this.deps.repository.paths.tasks);
+      if (!back.ok) return back;
+      if (back.changed) await this.waitFor(back.value, task.id, (current) => !current.archived);
+      return okResult(undefined, false);
+    }
+    await this.wait(moved.value, task.id);
+    return okResult(undefined, true);
+  }
+
+  /**
+   * Свойства задачи прямо из файла (чтение в очереди записей по пути, без изменений).
+   * `null` — по пути уже другая заметка или не задача.
+   */
+  private async readActual(task: Task, path: VaultPath): Promise<OpResult<Task | null>> {
+    let actual: Task | null = null;
+    const read = await this.deps.repository.updateFrontmatter(path, (frontmatter) => {
+      const parsed = parseTask({
+        path,
+        title: task.title,
+        mtime: task.mtime,
+        frontmatter: { ...frontmatter },
+        archived: false,
+        deletedInCalendar: false,
+      });
+      actual = parsed.kind === 'task' && parsed.id === task.id ? parsed : null;
+    });
+    if (!read.ok) return read;
+    return okResult(actual, false);
   }
 
   private async wait(path: string, id: ItemId): Promise<void> {
-    await this.deps.index.waitFor(
-      path,
-      taskMatches(id, undefined, (task) => task.archived),
-      this.deps.waitTimeoutMs ?? DEFAULT_WAIT_MS,
-    );
+    await this.waitFor(path, id, (task) => task.archived);
+  }
+
+  private async waitFor(path: string, id: ItemId, extra: (task: Task) => boolean): Promise<void> {
+    await this.deps.index.waitFor(path, taskMatches(id, undefined, extra), this.deps.waitTimeoutMs ?? DEFAULT_WAIT_MS);
   }
 }

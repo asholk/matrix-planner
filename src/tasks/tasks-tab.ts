@@ -72,6 +72,8 @@ registerDictionary('en', 'tasks', enTasks);
 
 /** Длительность анимации выполнения перед записью, мс. */
 const COMPLETE_ANIMATION_MS = 260;
+/** Проверка устаревания (срок наступил, полночь, приветствие), пока вкладка показана, мс. */
+export const TASKS_REFRESH_INTERVAL_MS = 60_000;
 /** Повторное меню (долгое нажатие + `contextmenu` на Android) в этом окне игнорируется. */
 const MENU_DEBOUNCE_MS = 700;
 
@@ -122,6 +124,12 @@ export class TasksTab implements TabController {
   private longPressTimer: number | null = null;
   private drag: ActiveDrag | null = null;
   private lastMenuAt = 0;
+  /** Вкладка показана (между `onShow` и `onHide`). */
+  private shown = false;
+  private refreshTimer: number | null = null;
+  private visibilityCleanup: (() => void) | null = null;
+  /** Снимок того, что зависит от времени: при изменении — перерисовка. */
+  private timeKey = '';
 
   constructor(
     private readonly host: PlannerViewHost,
@@ -144,6 +152,7 @@ export class TasksTab implements TabController {
 
     this.subscriptions.push(this.deps.index.onChange(() => this.scheduleRender()));
     this.subscriptions.push(this.deps.settings.onChange(() => this.scheduleRender()));
+    this.watchVisibility();
 
     if (this.deps.index.isReady()) {
       this.render();
@@ -158,6 +167,10 @@ export class TasksTab implements TabController {
 
   unmount(): void {
     this.cancelGesture();
+    this.stopRefresh();
+    this.visibilityCleanup?.();
+    this.visibilityCleanup = null;
+    this.shown = false;
     if (this.renderTimer !== null) {
       window.clearTimeout(this.renderTimer);
       this.renderTimer = null;
@@ -173,12 +186,67 @@ export class TasksTab implements TabController {
 
   onShow(): void {
     this.host.setAddContext({ date: null, quadrant: null });
+    this.shown = true;
+    this.startRefresh();
     // Приветствие и «Сегодня» могли устареть, пока вкладка была скрыта.
     if (this.rootEl && this.deps.index.isReady()) this.render();
   }
 
   onHide(): void {
     this.cancelGesture();
+    this.shown = false;
+    this.stopRefresh();
+  }
+
+  // --- Обновление по времени ---
+
+  private startRefresh(): void {
+    this.stopRefresh();
+    if (!this.rootEl) return;
+    this.refreshTimer = window.setInterval(() => this.refreshIfStale(), TASKS_REFRESH_INTERVAL_MS);
+  }
+
+  private stopRefresh(): void {
+    if (this.refreshTimer === null) return;
+    window.clearInterval(this.refreshTimer);
+    this.refreshTimer = null;
+  }
+
+  /** Возврат приложения из фона: таймеры могли стоять — проверяем сразу. */
+  private watchVisibility(): void {
+    if (typeof document === 'undefined') return;
+    const doc = document;
+    const onVisibility = (): void => {
+      if (doc.visibilityState !== 'visible') {
+        this.stopRefresh();
+        return;
+      }
+      if (!this.shown) return;
+      this.refreshIfStale();
+      this.startRefresh();
+    };
+    doc.addEventListener('visibilitychange', onVisibility);
+    this.visibilityCleanup = () => doc.removeEventListener('visibilitychange', onVisibility);
+  }
+
+  /** Перерисовывает, только если изменилось зависящее от времени (без лишней пересборки DOM). */
+  private refreshIfStale(): void {
+    if (!this.rootEl || !this.deps.index.isReady()) return;
+    if (this.timeKeyFor(this.now()) !== this.timeKey) this.scheduleRender();
+  }
+
+  private timeKeyFor(now: FloatingDateTime): string {
+    const { format } = this.labelFormat();
+    const model = buildTasksView({
+      tasks: this.deps.index.getTasks(),
+      matrix: this.deps.index.getMatrix(),
+      now,
+      mode: this.mode,
+      layout: this.layout(),
+      grouping: this.grouping(),
+      format,
+    });
+    return `${greetingFor(hourOf(now))}|${JSON.stringify(model)}`;
   }
 
   // --- Отрисовка ---
@@ -237,6 +305,7 @@ export class TasksTab implements TabController {
       grouping: this.grouping(),
       format,
     });
+    this.timeKey = `${greetingFor(hourOf(now))}|${JSON.stringify(this.model)}`;
     this.renderHeader(now);
     this.renderControls(this.model);
     this.renderContent(this.model, strings);
@@ -253,8 +322,7 @@ export class TasksTab implements TabController {
 
   private renderHeader(now: FloatingDateTime = this.now()): void {
     if (!this.greetingEl) return;
-    const hour = Number((now.time ?? '12:00').slice(0, 2));
-    this.greetingEl.setText(t(`tasks.greeting.${greetingFor(hour)}`));
+    this.greetingEl.setText(t(`tasks.greeting.${greetingFor(hourOf(now))}`));
   }
 
   private renderControls(model: TasksViewModel): void {
@@ -505,7 +573,7 @@ export class TasksTab implements TabController {
     }
     window.setTimeout(() => {
       this.busy.delete(card.key);
-      void this.runOp(card, () => this.deps.tasks.complete(card.taskId)).then((ok) => {
+      void this.runOp(card, () => this.deps.tasks.complete(card.taskId, card.instanceDate ?? undefined)).then((ok) => {
         if (!ok) cardEl.removeClass('is-completing');
       });
     }, COMPLETE_ANIMATION_MS);
@@ -810,4 +878,8 @@ function dateSectionTitle(section: DateSection, today: LocalDateString, strings:
   if (section.kind === 'overdue') return t('tasks.groups.overdue');
   if (section.kind === 'no-date' || !section.date) return t('tasks.groups.noDate');
   return formatDateLabel(section.date, today, strings);
+}
+
+function hourOf(now: FloatingDateTime): number {
+  return Number((now.time ?? '12:00').slice(0, 2));
 }

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Plugin } from 'obsidian';
 import {
   createMockApp,
@@ -9,7 +9,7 @@ import {
 } from '../__mocks__/obsidian';
 import type { Clock, Notifier } from '../../src/app/contracts';
 import type { Task, TaskDraft } from '../../src/model/types';
-import { composeCore, localeWeekStart, resolveFormatPreferences, type CoreHandle } from '../../src/app/compose-core';
+import { AutoArchiveRunner, DAY_CHECK_INTERVAL_MS, composeCore, localeWeekStart, resolveFormatPreferences, type CoreHandle } from '../../src/app/compose-core';
 import { ATTENTION_DATA_KEY, DataJsonAttentionStateStore, PluginDataFile } from '../../src/app/attention-state-store';
 import { PluginSettingsStore } from '../../src/settings/settings-store';
 import { emptyAttentionState } from '../../src/integrity/integrity-service';
@@ -298,6 +298,151 @@ describe('data.json: настройки и «Требуют внимания»',
       draft.timeFormat = '24h';
     });
     expect((source.data as Record<string, unknown>)[ATTENTION_DATA_KEY]).toEqual(state);
+  });
+});
+
+describe('фоновый автоархив', () => {
+  type Listener = () => void;
+  const globalDoc = globalThis as unknown as { document?: unknown };
+  let listeners: Listener[] = [];
+  let visibility = 'visible';
+  let current = new Date(2026, 9, 10, 9, 0, 0);
+  const movingClock: Clock = { now: () => current, timeZone: () => 'UTC' };
+  let plugin: MockPlugin | null = null;
+
+  beforeEach(() => {
+    resetMockState();
+    setLanguageOverride('ru');
+    listeners = [];
+    visibility = 'visible';
+    current = new Date(2026, 9, 10, 9, 0, 0);
+    globalDoc.document = {
+      get visibilityState() {
+        return visibility;
+      },
+      addEventListener: (type: string, cb: Listener) => {
+        if (type === 'visibilitychange') listeners.push(cb);
+      },
+      removeEventListener: (_type: string, cb: Listener) => {
+        listeners = listeners.filter((l) => l !== cb);
+      },
+    };
+  });
+
+  afterEach(() => {
+    plugin?.unload();
+    plugin = null;
+    delete globalDoc.document;
+    vi.useRealTimers();
+    setLanguageOverride(null);
+  });
+
+  async function start(): Promise<{ core: CoreHandle; app: MockApp }> {
+    const app = createMockApp();
+    plugin = new MockPlugin(app);
+    plugin.load();
+    const core = await composeCore(plugin as unknown as Plugin, { clock: movingClock, notifier: new CollectingNotifier() });
+    await core.ready;
+    return { core, app };
+  }
+
+  async function doneYesterdayCandidate(core: CoreHandle): Promise<string> {
+    const created = await core.taskActions.create(draft('Выполненная'));
+    if (!created.ok || !created.value) throw new Error('задача не создана');
+    await core.taskActions.complete(created.value.id);
+    await core.services.settings.update((settings) => {
+      settings.archive = { mode: 'after-days', days: 1 };
+    });
+    await tick(10);
+    return created.value.id;
+  }
+
+  function archived(core: CoreHandle, id: string): boolean | undefined {
+    const item = core.services.index.getById(id);
+    return item && item.kind === 'task' ? item.archived : undefined;
+  }
+
+  it('возврат в приложение на следующий день переносит задачу в архив', async () => {
+    const { core } = await start();
+    const id = await doneYesterdayCandidate(core);
+    expect(archived(core, id)).toBe(false);
+
+    current = new Date(2026, 9, 11, 9, 0, 0);
+    visibility = 'hidden';
+    for (const listener of listeners) listener();
+    await tick(10);
+    expect(archived(core, id)).toBe(false);
+
+    visibility = 'visible';
+    for (const listener of listeners) listener();
+    await waitUntil(() => archived(core, id) === true);
+    expect(archived(core, id)).toBe(true);
+  });
+
+  it('смена дня (проверка раз в минуту) запускает автоархив', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const { core } = await start();
+    const id = await doneYesterdayCandidate(core);
+    current = new Date(2026, 9, 11, 12, 0, 0);
+    vi.advanceTimersByTime(DAY_CHECK_INTERVAL_MS);
+    await waitUntil(() => archived(core, id) === true);
+    expect(archived(core, id)).toBe(true);
+  });
+
+  it('выгрузка снимает обработчик visibilitychange', async () => {
+    await start();
+    expect(listeners).toHaveLength(1);
+    plugin?.unload();
+    plugin = null;
+    expect(listeners).toHaveLength(0);
+  });
+});
+
+describe('AutoArchiveRunner', () => {
+  it('не запускает параллельно: запросы во время запуска сливаются в один повтор', async () => {
+    let active = 0;
+    let maxActive = 0;
+    let runs = 0;
+    let release: (() => void) | null = null;
+    const runner = new AutoArchiveRunner(async () => {
+      runs++;
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await new Promise<void>((resolve) => (release = resolve));
+      active--;
+    });
+    const first = runner.trigger();
+    void runner.trigger();
+    void runner.trigger();
+    expect(runs).toBe(1);
+    release!();
+    await tick(2);
+    expect(runs).toBe(2);
+    release!();
+    await first;
+    expect(maxActive).toBe(1);
+    expect(runs).toBe(2);
+  });
+
+  it('schedule откладывает и склеивает запуски; stop отменяет', async () => {
+    vi.useFakeTimers();
+    try {
+      const run = vi.fn(async () => undefined);
+      const runner = new AutoArchiveRunner(run, 1000);
+      runner.schedule();
+      vi.advanceTimersByTime(500);
+      runner.schedule();
+      vi.advanceTimersByTime(999);
+      expect(run).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(run).toHaveBeenCalledTimes(1);
+      runner.schedule();
+      runner.stop();
+      vi.advanceTimersByTime(5000);
+      expect(run).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

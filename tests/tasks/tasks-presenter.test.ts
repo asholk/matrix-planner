@@ -89,6 +89,20 @@ const FRAME_TASKS: Task[] = [
   makeTask({ id: 'tax', title: 'Оплатить налоги', quadrant: 'someday', created: '2026-10-03T09:00' }),
 ];
 
+describe('дата показанного повторения', () => {
+  it('активная повторяющаяся карточка несёт дату срока, разовая — null', () => {
+    const view = buildTasksView(
+      input([
+        makeTask({ id: 'series', quadrant: 'do', due: at('2026-10-10T08:00'), repeat: 'daily', repeatAnchor: '2026-10-01' }),
+        makeTask({ id: 'single', quadrant: 'do', due: at('2026-10-10T09:00') }),
+      ]),
+    );
+    const cards = view.quadrants[0]?.cards ?? [];
+    expect(cards.find((c) => c.taskId === 'series')?.instanceDate).toBe('2026-10-10');
+    expect(cards.find((c) => c.taskId === 'single')?.instanceDate).toBeNull();
+  });
+});
+
 describe('приветствие', () => {
   it('утро, день, вечер', () => {
     expect(greetingFor(5)).toBe('morning');
