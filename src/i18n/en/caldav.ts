@@ -5,6 +5,7 @@ export const enCaldav = {
   plannerCalendar: 'Planner',
   commands: {
     sync: 'Sync calendar',
+    confirmDeletion: 'Confirm deleting events from the calendar',
   },
   notices: {
     auth: 'Cannot sign in to the calendar. Check your Apple ID and app-specific password',
@@ -15,11 +16,17 @@ export const enCaldav = {
     disabled: 'Calendar sync is turned off',
     calendarCreated: 'Calendar "{name}" created',
     calendarCreateFailed: 'Cannot create calendar "{name}"',
+    authCaldav: 'Cannot sign in to the calendar. Check your username and password',
+    notConfiguredCaldav: 'Enter the server address, username and password in the iOS Calendar settings',
+    confirmDeletion: {
+      one: 'Deleting {count} event from the calendar needs confirmation in the iOS Calendar settings',
+      other: 'Deleting {count} events from the calendar needs confirmation in the iOS Calendar settings',
+    },
   },
   settings: {
     heading: 'iOS Calendar',
     intro:
-      'Events, tasks with a due date and reminders appear in the iPhone Calendar via iCloud, and events from the selected calendars appear in the planner. Works on desktop, iPhone and Android.',
+      'Events, tasks with a due date and reminders appear in the iPhone Calendar via iCloud or another CalDAV server, and events from the selected calendars appear in the planner. Works on desktop, iPhone and Android.',
     enabled: {
       name: 'Sync',
       desc: 'Sync iOS Calendar from this device',
@@ -61,9 +68,9 @@ export const enCaldav = {
       unknown: 'Test the connection to choose a calendar',
     },
     readCalendars: {
-      heading: 'Visible calendars',
+      heading: 'Calendars to download',
       desc: 'Events from these calendars are written to _system/calendar-cache.json and synced to every device with the vault',
-      allHint: 'While no calendar is selected, all calendars are shown',
+      allHint: 'While no calendar is selected, all calendars are downloaded',
       empty: 'Test the connection to see the calendars',
       readOnly: 'View only',
     },
@@ -88,6 +95,14 @@ export const enCaldav = {
       remove: 'Remove subscription',
       invalidUrl: 'Enter an https:// or webcal:// link',
     },
+    pending: {
+      name: {
+        one: 'Confirmation required: {count} event',
+        other: 'Confirmation required: {count} events',
+      },
+      desc: 'These events were deleted in the planner. To avoid deleting many events by accident, confirm deleting them from the calendar',
+      button: 'Delete',
+    },
     syncNow: {
       name: 'Sync now',
       button: 'Sync',
@@ -98,6 +113,7 @@ export const enCaldav = {
       running: 'Syncing…',
       ok: 'Synced: {time}',
       auth: 'Sign-in failed. Check your Apple ID and app-specific password',
+      authCaldav: 'Sign-in failed. Check your username and password',
       network: 'Cannot reach the server, will retry later',
       server: 'Calendar server error',
       cache: 'Cannot write the calendar cache',

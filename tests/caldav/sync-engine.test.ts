@@ -610,7 +610,7 @@ describe('caldav/sync-engine', () => {
     // Повторяющаяся задача развёрнута по повторениям в диапазоне.
     const monthly = state.data.events.filter((e) => e.eventId === TASK_DATE);
     expect(monthly.length).toBeGreaterThan(5);
-    expect(monthly[0]).toMatchObject({ allDay: true, linkedItemId: TASK_DATE, recurrenceText: expect.any(String) });
+    expect(monthly[0]).toMatchObject({ allDay: true, linkedItemId: TASK_DATE, recurrenceText: expect.any(String) as string });
     expect(state.data.events.some((e) => e.title === 'Праздник')).toBe(true);
   });
 
@@ -642,6 +642,107 @@ describe('caldav/sync-engine', () => {
     ctx.settings.calendarSync.enabled = false;
     expect(await ctx.engine.syncNow()).toEqual({ status: 'skipped', reason: 'disabled' });
     expect(ctx.server.log).toEqual([]);
+  });
+
+  describe('подтверждение массового удаления (ТЗ §5.4.3)', () => {
+    const EXTRA = ['01JA2B3C4D5E6F7G8H9JKMNPA1', '01JA2B3C4D5E6F7G8H9JKMNPA2', '01JA2B3C4D5E6F7G8H9JKMNPA3', '01JA2B3C4D5E6F7G8H9JKMNPA4'];
+
+    function addEvents(count: number): ItemId[] {
+      const ids = EXTRA.slice(0, count);
+      ids.forEach((id, i) => {
+        ctx.notes.map.set(`${paths.events}/Событие ${i}.md`, { fm: eventFm(id, '2026-10-20T10:00', '2026-10-20T11:00'), body: '' });
+      });
+      return ids;
+    }
+
+    async function tombstone(ids: ItemId[]): Promise<void> {
+      for (const id of ids) {
+        const path = ctx.notes.pathOf(id);
+        if (path) ctx.notes.map.delete(path);
+        await ctx.tombstones.add(id);
+      }
+    }
+
+    it('больше 3 событий — ничего не удаляется, статус и уведомление; после подтверждения — удаляются', async () => {
+      const ids = [EVENT_ID, ...addEvents(3)];
+      expectOk(await ctx.engine.syncNow());
+      await tombstone(ids);
+      ctx.server.log.length = 0;
+
+      expectOk(await ctx.engine.syncNow());
+      expect(ctx.server.writes().filter((r) => r.method === 'DELETE')).toEqual([]);
+      for (const id of ids) expect(ctx.server.resources.has(itemHref(PLANNER, id))).toBe(true);
+      expect(ctx.engine.getPendingDeletions()).toBe(4);
+      expect(ctx.engine.getStatus().pendingDeletions).toBe(4);
+      expect(ctx.notices.filter((n) => /confirm/i.test(n))).toHaveLength(1);
+
+      // Фоновый повтор — без нового уведомления; заметки с меткой не пишутся заново.
+      ctx.server.log.length = 0;
+      expectOk(await ctx.engine.syncNow());
+      expect(ctx.server.writes()).toEqual([]);
+      expect(ctx.notices.filter((n) => /confirm/i.test(n))).toHaveLength(1);
+
+      const confirmed = ctx.engine.confirmPendingDeletions();
+      expect(confirmed).not.toBeNull();
+      expectOk(await confirmed!);
+      for (const id of ids) expect(ctx.server.resources.has(itemHref(PLANNER, id))).toBe(false);
+      expect(ctx.engine.getPendingDeletions()).toBe(0);
+      expect(ctx.engine.getStatus().pendingDeletions).toBe(0);
+      expect(ctx.engine.confirmPendingDeletions()).toBeNull();
+    });
+
+    it('3 события удаляются без подтверждения; метки событий, которых нет на сервере, не считаются', async () => {
+      const ids = [EVENT_ID, ...addEvents(2)];
+      expectOk(await ctx.engine.syncNow());
+      // Две метки событий, никогда не попадавших на сервер.
+      await tombstone([...ids, '01JA2B3C4D5E6F7G8H9JKMNPB1', '01JA2B3C4D5E6F7G8H9JKMNPB2']);
+      expectOk(await ctx.engine.syncNow());
+      for (const id of ids) expect(ctx.server.resources.has(itemHref(PLANNER, id))).toBe(false);
+      expect(ctx.engine.getPendingDeletions()).toBe(0);
+      expect(ctx.notices.filter((n) => /confirm/i.test(n))).toEqual([]);
+    });
+  });
+
+  it('ручная синхронизация находит календарь, созданный на сервере после первого обнаружения', async () => {
+    expectOk(await ctx.engine.syncNow());
+    const HOME_CAL = `${HOME}home/`;
+    ctx.server.calendars.push({ href: HOME_CAL, displayName: 'Дом', color: '#FF9500', components: ['VEVENT'], allowsModifications: true });
+    ctx.server.setResource(`${HOME_CAL}foreign-3.ics`, FOREIGN_ICS.replace('UID:foreign-1', 'UID:foreign-3'));
+    const titles = (): string[] => ((ctx.getCache() as { calendars: { title: string }[] }).calendars ?? []).map((c) => c.title);
+
+    // Фоновый проход в пределах срока кэша обнаружения — без нового PROPFIND.
+    expectOk(await ctx.engine.syncNow());
+    expect(titles()).not.toContain('Дом');
+
+    expectOk(await ctx.engine.syncNow({ manual: true }));
+    expect(titles()).toContain('Дом');
+    expect(ctx.engine.getKnownCalendars().map((c) => c.displayName)).toContain('Дом');
+  });
+
+  it('новый календарь кэша один раз включается в «Показываемые календари» вкладки «Календарь»', async () => {
+    expectOk(await ctx.engine.syncNow());
+    expect(ctx.settings.visibleCalendars.calendarIds).toEqual(expect.arrayContaining([PLANNER, WORK, BIRTHDAYS]));
+    // Пользователь выключил «Работу» — следующая синхронизация не включает её заново.
+    ctx.settings.visibleCalendars.calendarIds = ctx.settings.visibleCalendars.calendarIds.filter((id) => id !== WORK);
+    expectOk(await ctx.engine.syncNow());
+    expect(ctx.settings.visibleCalendars.calendarIds).not.toContain(WORK);
+  });
+
+  it('фоновая синхронизация обновляет список календарей по истечении срока', async () => {
+    expectOk(await ctx.engine.syncNow());
+    ctx.server.calendars.push({ href: `${HOME}home/`, displayName: 'Дом', components: ['VEVENT'], allowsModifications: true });
+    ctx.now.value = new Date(ctx.now.value.getTime() + 31 * 60_000);
+    expectOk(await ctx.engine.syncNow());
+    expect(ctx.engine.getKnownCalendars().map((c) => c.displayName)).toContain('Дом');
+  });
+
+  it('ошибка входа на другом сервере CalDAV — без упоминания Apple ID', async () => {
+    ctx.settings.calendarSync.provider = 'caldav';
+    ctx.settings.calendarSync.serverUrl = 'http://127.0.0.1:5232/';
+    ctx.server.discover = async () => fail('auth');
+    expect(await ctx.engine.syncNow({ manual: true })).toMatchObject({ status: 'error', kind: 'auth' });
+    expect(ctx.notices.at(-1)).toContain('username');
+    expect(ctx.notices.some((n) => n.includes('Apple ID'))).toBe(false);
   });
 });
 

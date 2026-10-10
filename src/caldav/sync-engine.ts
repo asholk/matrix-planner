@@ -60,7 +60,7 @@ import type { CalendarSyncSettings, ItemId, OpResult, PlannerEvent, RepeatRule, 
 import type { CalendarCacheFile } from '../calendar/cache-schema';
 import { addDays } from '../model/dates';
 import { ICLOUD_CALDAV_URL } from '../settings/defaults';
-import { registerDictionary, t } from '../i18n';
+import { registerDictionary, t, tPlural } from '../i18n';
 import { ruCaldav } from '../i18n/ru/caldav';
 import { enCaldav } from '../i18n/en/caldav';
 
@@ -81,6 +81,11 @@ export interface CalendarSyncStatus {
   lastSyncAt: string | null;
   lastAttemptAt: string | null;
   error: { kind: SyncErrorKind; detail: string } | null;
+  /**
+   * Событий по меткам удаления ждут подтверждения (ТЗ §5.4.3: больше
+   * `MASS_DELETE_THRESHOLD` за один проход). 0 — подтверждение не нужно.
+   */
+  pendingDeletions: number;
 }
 
 export interface SyncStats {
@@ -125,6 +130,11 @@ export interface CalendarSyncEngineDeps {
   log?(message: string, error?: unknown): void;
 }
 
+/** Больше стольких событий за один проход по меткам удаления — только после подтверждения. */
+export const MASS_DELETE_THRESHOLD = 3;
+/** Обнаружение (список календарей) без ручного запуска обновляется не чаще (мс). */
+const DISCOVERY_TTL_MS = 30 * 60 * 1000;
+
 /** Названия календаря Планировщика, по которым он находится на сервере. */
 const PLANNER_CALENDAR_NAMES = ['Планировщик', 'Planner'];
 const PLANNER_CALENDAR_COLOR = '#007AFF';
@@ -150,10 +160,15 @@ interface SyncStateData {
   /** Метки удаления, по которым события уже удалены с сервера. */
   tombstonesDone: ItemId[];
   lastSyncAt: string | null;
+  /**
+   * Календари (calendar_id кэша), уже попадавшие в кэш с этого устройства. Новый календарь
+   * один раз включается в «Показываемые календари» вкладки «Календарь».
+   */
+  knownCalendars: string[];
 }
 
 function emptyState(account: string): SyncStateData {
-  return { version: 1, account, items: {}, tombstonesDone: [], lastSyncAt: null };
+  return { version: 1, account, items: {}, tombstonesDone: [], lastSyncAt: null, knownCalendars: [] };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -170,8 +185,15 @@ function parseState(raw: unknown, account: string): SyncStateData {
       items[id] = { kind, href, etag, hash };
     }
   }
-  const done = Array.isArray(raw.tombstonesDone) ? raw.tombstonesDone.filter((id): id is string => typeof id === 'string') : [];
-  return { version: 1, account, items, tombstonesDone: done, lastSyncAt: typeof raw.lastSyncAt === 'string' ? raw.lastSyncAt : null };
+  const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []);
+  return {
+    version: 1,
+    account,
+    items,
+    tombstonesDone: strings(raw.tombstonesDone),
+    lastSyncAt: typeof raw.lastSyncAt === 'string' ? raw.lastSyncAt : null,
+    knownCalendars: strings(raw.knownCalendars),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -257,6 +279,8 @@ interface RunContext {
   listings: Map<string, Map<string, CalDavEventResource> | null>;
   state: SyncStateData;
   stats: SyncStats;
+  /** Запуск вручную (команда, кнопка): уведомления показываются повторно. */
+  manual: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -267,7 +291,13 @@ export class CalendarSyncEngine {
   private running: Promise<SyncOutcome> | null = null;
   private rerun = false;
   private rerunManual = false;
-  private discovery: { account: string; value: CalDavDiscovery } | null = null;
+  private discovery: { account: string; value: CalDavDiscovery; at: number } | null = null;
+  /** id меток, удаление событий по которым подтвердил пользователь. */
+  private approvedDeletions = new Set<ItemId>();
+  /** id меток, ждущих подтверждения (последний проход). */
+  private blockedDeletions: ItemId[] = [];
+  /** Ключ набора, о котором уже показано уведомление. */
+  private blockedNoticeKey = '';
   private status: CalendarSyncStatus | null = null;
   private readonly listeners = new Set<(status: CalendarSyncStatus) => void>();
   /** Уведомление о неверном пароле уже показано (до первой успешной синхронизации). */
@@ -279,7 +309,7 @@ export class CalendarSyncEngine {
     if (!this.status) {
       const raw = this.deps.state.load();
       const lastSyncAt = isRecord(raw) && typeof raw.lastSyncAt === 'string' ? raw.lastSyncAt : null;
-      this.status = { running: false, lastSyncAt, lastAttemptAt: null, error: null };
+      this.status = { running: false, lastSyncAt, lastAttemptAt: null, error: null, pendingDeletions: 0 };
     }
     return this.status;
   }
@@ -299,6 +329,18 @@ export class CalendarSyncEngine {
 
   isRunning(): boolean {
     return this.running !== null;
+  }
+
+  /** Сколько событий ждут подтверждения удаления (ТЗ §5.4.3). */
+  getPendingDeletions(): number {
+    return this.blockedDeletions.length;
+  }
+
+  /** Подтвердить удаление событий, ожидающих подтверждения, и сразу синхронизировать. */
+  confirmPendingDeletions(): Promise<SyncOutcome> | null {
+    if (this.blockedDeletions.length === 0) return null;
+    for (const id of this.blockedDeletions) this.approvedDeletions.add(id);
+    return this.syncNow({ manual: true });
   }
 
   /**
@@ -391,14 +433,16 @@ export class CalendarSyncEngine {
       listings: new Map(),
       state,
       stats: { created: 0, updated: 0, pulled: 0, deleted: 0, movedToDeleted: 0 },
+      manual,
     };
 
     let outcome: SyncOutcome;
     try {
       const sources: CacheCalendarSource[] = [];
       const missing: string[] = [];
-      if (client) await this.syncCalDav(ctx, settings, account, sources, missing);
+      if (client) await this.syncCalDav(ctx, settings, account, sources, missing, manual);
       await this.collectSubscriptions(ctx, settings, sources, missing);
+      await this.showNewCalendars(ctx, sources);
       const written = await this.writeCache(ctx, sources, missing);
       if (!written.ok) {
         outcome = { status: 'error', kind: 'cache', detail: written.error.detail ?? written.error.code };
@@ -425,17 +469,19 @@ export class CalendarSyncEngine {
     const now = this.deps.clock.now().toISOString();
     if (outcome.status === 'ok') {
       this.authNotified = false;
-      this.setStatus({ running: false, lastSyncAt: now, error: null });
-      if (manual) this.deps.notifier.show(t('caldav.notices.synced'));
+      this.setStatus({ running: false, lastSyncAt: now, error: null, pendingDeletions: this.blockedDeletions.length });
+      // Об ожидающем подтверждения удалении уже сказано отдельным уведомлением.
+      if (manual && this.blockedDeletions.length === 0) this.deps.notifier.show(t('caldav.notices.synced'));
       return outcome;
     }
     if (outcome.status === 'error') {
-      this.setStatus({ running: false, error: { kind: outcome.kind, detail: outcome.detail } });
+      this.setStatus({ running: false, error: { kind: outcome.kind, detail: outcome.detail }, pendingDeletions: this.blockedDeletions.length });
       if (outcome.kind === 'auth') {
-        if (manual || !this.authNotified) this.deps.notifier.show(t('caldav.notices.auth'));
+        if (manual || !this.authNotified) this.deps.notifier.show(t(this.icloud() ? 'caldav.notices.auth' : 'caldav.notices.authCaldav'));
         this.authNotified = true;
       } else if (manual) {
-        const key = outcome.kind === 'network' ? 'network' : outcome.kind === 'not-configured' ? 'notConfigured' : 'failed';
+        const notConfigured = this.icloud() ? 'notConfigured' : 'notConfiguredCaldav';
+        const key = outcome.kind === 'network' ? 'network' : outcome.kind === 'not-configured' ? notConfigured : 'failed';
         this.deps.notifier.show(t(`caldav.notices.${key}`));
       }
       if (outcome.kind !== 'network') this.log(`Calendar sync: ${outcome.kind}`, outcome.detail);
@@ -443,6 +489,10 @@ export class CalendarSyncEngine {
     }
     this.setStatus({ running: false });
     return outcome;
+  }
+
+  private icloud(): boolean {
+    return this.deps.settings.get().calendarSync.provider === 'icloud';
   }
 
   private setStatus(patch: Partial<CalendarSyncStatus>): void {
@@ -466,10 +516,12 @@ export class CalendarSyncEngine {
   }
 
   private async discover(client: CalDavApi, account: string, force: boolean): Promise<CalDavDiscovery> {
-    if (!force && this.discovery?.account === account) return this.discovery.value;
+    const cached = this.discovery;
+    const fresh = cached !== null && cached.account === account && this.deps.clock.now().getTime() - cached.at < DISCOVERY_TTL_MS;
+    if (!force && cached && fresh) return cached.value;
     const result = check(await client.discover());
     if (!result.ok) throw new SyncAbort('server', result.error.message);
-    this.discovery = { account, value: result.value };
+    this.discovery = { account, value: result.value, at: this.deps.clock.now().getTime() };
     return result.value;
   }
 
@@ -483,8 +535,11 @@ export class CalendarSyncEngine {
     account: string,
     sources: CacheCalendarSource[],
     missing: string[],
+    manual: boolean,
   ): Promise<void> {
-    let discovery = await this.discover(ctx.client, account, false);
+    // Ручной запуск обновляет список календарей: новые и удалённые на сервере календари
+    // видны сразу, без перезапуска плагина или «Проверить подключение».
+    let discovery = await this.discover(ctx.client, account, manual);
     let writeCalendar = await this.resolveWriteCalendar(ctx.client, discovery, settings);
     if (settings.writeCalendarHref && (!writeCalendar || resourceKey(writeCalendar.href) !== resourceKey(settings.writeCalendarHref))) {
       // Выбранного календаря нет в обнаружении сессии — обнаружить заново.
@@ -577,6 +632,8 @@ export class CalendarSyncEngine {
       for (const resource of result.value) map.set(resourceKey(resource.href), resource);
     } else {
       this.log(`Cannot list calendar ${calendarHref}`, result.error.message);
+      // Календарь удалён на сервере — в следующем проходе обнаружить заново.
+      if (result.error.code === 'not-found') this.discovery = null;
     }
     ctx.listings.set(key, map);
     return map;
@@ -633,7 +690,11 @@ export class CalendarSyncEngine {
   // Удаление по меткам
   // -------------------------------------------------------------------------
 
-  /** Возвращает id всех меток (события с меткой не синхронизируются). */
+  /**
+   * Удаление по меткам. Возвращает id всех меток (события с меткой не синхронизируются).
+   * Больше `MASS_DELETE_THRESHOLD` неподтверждённых удалений за проход — ничего из них не
+   * удаляется, пока пользователь не подтвердит (ТЗ §5.4.3).
+   */
   private async processTombstones(ctx: RunContext, writeCalendar: CalDavCalendar | null): Promise<Set<ItemId>> {
     const listed = await this.deps.tombstones.list();
     const ids = new Set<ItemId>();
@@ -643,7 +704,7 @@ export class CalendarSyncEngine {
     state.tombstonesDone = state.tombstonesDone.filter((id) => ids.has(id));
     const done = new Set(state.tombstonesDone);
     const pending = [...ids].filter((id) => !done.has(id));
-    if (pending.length === 0) return ids;
+    for (const id of [...this.approvedDeletions]) if (!ids.has(id) || done.has(id)) this.approvedDeletions.delete(id);
 
     // События Планировщика в загруженных календарях по id заметки.
     const owned = new Map<ItemId, string[]>();
@@ -658,6 +719,7 @@ export class CalendarSyncEngine {
       }
     }
 
+    const targets = new Map<ItemId, Map<string, string>>();
     for (const id of pending) {
       const hrefs = new Map<string, string>();
       const add = (href: string | undefined): void => {
@@ -666,14 +728,41 @@ export class CalendarSyncEngine {
       add(state.items[id]?.href);
       if (writeCalendar) add(itemHref(writeCalendar.href, id));
       for (const href of owned.get(id) ?? []) add(href);
+      targets.set(id, hrefs);
+    }
+
+    // Подтверждение нужно только для событий, которые есть (или могут быть) на сервере.
+    const onServer = pending.filter((id) => [...(targets.get(id)?.values() ?? [])].some((href) => this.mayExist(ctx, href)));
+    const unapproved = onServer.filter((id) => !this.approvedDeletions.has(id));
+    const blocked = new Set(unapproved.length > MASS_DELETE_THRESHOLD ? unapproved : []);
+    this.setBlockedDeletions([...blocked], ctx);
+
+    for (const id of pending) {
+      if (blocked.has(id)) continue;
       let ok = true;
-      for (const href of hrefs.values()) ok = (await this.remove(ctx, href)) && ok;
+      for (const href of targets.get(id)?.values() ?? []) ok = (await this.remove(ctx, href)) && ok;
       if (ok) {
         delete state.items[id];
         state.tombstonesDone.push(id);
+        this.approvedDeletions.delete(id);
       }
     }
     return ids;
+  }
+
+  /** Ресурс есть в выборке календаря или выборки нет (неизвестно — считается существующим). */
+  private mayExist(ctx: RunContext, href: string): boolean {
+    const listing = ctx.listings.get(resourceKey(parentOf(href)));
+    return listing ? listing.has(resourceKey(href)) : true;
+  }
+
+  private setBlockedDeletions(ids: ItemId[], ctx: RunContext): void {
+    this.blockedDeletions = ids;
+    const key = [...ids].sort().join(',');
+    if (ids.length > 0 && (key !== this.blockedNoticeKey || ctx.manual)) {
+      this.deps.notifier.show(tPlural('caldav.notices.confirmDeletion', ids.length));
+    }
+    this.blockedNoticeKey = key;
   }
 
   // -------------------------------------------------------------------------
@@ -904,6 +993,27 @@ export class CalendarSyncEngine {
         allowsModifications: false,
         resources: [result.value],
       });
+    }
+  }
+
+  /**
+   * Календарь впервые попал в кэш (выбран для показа в «Календаре iOS» или добавлена подписка)
+   * — включить его в «Показываемые календари», иначе его события не видны во вкладке
+   * «Календарь». Выключенный пользователем календарь повторно не включается.
+   */
+  private async showNewCalendars(ctx: RunContext, sources: readonly CacheCalendarSource[]): Promise<void> {
+    const known = new Set(ctx.state.knownCalendars);
+    const fresh = sources.map((source) => source.calendarId).filter((id) => !known.has(id));
+    if (fresh.length === 0) return;
+    try {
+      await this.deps.settings.update((draft) => {
+        const ids = new Set(draft.visibleCalendars.calendarIds);
+        for (const id of fresh) ids.add(id);
+        draft.visibleCalendars.calendarIds = [...ids];
+      });
+      ctx.state.knownCalendars = [...known, ...fresh];
+    } catch (error) {
+      this.log('Cannot update visible calendars', error);
     }
   }
 

@@ -62,6 +62,11 @@ export interface EventServiceDeps {
   tombstones: TombstoneWriter;
   /** Название календаря «Планировщик» (по умолчанию из словаря). */
   plannerCalendarTitle?: () => string;
+  /**
+   * Календарь кэша — это сам «Планировщик» на сервере (календарь для записи синхронизации
+   * CalDAV). Такой календарь не показывается вторым пунктом «Планировщик» в списке.
+   */
+  isPlannerCalendar?: (calendarId: string) => boolean;
   /** Сколько ждать обновления индекса после записи (мс). */
   waitTimeoutMs?: number;
 }
@@ -175,6 +180,11 @@ export class VaultEventService implements EventService {
   constructor(private readonly deps: EventServiceDeps) {}
 
   getWritableCalendars(): readonly CalendarOption[] {
+    const isPlanner = this.deps.isPlannerCalendar;
+    return this.writableCalendars().filter((option) => option.calendarId === null || !isPlanner?.(option.calendarId));
+  }
+
+  private writableCalendars(): CalendarOption[] {
     const planner: CalendarOption = {
       calendarId: null,
       title: this.deps.plannerCalendarTitle?.() ?? t('common.viewTitle'),
@@ -189,7 +199,7 @@ export class VaultEventService implements EventService {
 
   /** «Планировщик» доступен всегда; календарь кэша — только с `allows_modifications`. */
   isWritableCalendar(calendarId: string | null): boolean {
-    return this.getWritableCalendars().some((option) => option.calendarId === calendarId);
+    return this.writableCalendars().some((option) => option.calendarId === calendarId);
   }
 
   async create(draft: EventDraft): Promise<OpResult<PlannerEvent | null>> {

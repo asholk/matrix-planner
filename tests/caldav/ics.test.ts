@@ -67,7 +67,7 @@ describe('parseIcs', () => {
     expect(cal.color).toBe('#ff2968');
     expect(cal.timezones['Europe/Moscow']?.iana).toBe('Europe/Moscow');
     expect(cal.events).toHaveLength(1);
-    const e = cal.events[0]!;
+    const e = cal.events[0];
     expect(e.uid).toBe('5A1B2C3D-0000-4F1A-9C77-1E2F3A4B5C6D');
     expect(e.summary).toBe('Планёрка');
     expect(e.allDay).toBe(false);
@@ -82,7 +82,7 @@ describe('parseIcs', () => {
   });
 
   it('переводит время в зону устройства через Intl', () => {
-    const e = parseIcs(ICLOUD_TIMED).events[0]!;
+    const e = parseIcs(ICLOUD_TIMED).events[0];
     expect(toTimeZone(e.start, 'Europe/Berlin')).toEqual({ date: '2026-10-12', time: '09:00' });
     expect(toTimeZone(e.start, 'Asia/Vladivostok')).toEqual({ date: '2026-10-12', time: '17:00' });
     expect(toTimeZone(e.start, 'America/New_York')).toEqual({ date: '2026-10-12', time: '03:00' });
@@ -109,14 +109,14 @@ describe('parseIcs', () => {
         'END:VCALENDAR',
       ]),
     );
-    const e = cal.events[0]!;
+    const e = cal.events[0];
     expect(e.allDay).toBe(true);
     expect(e.start).toEqual({ date: '2026-10-15', time: null, tzid: null, utc: false });
     expect(e.end.date).toBe('2026-10-17');
     expect(e.alarms.map((a) => a.triggerMinutesBefore)).toEqual([1440, 900]);
     const occ = expandOccurrences(e, { from: '2026-10-16', to: '2026-10-16' }, 'Europe/Moscow').occurrences;
     expect(occ).toHaveLength(1);
-    expect(occ[0]!.end).toEqual({ date: '2026-10-17', time: null });
+    expect(occ[0].end).toEqual({ date: '2026-10-17', time: null });
   });
 
   it('TRIGGER относительно конца и после начала', () => {
@@ -136,7 +136,7 @@ describe('parseIcs', () => {
         'END:VALARM',
         'END:VEVENT',
       ]),
-    ).events[0]!;
+    ).events[0];
     expect(e.alarms.map((a) => a.triggerMinutesBefore)).toEqual([-50, -5]);
   });
 
@@ -145,7 +145,7 @@ describe('parseIcs', () => {
     const folded = foldLine(`SUMMARY:${summary}`);
     expect(folded).toContain('\r\n ');
     const textLf = ['BEGIN:VEVENT', 'UID:f', 'DTSTART:20261012T100000', folded.replace(/\r\n/g, '\n'), 'DESCRIPTION:раз', '\tдва', 'END:VEVENT'].join('\n');
-    const e = parseIcs(textLf).events[0]!;
+    const e = parseIcs(textLf).events[0];
     expect(e.summary).toBe(summary);
     expect(e.description).toBe('раздва');
   });
@@ -162,7 +162,7 @@ describe('parseIcs', () => {
         'CATEGORIES:Работа,Дом\\,сад',
         'END:VEVENT',
       ]),
-    ).events[0]!;
+    ).events[0];
     expect(e.summary).toBe('Купить: хлеб, молоко; сыр');
     expect(e.description).toBe('Строка 1\nСтрока 2\nСтрока 3 \\ слеш');
     expect(e.location).toBe('Москва, ул. Тверская');
@@ -174,7 +174,7 @@ describe('parseIcs', () => {
   it('читает STATUS:CANCELLED, отменённое событие не разворачивается', () => {
     const e = parseIcs(
       ics(['BEGIN:VEVENT', 'UID:c', 'DTSTART:20261012T100000', 'DTEND:20261012T110000', 'STATUS:CANCELLED', 'END:VEVENT']),
-    ).events[0]!;
+    ).events[0];
     expect(e.status).toBe('CANCELLED');
     expect(expandOccurrences(e, { from: '2026-10-01', to: '2026-10-31' }, 'Europe/Moscow').occurrences).toEqual([]);
   });
@@ -212,7 +212,7 @@ describe('parseIcs', () => {
     expect(cal.events).toHaveLength(3);
     const groups = groupSeries(cal.events);
     expect(groups).toHaveLength(1);
-    const { master, overrides } = groups[0]!;
+    const { master, overrides } = groups[0];
     expect(master.rrule).toEqual({ freq: 'WEEKLY', interval: 1, byDay: [{ day: 'MO', n: null }] });
     expect(master.exdates).toHaveLength(1);
     const res = expandOccurrences(master, { from: '2026-10-01', to: '2026-11-10' }, 'Europe/Moscow', { overrides });
@@ -221,14 +221,14 @@ describe('parseIcs', () => {
       '2026-10-26 12:00 *',
       '2026-11-09 10:00',
     ]);
-    expect(res.occurrences[1]!.event.summary).toBe('Еженедельная (перенесена)');
-    expect(res.occurrences[1]!.recurrenceKey).toBe('2026-10-26T10:00');
+    expect(res.occurrences[1].event.summary).toBe('Еженедельная (перенесена)');
+    expect(res.occurrences[1].recurrenceKey).toBe('2026-10-26T10:00');
   });
 
   it('DURATION вместо DTEND', () => {
     const e = parseIcs(
       ics(['BEGIN:VEVENT', 'UID:d', 'DTSTART;TZID=Europe/Berlin:20261024T233000', 'DURATION:PT1H30M', 'END:VEVENT']),
-    ).events[0]!;
+    ).events[0];
     expect(e.end).toEqual({ date: '2026-10-25', time: '01:00', tzid: 'Europe/Berlin', utc: false });
     expect(e.duration).toBe('PT1H30M');
   });
@@ -259,10 +259,10 @@ describe('parseIcs', () => {
         'END:VCALENDAR',
       ]),
     );
-    expect(cal.events[0]!.start.tzid).toBe('Europe/Moscow');
+    expect(cal.events[0].start.tzid).toBe('Europe/Moscow');
     // Неизвестная зона — плавающее время.
-    expect(cal.events[1]!.start.tzid).toBeNull();
-    expect(cal.events[1]!.start.utc).toBe(false);
+    expect(cal.events[1].start.tzid).toBeNull();
+    expect(cal.events[1].start.utc).toBe(false);
   });
 });
 
@@ -343,11 +343,11 @@ describe('serializeEvent', () => {
     // Строка SUMMARY действительно свёрнута.
     expect(text).toMatch(/\r\n [^\r]/);
     expect(text.replace(/\r\n /g, '')).toContain('Первая строка\\nВторая строка\\; с точкой с запятой\\, запятой и \\\\ слешем');
-    const back = parseIcs(text).events[0]!;
+    const back = parseIcs(text).events[0];
     expect(back.summary).toBe(summary);
     expect(back.description).toBe(description);
     expect(back.start).toEqual(sampleEvent().start);
-    expect(back.alarms[0]!.triggerMinutesBefore).toBe(15);
+    expect(back.alarms[0].triggerMinutesBefore).toBe(15);
   });
 
   it('повтор: RRULE, EXDATE и переопределение в одном ресурсе', () => {
@@ -358,7 +358,7 @@ describe('serializeEvent', () => {
     const text = serializeEvent(master, { now: NOW });
     expect(text).toContain('RRULE:FREQ=WEEKLY;BYDAY=MO\r\n');
     expect(text).toContain('EXDATE;TZID=Europe/Moscow:20261019T100000\r\n');
-    const round = parseIcs(text).events[0]!;
+    const round = parseIcs(text).events[0];
     expect(round.rrule).toEqual(master.rrule);
     expect(round.exdates).toEqual(master.exdates);
   });
@@ -372,7 +372,7 @@ describe('serializeEvent', () => {
       }),
       { now: NOW },
     );
-    const back = parseIcs(text).events[0]!;
+    const back = parseIcs(text).events[0];
     expect(back.status).toBe('CANCELLED');
     expect(back.categories).toEqual(['Работа', 'A,B']);
     expect(back.extra).toEqual([

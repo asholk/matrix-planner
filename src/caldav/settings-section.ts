@@ -10,7 +10,7 @@ import type { Notifier, SettingsSection, SettingsStore } from '../app/contracts'
 import type { CalendarSyncSettings, IcsSubscriptionSetting } from '../model/types';
 import { SETTINGS_SECTION_ORDER } from '../settings/settings-tab';
 import { normalizeSyncInterval } from '../settings/settings-store';
-import { t } from '../i18n';
+import { t, tPlural } from '../i18n';
 import type { PasswordStore } from './credentials';
 import type { CalendarSyncEngine, CalendarSyncStatus } from './sync-engine';
 
@@ -37,18 +37,25 @@ export interface CalendarSyncSectionDeps {
   settings: Pick<SettingsStore, 'get' | 'update'>;
   engine: Pick<
     CalendarSyncEngine,
-    'getStatus' | 'onStatusChange' | 'getKnownCalendars' | 'testConnection' | 'createPlannerCalendar' | 'syncNow'
+    | 'getStatus'
+    | 'onStatusChange'
+    | 'getKnownCalendars'
+    | 'testConnection'
+    | 'createPlannerCalendar'
+    | 'syncNow'
+    | 'confirmPendingDeletions'
   >;
   passwords: PasswordStore;
   notifier: Notifier;
 }
 
 /** Текст состояния синхронизации для настроек. */
-export function syncStatusText(status: CalendarSyncStatus, formatTime: (iso: string) => string): string {
+export function syncStatusText(status: CalendarSyncStatus, formatTime: (iso: string) => string, icloud = true): string {
   if (status.running) return t('caldav.settings.status.running');
   const lastOk = status.lastSyncAt ? t('caldav.settings.status.ok', { time: formatTime(status.lastSyncAt) }) : null;
   if (!status.error) return lastOk ?? t('caldav.settings.status.never');
-  const key = status.error.kind === 'not-configured' ? 'notConfigured' : status.error.kind;
+  const kind = status.error.kind;
+  const key = kind === 'not-configured' ? 'notConfigured' : kind === 'auth' && !icloud ? 'authCaldav' : kind;
   const error = t(`caldav.settings.status.${key}`);
   return status.lastSyncAt ? `${error}. ${t('caldav.settings.status.lastOk', { time: formatTime(status.lastSyncAt) })}` : error;
 }
@@ -69,9 +76,16 @@ export function calendarSyncSection(deps: CalendarSyncSectionDeps): SettingsSect
   const render = (containerEl: HTMLElement): void => {
     const root = containerEl.createDiv({ cls: 'mp-caldav-settings' });
     let statusSetting: Setting | null = null;
+    let shownPending = 0;
 
     const refreshStatus = (): void => {
-      statusSetting?.setDesc(syncStatusText(deps.engine.getStatus(), formatTime));
+      const status = deps.engine.getStatus();
+      // Появилось или изменилось ожидающее подтверждения удаление — перерисовать раздел.
+      if (status.pendingDeletions !== shownPending) {
+        draw();
+        return;
+      }
+      statusSetting?.setDesc(syncStatusText(status, formatTime, deps.settings.get().calendarSync.provider === 'icloud'));
     };
 
     const draw = (): void => {
@@ -147,7 +161,6 @@ export function calendarSyncSection(deps: CalendarSyncSectionDeps): SettingsSect
         );
 
       renderWriteCalendar(root, sync);
-      renderReadCalendars(root, sync);
 
       new Setting(root)
         .setName(t('caldav.settings.tasks.name'))
@@ -183,8 +196,6 @@ export function calendarSyncSection(deps: CalendarSyncSectionDeps): SettingsSect
           });
         });
 
-      renderSubscriptions(root, sync.icsSubscriptions);
-
       new Setting(root).setName(t('caldav.settings.syncNow.name')).addButton((button) =>
         button
           .setButtonText(t('caldav.settings.syncNow.button'))
@@ -196,7 +207,30 @@ export function calendarSyncSection(deps: CalendarSyncSectionDeps): SettingsSect
           }),
       );
       statusSetting = new Setting(root).setName(t('caldav.settings.status.name'));
-      refreshStatus();
+      statusSetting.setDesc(syncStatusText(deps.engine.getStatus(), formatTime, icloud));
+      renderPendingDeletions(root);
+
+      // Подразделы с заголовками — в конце: настройки после заголовка относятся к нему.
+      renderReadCalendars(root, sync);
+      renderSubscriptions(root, sync.icsSubscriptions);
+    };
+
+    /** ТЗ §5.4.3: больше 3 удалений за проход — только после подтверждения. */
+    const renderPendingDeletions = (el: HTMLElement): void => {
+      const pending = deps.engine.getStatus().pendingDeletions;
+      shownPending = pending;
+      if (pending <= 0) return;
+      new Setting(el)
+        .setName(tPlural('caldav.settings.pending.name', pending))
+        .setDesc(t('caldav.settings.pending.desc'))
+        .addButton((button) => {
+          button.setButtonText(t('caldav.settings.pending.button')).onClick(async () => {
+            button.setDisabled(true);
+            await deps.engine.confirmPendingDeletions();
+          });
+          // Как `setWarning` (устарел в 1.13; `setDestructive` нет в Obsidian до 1.13).
+          button.buttonEl.addClass('mod-warning');
+        });
     };
 
     const renderPassword = (el: HTMLElement, icloud: boolean): void => {

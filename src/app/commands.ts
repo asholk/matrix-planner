@@ -166,6 +166,10 @@ export function registerPlannerCommands(host: CommandHost, deps: PlannerCommandD
 export interface CalendarSyncCommandDeps {
   /** Ручная синхронизация с уведомлением о результате. */
   syncNow(): void;
+  /** Сколько событий ждут подтверждения удаления (ТЗ §5.4.3). */
+  pendingDeletions?(): number;
+  /** Подтвердить удаление ожидающих событий. */
+  confirmDeletions?(): void;
 }
 
 /** «Синхронизировать календарь» (CalDAV, src/caldav). */
@@ -175,5 +179,17 @@ export function registerCalendarSyncCommand(host: CommandHost, deps: CalendarSyn
     name: t('caldav.commands.sync'),
     icon: 'refresh-ccw',
     callback: () => deps.syncNow(),
+  });
+  if (!deps.pendingDeletions || !deps.confirmDeletions) return;
+  host.addCommand({
+    id: 'confirm-calendar-deletion',
+    name: t('caldav.commands.confirmDeletion'),
+    icon: 'trash-2',
+    // Команда видна, только пока есть удаление, ждущее подтверждения.
+    checkCallback: (checking) => {
+      if ((deps.pendingDeletions?.() ?? 0) <= 0) return false;
+      if (!checking) deps.confirmDeletions?.();
+      return true;
+    },
   });
 }

@@ -36,7 +36,7 @@ function findSetting(name: string): Setting {
 function createHost(): PlannerViewHost {
   return {
     actions: {} as PlannerViewHost['actions'],
-    platform: { isMobile: true, isPhone: true, isTablet: false, isIos: true, isAndroid: false, isDesktop: false } as PlannerViewHost['platform'],
+    platform: { isMobile: true, isPhone: true, isTablet: false, isIos: true, isAndroid: false, isDesktop: false },
     getActiveTab: () => 'settings',
     switchTab: () => undefined,
     setAddContext: vi.fn(),

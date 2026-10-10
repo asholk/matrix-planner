@@ -311,6 +311,22 @@ describe('календари для записи', () => {
     expect(service.getWritableCalendars()[0]?.title).toBe('Планировщик');
   });
 
+  it('календарь «Планировщик» на сервере CalDAV не дублирует пункт «Планировщик», но остаётся доступным для записи', async () => {
+    const { store, service } = setup();
+    const planner = new VaultEventService({
+      repository: fakeRepository(store),
+      index: new FakeIndex(store),
+      ids: idGenerator(),
+      calendars: { getCalendars: () => CALENDARS },
+      tombstones: new FakeTombstones([]),
+      plannerCalendarTitle: () => 'Планировщик',
+      isPlannerCalendar: (id) => id === 'home',
+    });
+    expect(planner.getWritableCalendars().map((c) => c.calendarId)).toEqual([null]);
+    expect(planner.isWritableCalendar('home')).toBe(true);
+    expect(service.getWritableCalendars().map((c) => c.calendarId)).toEqual([null, 'home']);
+  });
+
   it('без компаньона (кэша нет) — только «Планировщик»', () => {
     const { service } = setup([]);
     expect(service.getWritableCalendars().map((c) => c.calendarId)).toEqual([null]);

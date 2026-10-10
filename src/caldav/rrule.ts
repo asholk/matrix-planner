@@ -568,7 +568,6 @@ export function expandOccurrences(
   const rule = event.rrule;
   const unsupported = !!rule && !!rule.unsupported && Object.keys(rule.unsupported).length > 0;
   const allDay = event.allDay || event.start.time === null;
-  const zone = seriesZoneOf(event);
 
   const exKeys = new Set<string>();
   const exDates = new Set<string>();

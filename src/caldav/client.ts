@@ -114,7 +114,7 @@ function isSuccess(status: number): boolean {
 }
 
 function defaultId(): string {
-  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  const c = typeof crypto === 'undefined' ? undefined : (crypto as { randomUUID?: () => string });
   if (c?.randomUUID) return c.randomUUID();
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }

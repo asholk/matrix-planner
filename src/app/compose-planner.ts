@@ -41,7 +41,7 @@ import { enCaldav } from '../i18n/en/caldav';
 import { CalDavClient } from '../caldav/client';
 import { createObsidianHttp } from '../caldav/http';
 import { createLocalJsonStore, hostOf, LocalPasswordStore, syncStateKey } from '../caldav/credentials';
-import { CalendarSyncEngine, CalendarSyncScheduler } from '../caldav/sync-engine';
+import { CalendarSyncEngine, CalendarSyncScheduler, resourceKey } from '../caldav/sync-engine';
 import { calendarSyncSection } from '../caldav/settings-section';
 import { canWriteCalendarCache } from '../storage/system-json-store';
 import { SystemCalendarCacheReader } from '../calendar/cache-reader';
@@ -153,7 +153,18 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
   plugin.register(tombstones.watch(app));
 
   // --- События, заметки, элементы дня ---
-  const events = new VaultEventService({ repository, index, ids: core.ids, calendars: calendarCache, tombstones });
+  const events = new VaultEventService({
+    repository,
+    index,
+    ids: core.ids,
+    calendars: calendarCache,
+    tombstones,
+    // Календарь для записи синхронизации CalDAV и есть «Планировщик» — без второго пункта в форме.
+    isPlannerCalendar: (calendarId) => {
+      const sync = settings.get().calendarSync;
+      return sync.enabled && sync.writeCalendarHref !== null && resourceKey(sync.writeCalendarHref) === resourceKey(calendarId);
+    },
+  });
   const notes = new VaultNoteService({ repository, index, ids: core.ids });
   const dayItems = new PlannerDayItemsProvider({ index, settings, cache: calendarCache, clock, tombstones });
   plugin.register(() => dayItems.dispose());
@@ -285,7 +296,11 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
   plugin.register(() => syncScheduler.dispose());
   // Интервал проверяется раз в минуту: смена настройки не требует перерегистрации таймера.
   plugin.registerInterval(window.setInterval(() => syncScheduler.tick(), 60_000));
-  registerCalendarSyncCommand(plugin, { syncNow: () => void syncEngine.syncNow({ manual: true }) });
+  registerCalendarSyncCommand(plugin, {
+    syncNow: () => void syncEngine.syncNow({ manual: true }),
+    pendingDeletions: () => syncEngine.getPendingDeletions(),
+    confirmDeletions: () => void syncEngine.confirmPendingDeletions(),
+  });
 
   // --- Изменения данных → «Есть изменения» в баннере ---
   // До первой индексации и чтения кэша изменения не считаются: это загрузка, а не правка.

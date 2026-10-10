@@ -37,7 +37,7 @@ function flush(): Promise<void> {
 function setup(options: { mobile: boolean; share?: boolean; kind?: 'update' | 'save'; app?: Partial<App> | null; fresh?: boolean }): Harness {
   const profile: WallpaperProfile = defaultProfile();
   const h = {
-    status: { fresh: options.fresh ?? false, revision: 1, kind: options.kind ?? 'update', state: { kind: 'dirty' } as WallpaperBannerState, runs: 0 },
+    status: { fresh: options.fresh ?? false, revision: 1, kind: options.kind ?? 'update', state: { kind: 'dirty' }, runs: 0 },
     renders: 0,
     reads: 0,
     renderOk: true,

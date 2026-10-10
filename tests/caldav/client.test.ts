@@ -106,8 +106,8 @@ describe('xml', () => {
     const root = parseXml(new DOMParser(), fixture('icloud-multiget.xml'))!;
     const ms = parseMultistatus(root, CAL)!;
     expect(ms.responses).toHaveLength(1);
-    expect(ms.responses[0]!.href).toBe(`${CAL}abc-2.ics`);
-    expect(ms.responses[0]!.propstats[0]!.status).toBe(200);
+    expect(ms.responses[0].href).toBe(`${CAL}abc-2.ics`);
+    expect(ms.responses[0].propstats[0].status).toBe(200);
   });
 });
 
@@ -115,7 +115,7 @@ describe('basic auth и адреса', () => {
   it('кодирует UTF-8 без Buffer', () => {
     expect(basicAuthHeader('user', 'pass')).toBe('Basic dXNlcjpwYXNz');
     // 'юзер:пароль' в UTF-8
-    expect(basicAuthHeader('юзер', 'пароль')).toBe(`Basic ${Buffer.from('юзер:пароль', 'utf8').toString('base64')}`);
+    expect(basicAuthHeader('юзер', 'пароль')).toBe('Basic 0Y7Qt9C10YA60L/QsNGA0L7Qu9GM');
   });
 
   it('webcal:// → https://', () => {
@@ -144,8 +144,8 @@ describe('CalDavClient.discover', () => {
       ctag: 'HwoQEgwAAAh4yw==',
       syncToken: 'HwoQEgwAAAh4yw8AAAAAAAAAAAAAAAAA',
     });
-    expect(cals[1]!.allowsModifications).toBe(false);
-    expect(cals[1]!.color).toBe('#FF2968');
+    expect(cals[1].allowsModifications).toBe(false);
+    expect(cals[1].color).toBe('#FF2968');
     // авторизация и Depth в каждом запросе, включая повтор после редиректа
     for (const r of http.requests) expect(r.headers['Authorization']).toMatch(/^Basic /);
     expect(http.requests.filter((r) => r.url === `${P57}/123456789/principal/`)).toHaveLength(1);
@@ -217,10 +217,10 @@ describe('CalDavClient.listEvents', () => {
     if (!res.ok) return;
     expect(res.value).toHaveLength(2);
     expect(res.value[0]).toMatchObject({ href: `${CAL}abc-1.ics`, etag: '"C=101@U=abc"' });
-    expect(res.value[0]!.ics).toContain('SUMMARY:Встреча & обед');
-    expect(res.value[1]!.ics).toContain('UID:abc-2');
-    expect(http.requests[0]!.headers['Depth']).toBe('1');
-    expect(http.requests[1]!.body).toContain('<d:href>/123456789/calendars/home/abc-2.ics</d:href>');
+    expect(res.value[0].ics).toContain('SUMMARY:Встреча & обед');
+    expect(res.value[1].ics).toContain('UID:abc-2');
+    expect(http.requests[0].headers['Depth']).toBe('1');
+    expect(http.requests[1].body).toContain('<d:href>/123456789/calendars/home/abc-2.ics</d:href>');
   });
 });
 
@@ -237,7 +237,7 @@ describe('CalDavClient.syncCollection', () => {
       syncToken: 'HwoQEgwAAAh4yw8AAAAAAAAAAAAAAAAB',
       truncated: true,
     });
-    expect(http.requests[0]!.body).toContain('<d:sync-token>old-token</d:sync-token>');
+    expect(http.requests[0].body).toContain('<d:sync-token>old-token</d:sync-token>');
   });
 
   it('valid-sync-token → нужна полная выборка', async () => {
@@ -273,15 +273,15 @@ describe('CalDavClient: события', () => {
     const { client, http } = makeClient([on('PUT', EV, { status: 201, headers: { etag: '"e2"' } })]);
     const res = await client.putEvent(EV, 'BEGIN:VCALENDAR', { create: true });
     expect(res).toEqual({ ok: true, value: { href: EV, etag: '"e2"' } });
-    expect(http.requests[0]!.headers['If-None-Match']).toBe('*');
-    expect(http.requests[0]!.headers['If-Match']).toBeUndefined();
-    expect(http.requests[0]!.headers['Content-Type']).toContain('text/calendar');
+    expect(http.requests[0].headers['If-None-Match']).toBe('*');
+    expect(http.requests[0].headers['If-Match']).toBeUndefined();
+    expect(http.requests[0].headers['Content-Type']).toContain('text/calendar');
   });
 
   it('putEvent с etag → If-Match; 412 → conflict', async () => {
     const { client, http } = makeClient([on('PUT', EV, { status: 412, text: 'Precondition Failed' })]);
     const res = await client.putEvent(EV, 'X', { etag: '"old"' });
-    expect(http.requests[0]!.headers['If-Match']).toBe('"old"');
+    expect(http.requests[0].headers['If-Match']).toBe('"old"');
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe('conflict');
   });
@@ -294,7 +294,7 @@ describe('CalDavClient: события', () => {
   it('deleteEvent: 404 — успех, 412 — конфликт', async () => {
     const a = makeClient([on('DELETE', EV, { status: 404 })]);
     expect((await a.client.deleteEvent(EV, '"e"')).ok).toBe(true);
-    expect(a.http.requests[0]!.headers['If-Match']).toBe('"e"');
+    expect(a.http.requests[0].headers['If-Match']).toBe('"e"');
     const b = makeClient([on('DELETE', EV, { status: 412 })]);
     const res = await b.client.deleteEvent(EV, '"e"');
     expect(!res.ok && res.error.code).toBe('conflict');
@@ -315,7 +315,7 @@ describe('CalDavClient.makeCalendar', () => {
         allowsModifications: true,
       },
     });
-    expect(http.requests[0]!.body).toContain('<d:displayname>Планировщик</d:displayname>');
+    expect(http.requests[0].body).toContain('<d:displayname>Планировщик</d:displayname>');
   });
 
   it('403/405 → forbidden с кодом', async () => {
@@ -335,7 +335,7 @@ describe('CalDavClient.fetchIcsSubscription', () => {
     ]);
     const res = await client.fetchIcsSubscription('webcal://example.com/holidays.ics');
     expect(res.ok && res.value).toContain('BEGIN:VCALENDAR');
-    expect(http.requests[0]!.headers['Authorization']).toBeUndefined();
+    expect(http.requests[0].headers['Authorization']).toBeUndefined();
   });
 
   it('не ICS → invalid-response; 404 → not-found', async () => {
