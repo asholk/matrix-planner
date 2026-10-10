@@ -9,6 +9,7 @@
  */
 
 import { setIcon } from 'obsidian';
+import type { App } from 'obsidian';
 import type {
   CompanionStore,
   DayItemsProvider,
@@ -21,6 +22,7 @@ import { registerDictionary, t } from '../i18n';
 import { enLockscreen } from '../i18n/en/lockscreen';
 import { ruLockscreen } from '../i18n/ru/lockscreen';
 import type { Unsubscribe, WallpaperSettings, WallpaperTemplate } from '../model/types';
+import { PhotoExporter, renderPhotoButton, type PhotoEnvironment, type PhotoWallpaperSource } from './photo-export';
 import {
   bannerViewModelOf,
   openWallpaperHelp,
@@ -45,7 +47,12 @@ registerDictionary('en', 'lockscreen', enLockscreen);
 const THUMBNAIL_DEBOUNCE_MS = 400;
 
 export interface LockscreenTabDeps extends WallpaperEditorDeps {
+  wallpaper: WallpaperEditorDeps['wallpaper'] & PhotoWallpaperSource;
   status: WallpaperStatusTracker;
+  /** «Открыть файл», «Показать в папке», «Открыть» в окне «Получить фото». */
+  app?: App | null;
+  /** Подмена окружения «Получить фото» (тесты). */
+  photoEnv?: Partial<PhotoEnvironment>;
   /** Изменения статуса обоев в `companion.json` (подтверждение с другого устройства). */
   companion?: Pick<CompanionStore, 'onChange'> | null;
   /** Изменения задач и событий — перерисовать миниатюры. */
@@ -77,6 +84,8 @@ export class LockscreenTab implements TabController {
   private galleryEl: HTMLElement | null = null;
   private statusEl: HTMLElement | null = null;
   private updateButtonEl: HTMLButtonElement | null = null;
+  private photoButtonEl: HTMLButtonElement | null = null;
+  private photo: PhotoExporter | null = null;
   private readonly subscriptions: Unsubscribe[] = [];
 
   private filter: TemplateFilter = 'all';
@@ -114,7 +123,26 @@ export class LockscreenTab implements TabController {
     this.filtersEl = root.createDiv({ cls: 'mp-ls-filters', attr: { role: 'radiogroup', 'aria-label': t('lockscreen.filter.label') } });
     this.galleryEl = root.createDiv({ cls: 'mp-ls-gallery' });
 
-    this.subscriptions.push(this.deps.status.onChange(() => this.renderStatus()));
+    const photo = new PhotoExporter({
+      wallpaper: this.deps.wallpaper,
+      status: this.deps.status,
+      clock: this.deps.clock,
+      notifier: this.deps.notifier,
+      sheets: this.deps.sheets,
+      app: this.deps.app,
+      env: this.deps.photoEnv,
+    });
+    this.photo = photo;
+    this.subscriptions.push(photo.onChange(() => this.renderPhotoButton()));
+    this.subscriptions.push(() => photo.dispose());
+
+    this.subscriptions.push(
+      this.deps.status.onChange(() => {
+        this.renderStatus();
+        this.renderPhotoButton();
+        if (this.shown) photo.warm();
+      }),
+    );
     this.subscriptions.push(
       this.deps.settings.onChange((settings, previous) => {
         if (!sameJson(settings.wallpaper, previous.wallpaper) || !sameJson(settings.visibleCalendars, previous.visibleCalendars)) this.render();
@@ -141,12 +169,16 @@ export class LockscreenTab implements TabController {
     this.galleryEl = null;
     this.statusEl = null;
     this.updateButtonEl = null;
+    this.photoButtonEl = null;
+    this.photo = null;
   }
 
   onShow(): void {
     this.shown = true;
     this.host.setAddContext({ date: null, quadrant: null });
     this.renderStatus();
+    // PNG заранее в памяти: «Поделиться» на телефоне — с первого нажатия.
+    this.photo?.warm();
     // «Сегодня» могло смениться, пока вкладка была скрыта.
     if (this.thumbnailsStale) this.scheduleThumbnails(0);
   }
@@ -168,6 +200,7 @@ export class LockscreenTab implements TabController {
     this.renderFilters();
     this.renderGallery();
     this.renderStatus();
+    this.renderPhotoButton();
     this.scheduleThumbnails(0);
   }
 
@@ -200,9 +233,20 @@ export class LockscreenTab implements TabController {
     customize.createSpan({ text: t('lockscreen.current.customize') });
     customize.addEventListener('click', () => this.openEditor());
 
-    const update = el.createEl('button', { cls: 'mp-ls-button mp-ls-update', attr: { type: 'button' } });
+    const actions = el.createDiv({ cls: 'mp-ls-current-actions' });
+    const update = actions.createEl('button', { cls: 'mp-ls-button mp-ls-update', attr: { type: 'button' } });
     update.addEventListener('click', () => this.runUpdate());
     this.updateButtonEl = update;
+
+    const photo = actions.createEl('button', { cls: 'mp-ls-button mp-ls-photo-button', attr: { type: 'button' } });
+    // Синхронно из клика: лист «Поделиться» требует жеста пользователя.
+    photo.addEventListener('click', () => this.photo?.handleClick());
+    this.photoButtonEl = photo;
+    this.renderPhotoButton();
+  }
+
+  private renderPhotoButton(): void {
+    if (this.photoButtonEl && this.photo) renderPhotoButton(this.photoButtonEl, this.photo.buttonModel());
   }
 
   private renderStatus(): void {
@@ -329,6 +373,7 @@ export class LockscreenTab implements TabController {
     this.editorOpen = true;
     openWallpaperEditor(this.deps, {
       template,
+      photo: this.photo,
       onClose: () => {
         this.editorOpen = false;
       },

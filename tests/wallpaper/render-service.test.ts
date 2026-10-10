@@ -111,6 +111,11 @@ class MemoryRepository implements OutputRepositoryDeps {
     return this.files.has(path);
   }
 
+  async readBinary(path: VaultPath): Promise<OpResult<ArrayBuffer>> {
+    const data = this.files.get(path);
+    return data ? { ok: true, value: data, changed: false } : { ok: false, error: { code: 'not-found' } };
+  }
+
   async writeBinary(path: VaultPath, data: ArrayBuffer): Promise<OpResult> {
     if (this.readOnly) return { ok: false, error: { code: 'read-only' } };
     if (this.failWrite.has(path)) return { ok: false, error: { code: 'write-failed', detail: `failed: ${path}` } };
@@ -194,7 +199,12 @@ interface Harness {
   images: { reads: number; released: number; present: boolean };
 }
 
-function setup(now = '2026-12-29T10:00:00Z'): Harness {
+interface SetupExtra {
+  getScreen?(): { width: number; height: number; devicePixelRatio: number } | null;
+  isMobile?(): boolean;
+}
+
+function setup(now = '2026-12-29T10:00:00Z', extra: SetupExtra = {}): Harness {
   const repo = new MemoryRepository();
   const canvases = new FakeCanvasFactory();
   const settings = createDefaultSettings();
@@ -261,6 +271,7 @@ function setup(now = '2026-12-29T10:00:00Z'): Harness {
     getDataRevision: () => h.revision.value,
     getScreen: () => null,
     layout,
+    ...extra,
   });
   return h;
 }
@@ -463,5 +474,54 @@ describe('PlannerWallpaperService helpers', () => {
     expect(canvas.width).toBe(1179);
     expect(canvas.texts[0]).toBe('2026-12-31');
     expect(h.repo.order).toEqual([]);
+  });
+});
+
+describe('PlannerWallpaperService auto profile by platform', () => {
+  // Монитор Windows 1440×900 с масштабом 1,78 — профиль по размеру был бы screen-1601x2561.
+  const monitor = () => ({ width: 1440, height: 900, devicePixelRatio: 1.7786 });
+  const phone = () => ({ width: 393, height: 852, devicePixelRatio: 3 });
+
+  it('uses the default iPhone profile on a computer instead of the monitor size', () => {
+    const h = setup(undefined, { getScreen: monitor, isMobile: () => false });
+    h.settings.wallpaper.profile = 'auto';
+    expect(h.service.resolveProfile().id).toBe('iphone-1179x2556');
+  });
+
+  it('keeps a manual profile on a computer', () => {
+    const h = setup(undefined, { getScreen: monitor, isMobile: () => false });
+    h.settings.wallpaper.profile = 'iphone-1320x2868';
+    expect(h.service.resolveProfile().id).toBe('iphone-1320x2868');
+  });
+
+  it('detects the profile by screen on a phone', () => {
+    const h = setup(undefined, { getScreen: phone, isMobile: () => true });
+    h.settings.wallpaper.profile = 'auto';
+    expect(h.service.resolveProfile().id).toBe('iphone-1179x2556');
+    const android = setup(undefined, { getScreen: () => ({ width: 360, height: 800, devicePixelRatio: 3 }), isMobile: () => true });
+    android.settings.wallpaper.profile = 'auto';
+    expect(android.service.resolveProfile().id).toBe('screen-1080x2400');
+  });
+
+  it('defaults to Platform.isMobile (mock: computer)', () => {
+    const h = setup(undefined, { getScreen: monitor });
+    h.settings.wallpaper.profile = 'auto';
+    expect(h.service.resolveProfile().id).toBe('iphone-1179x2556');
+  });
+});
+
+describe('PlannerWallpaperService.readCurrentImage', () => {
+  it('returns not-found before the first render and the lock.png bytes after it', async () => {
+    const h = setup();
+    const before = await h.service.readCurrentImage();
+    expect(before.ok).toBe(false);
+    if (!before.ok) expect(before.error.code).toBe('not-found');
+    await h.service.renderAll();
+    const after = await h.service.readCurrentImage();
+    expect(after.ok).toBe(true);
+    if (after.ok) {
+      expect(after.value.path).toBe(LOCK);
+      expect(after.value.data).toBe(h.repo.files.get(LOCK));
+    }
   });
 });

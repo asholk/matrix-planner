@@ -10,7 +10,8 @@ import { compareDates } from '../model/dates';
 import type { LocalDateString, OpResult, VaultPath } from '../model/types';
 import { LOCK_FILE_NAME, datedFileName, parseDatedFileName } from './render-plan';
 
-export type OutputRepositoryDeps = Pick<NoteRepository, 'paths' | 'exists' | 'writeBinary' | 'listFolder' | 'trash'>;
+export type OutputRepositoryDeps = Pick<NoteRepository, 'paths' | 'exists' | 'writeBinary' | 'listFolder' | 'trash'> &
+  Partial<Pick<NoteRepository, 'readBinary'>>;
 
 export interface CleanupResult {
   removed: VaultPath[];
@@ -47,6 +48,13 @@ export class WallpaperOutputRepository {
 
   writeLock(profileId: string, png: ArrayBuffer): Promise<OpResult> {
     return this.repository.writeBinary(this.lockPath(profileId), png);
+  }
+
+  /** Читает `lock.png` профиля. */
+  readLock(profileId: string): Promise<OpResult<ArrayBuffer>> {
+    const path = this.lockPath(profileId);
+    if (!this.repository.readBinary) return Promise.resolve({ ok: false, error: { code: 'unsupported', detail: path } });
+    return this.repository.readBinary(path);
   }
 
   /** Удаляет датированный файл (например, устаревший файл на сегодня, если новый не записался). */

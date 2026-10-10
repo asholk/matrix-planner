@@ -7,6 +7,7 @@
  * сделанные во время рендера, не считаются перенесёнными на экран блокировки.
  */
 
+import { Platform } from 'obsidian';
 import type {
   Clock,
   DayItemsProvider,
@@ -54,6 +55,8 @@ export interface WallpaperRenderServiceDeps {
   getDataRevision(): number;
   /** Размер экрана для автопрофиля; по умолчанию `screen × devicePixelRatio`. */
   getScreen?(): ScreenInfo | null;
+  /** Телефон или планшет; на компьютере автопрофиль — iPhone по умолчанию. По умолчанию `Platform.isMobile`. */
+  isMobile?(): boolean;
   /** Подмена раскладки (тесты). */
   layout?: WallpaperLayoutFn;
   /** Подмена строк раскладки (тесты); по умолчанию — из словарей через `t`. */
@@ -79,7 +82,8 @@ export class PlannerWallpaperService implements WallpaperService {
 
   resolveProfile(settings?: WallpaperSettings): WallpaperProfile {
     const wallpaper = settings ?? this.deps.settings.get().wallpaper;
-    return resolveProfileSetting(wallpaper.profile, (this.deps.getScreen ?? defaultScreen)());
+    const mobile = this.deps.isMobile ? this.deps.isMobile() : Platform.isMobile;
+    return resolveProfileSetting(wallpaper.profile, (this.deps.getScreen ?? defaultScreen)(), { mobile });
   }
 
   /** Повторный вызов во время рендера получает тот же результат (без параллельных записей). */
@@ -104,6 +108,16 @@ export class PlannerWallpaperService implements WallpaperService {
   getCurrentImagePath(): VaultPath | null {
     const path = this.deps.output.lockPath(this.resolveProfile().id);
     return this.deps.output.exists(path) ? path : null;
+  }
+
+  /** Байты `lock.png` текущего профиля (для «Получить фото»). */
+  async readCurrentImage(): Promise<OpResult<{ path: VaultPath; data: ArrayBuffer }>> {
+    const profileId = this.resolveProfile().id;
+    const path = this.deps.output.lockPath(profileId);
+    if (!this.deps.output.exists(path)) return { ok: false, error: { code: 'not-found', detail: path } };
+    const read = await this.deps.output.readLock(profileId);
+    if (!read.ok) return read;
+    return { ok: true, value: { path, data: read.value }, changed: false };
   }
 
   // -------------------------------------------------------------------------

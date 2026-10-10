@@ -7,7 +7,7 @@
  * Изменения живут в черновике (`wallpaper-draft.ts`) до «Готово».
  */
 
-import { FuzzySuggestModal, Setting, setIcon } from 'obsidian';
+import { FuzzySuggestModal, Platform, Setting, setIcon } from 'obsidian';
 import type { App, TFile } from 'obsidian';
 import type {
   CalendarCacheReader,
@@ -32,6 +32,7 @@ import type {
   WallpaperTemplate,
 } from '../model/types';
 import { PALETTE_SPECS } from './layout';
+import { renderPhotoButton, type PhotoExporter } from './photo-export';
 import {
   BACKGROUND_KINDS,
   CROP_MAX_SCALE,
@@ -100,6 +101,8 @@ export interface WallpaperEditorOptions {
   /** Сразу выбрать шаблон (из галереи). */
   template?: WallpaperTemplate;
   section?: EditorSection;
+  /** «Получить фото» (общий с вкладкой: кэш PNG); без него кнопки нет. */
+  photo?: PhotoExporter | null;
   onClose?(): void;
 }
 
@@ -258,6 +261,8 @@ class WallpaperEditor {
   private sectionTabsEl: HTMLElement | null = null;
   private sectionBodyEl: HTMLElement | null = null;
   private privacyEl: HTMLElement | null = null;
+  private photoButtonEl: HTMLButtonElement | null = null;
+  private readonly photo: PhotoExporter | null;
   private cropMode = false;
   private previewTimer: number | null = null;
   private previewRunning = false;
@@ -272,6 +277,7 @@ class WallpaperEditor {
     this.draft = createDraft(deps.settings.get().wallpaper);
     if (options.template) this.draft = setTemplate(this.draft, options.template);
     this.section = options.section ?? 'template';
+    this.photo = options.photo ?? null;
   }
 
   render(contentEl: HTMLElement): void {
@@ -290,6 +296,15 @@ class WallpaperEditor {
     setIcon(cropBtn, 'crop');
     cropBtn.addEventListener('click', () => this.setCropMode(!this.cropMode));
     this.cropButtonEl = cropBtn;
+
+    const photo = this.photo;
+    if (photo) {
+      const button = previewWrap.createEl('button', { cls: 'mp-ls-button mp-ls-photo-button', attr: { type: 'button' } });
+      button.addEventListener('click', () => this.getPhoto());
+      this.photoButtonEl = button;
+      this.cleanups.push(photo.onChange(() => this.renderPhotoButton()));
+      this.renderPhotoButton();
+    }
 
     const panel = root.createDiv({ cls: 'mp-ls-editor-panel' });
     this.sectionTabsEl = panel.createDiv({ cls: 'mp-ls-sections', attr: { role: 'tablist', 'aria-label': t('lockscreen.editor.sections.label') } });
@@ -317,6 +332,8 @@ class WallpaperEditor {
       return false;
     }
     this.deps.status.markDataChanged();
+    // Сохранённое — новая точка отсчёта: повторное сохранение не сбросит свежесть PNG.
+    this.draft = { original: draft.current, current: this.draft.current };
     return true;
   }
 
@@ -327,6 +344,27 @@ class WallpaperEditor {
     for (const cleanup of this.cleanups.splice(0)) cleanup();
     this.rootEl = null;
     this.canvas = null;
+    this.photoButtonEl = null;
+  }
+
+  // --- Получить фото ---
+
+  private renderPhotoButton(): void {
+    if (this.photoButtonEl && this.photo) renderPhotoButton(this.photoButtonEl, this.photo.buttonModel());
+  }
+
+  /** Фото — по сохранённым настройкам: несохранённый черновик сначала сохраняется. */
+  private getPhoto(): void {
+    const photo = this.photo;
+    if (!photo) return;
+    if (!isDirty(this.draft)) {
+      // Синхронно из клика: лист «Поделиться» требует жеста пользователя.
+      photo.handleClick();
+      return;
+    }
+    void this.save().then((saved) => {
+      if (saved && !this.disposed) photo.handleClick();
+    });
   }
 
   // --- Черновик ---
@@ -699,6 +737,8 @@ class WallpaperEditor {
         }
         dropdown.setValue(current.profile).onChange((value) => this.update(setProfile(this.draft, value)));
       });
+    // На компьютере размер монитора не подходит для экрана блокировки.
+    if (!Platform.isMobile) body.createDiv({ cls: 'mp-ls-hint mp-ls-profile-hint', text: t('lockscreen.editor.params.profileDesktopHint') });
   }
 
   private autoProfile(): WallpaperProfile | null {

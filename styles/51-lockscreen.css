@@ -218,6 +218,78 @@
   background: var(--background-modifier-hover);
 }
 
+.mp-ls-current-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+}
+
+.mp-ls-current-actions .mp-ls-update {
+  flex: 1 1 12em;
+  width: auto;
+}
+
+.mp-ls-photo-button {
+  flex: 0 1 auto;
+}
+
+.mp-ls-photo-button.mod-cta {
+  border-color: transparent;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.mp-ls-editor-preview .mp-ls-photo-button {
+  margin-top: var(--size-4-2);
+}
+
+/* --- Окно «Получить фото» --- */
+
+.mp-ls-photo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--size-4-3);
+}
+
+.mp-ls-photo-frame {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+/* Долгое нажатие на iOS — системное меню «Сохранить в Фото». */
+.mp-ls-photo-image {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  height: auto;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--background-modifier-border);
+  -webkit-touch-callout: default;
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+
+.mp-ls-photo-hint {
+  text-align: center;
+}
+
+.mp-ls-photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--size-4-2);
+}
+
+.mp-ls-photo-download {
+  display: none;
+}
+
+.mp-ls-profile-hint {
+  padding: 0 0 var(--size-4-2);
+}
+
 .mp-ls-button.is-busy .mp-ls-button-icon .svg-icon,
 .mp-ls-banner-action.is-busy .mp-ls-banner-icon .svg-icon {
   animation: mp-ls-spin 1s linear infinite;
@@ -304,6 +376,8 @@
 
 .mp-ls-editor-preview {
   display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
   padding: var(--size-4-2) 0;
 }

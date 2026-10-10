@@ -69,6 +69,31 @@ describe('WallpaperOutputRepository paths', () => {
   });
 });
 
+class ReadableRepository extends MemoryRepository {
+  async readBinary(path: VaultPath): Promise<OpResult<ArrayBuffer>> {
+    const file = this.files.get(path);
+    return file ? { ok: true, value: file, changed: false } : { ok: false, error: { code: 'not-found' } };
+  }
+}
+
+describe('WallpaperOutputRepository.readLock', () => {
+  it('reads lock.png through readBinary', async () => {
+    const repo = new ReadableRepository();
+    const data = bytes('png');
+    repo.files.set(`${FOLDER}/lock.png`, data);
+    const output = new WallpaperOutputRepository(repo);
+    const read = await output.readLock('iphone-1179x2556');
+    expect(read.ok && read.value).toBe(data);
+    expect((await output.readLock('iphone-1080x2340')).ok).toBe(false);
+  });
+
+  it('reports unsupported without readBinary', async () => {
+    const read = await new WallpaperOutputRepository(new MemoryRepository()).readLock('iphone-1179x2556');
+    expect(read.ok).toBe(false);
+    if (!read.ok) expect(read.error.code).toBe('unsupported');
+  });
+});
+
 describe('WallpaperOutputRepository writes', () => {
   it('creates and then modifies binary files', async () => {
     const repo = new MemoryRepository();

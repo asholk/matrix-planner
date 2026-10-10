@@ -58,6 +58,16 @@ describe('wallpaper profiles', () => {
     expect(custom).toMatchObject({ id: 'screen-1082x2402', width: 1082, height: 2402 });
   });
 
+  it('on a computer auto gives the default iPhone, not the monitor size', () => {
+    const monitor = { width: 1440, height: 900, devicePixelRatio: 1.7786 };
+    expect(resolveProfile('auto', monitor).id).toBe('screen-1601x2561');
+    expect(resolveProfile('auto', monitor, { mobile: true }).id).toBe('screen-1601x2561');
+    expect(resolveProfile('auto', monitor, { mobile: false }).id).toBe(defaultProfile().id);
+    expect(resolveProfile('garbage', monitor, { mobile: false }).id).toBe(defaultProfile().id);
+    expect(resolveProfile('iphone-1206x2622', monitor, { mobile: false }).id).toBe('iphone-1206x2622');
+    expect(resolveProfile('screen-1080x2400', monitor, { mobile: false }).id).toBe('screen-1080x2400');
+  });
+
   it('parseProfileId rejects landscape and malformed ids', () => {
     expect(parseProfileId('screen-2400x1080')).toBeNull();
     expect(parseProfileId('iphone-axb')).toBeNull();

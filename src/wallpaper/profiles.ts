@@ -96,12 +96,26 @@ export function parseProfileId(id: string): WallpaperProfile | null {
   return { ...customProfile(width, height), id };
 }
 
-/** Профиль по настройке: `auto` — по экрану, иначе выбранный вручную (неизвестный id → авто). */
-export function resolveProfile(setting: WallpaperProfileSetting, screen: ScreenInfo | null): WallpaperProfile {
+export interface ResolveProfileOptions {
+  /**
+   * Телефон или планшет. На компьютере размер монитора бессмыслен для экрана
+   * блокировки, поэтому `auto` даёт профиль по умолчанию (iPhone 15 Pro).
+   * По умолчанию `true`.
+   */
+  mobile?: boolean;
+}
+
+/** Профиль по настройке: `auto` — по экрану (на компьютере — по умолчанию), иначе выбранный вручную (неизвестный id → авто). */
+export function resolveProfile(
+  setting: WallpaperProfileSetting,
+  screen: ScreenInfo | null,
+  options: ResolveProfileOptions = {},
+): WallpaperProfile {
   if (setting !== 'auto') {
     const manual = parseProfileId(setting);
     if (manual) return manual;
   }
+  if (options.mobile === false) return defaultProfile();
   return detectProfile(screen);
 }
 
