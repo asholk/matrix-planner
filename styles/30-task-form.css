@@ -1,0 +1,259 @@
+/* Форма задачи (S1.T7, ТЗ §4.3, кадры 02–06). */
+
+.mp-task-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mp-gap);
+}
+
+/* Серые карточки групп полей. */
+.mp-form-card {
+  display: flex;
+  flex-direction: column;
+  padding: var(--size-4-1) var(--size-4-4);
+  border-radius: var(--mp-radius-card);
+  background: var(--background-secondary);
+}
+
+.mp-form-separator {
+  height: 1px;
+  background: var(--background-modifier-border);
+}
+
+/* Название и заметки — поля без рамки внутри карточки. */
+.mp-task-form input.mp-task-form-title,
+.mp-task-form textarea.mp-task-form-body {
+  width: 100%;
+  padding: var(--size-4-3) 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-normal);
+}
+
+.mp-task-form input.mp-task-form-title {
+  font-size: var(--font-ui-large);
+  font-weight: var(--font-semibold);
+}
+
+.mp-task-form textarea.mp-task-form-body {
+  min-height: 2.75em;
+  resize: vertical;
+  font-size: var(--font-ui-medium);
+}
+
+.mp-task-form input.mp-task-form-title:focus,
+.mp-task-form textarea.mp-task-form-body:focus {
+  box-shadow: none;
+}
+
+.mp-task-form input.mp-task-form-title[aria-invalid='true'] {
+  box-shadow: inset 0 -2px 0 var(--text-error);
+}
+
+.mp-task-form-status {
+  padding-bottom: var(--size-4-2);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.mp-task-form-status.is-hidden {
+  display: none;
+}
+
+/* Строка поля: значок, подпись, значение справа. */
+.mp-form-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-3);
+  min-height: calc(var(--mp-touch) + var(--size-4-2));
+}
+
+.mp-form-row + .mp-form-row,
+.mp-task-form-calendar + .mp-form-row {
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.mp-form-row-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--text-muted);
+}
+
+.mp-form-row-icon .svg-icon {
+  width: 1.15em;
+  height: 1.15em;
+}
+
+.mp-form-row-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mp-form-row-value {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--size-4-2);
+  max-width: 65%;
+}
+
+/* Таблетки значений: «Добавить дату», «10 окт. 2026 г.», время. */
+.mp-task-form .mp-form-pill {
+  min-height: 2.25em;
+  height: auto;
+  padding: 0 var(--size-4-3);
+  border: none;
+  border-radius: var(--mp-radius-pill);
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  box-shadow: none;
+  font-size: var(--font-ui-medium);
+  font-variant-numeric: tabular-nums;
+  cursor: var(--cursor);
+}
+
+.mp-task-form .mp-form-pill.mp-form-pill-add {
+  background: var(--background-primary);
+  font-weight: var(--font-semibold);
+  font-size: var(--font-ui-small);
+}
+
+.mp-task-form .mp-form-pill:hover {
+  background: var(--background-modifier-active-hover);
+}
+
+.mp-task-form input.mp-task-form-time {
+  width: auto;
+}
+
+.mp-task-form .mp-form-clear {
+  width: 2em;
+  height: 2em;
+  background: transparent;
+  color: var(--text-faint);
+}
+
+/* Выпадающий выбор (повтор, напоминание). */
+.mp-task-form .mp-form-select {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  min-height: var(--mp-touch);
+  height: auto;
+  padding: 0 var(--size-4-1);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  box-shadow: none;
+  font-size: var(--font-ui-medium);
+  text-align: right;
+  cursor: var(--cursor);
+}
+
+.mp-task-form .mp-form-select:hover {
+  color: var(--text-normal);
+}
+
+.mp-form-select-icon {
+  display: inline-flex;
+}
+
+.mp-form-select-icon .svg-icon {
+  width: 0.9em;
+  height: 0.9em;
+}
+
+.mp-task-form-hint {
+  padding-bottom: var(--size-4-2);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.mp-task-form-calendar {
+  display: flex;
+  justify-content: center;
+  padding-bottom: var(--size-4-3);
+}
+
+.mp-task-form-calendar .mp-datepicker {
+  width: 100%;
+}
+
+/* Квадрант: название выбранного справа и четыре плитки. */
+.mp-task-form-quadrant-name {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.mp-task-form-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--size-4-2);
+  padding: var(--size-4-1) 0 var(--size-4-3);
+}
+
+.mp-task-form .mp-task-form-tile {
+  --mp-tile-color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--size-4-2);
+  height: auto;
+  min-height: 5.5em;
+  padding: var(--size-4-2) var(--size-4-1);
+  border: 1.5px solid var(--background-modifier-border);
+  border-radius: var(--radius-l);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  box-shadow: none;
+  white-space: normal;
+  cursor: var(--cursor);
+}
+
+.mp-task-form .mp-task-form-tile:hover {
+  border-color: var(--background-modifier-border-hover);
+}
+
+.mp-task-form .mp-task-form-tile.is-selected {
+  border-color: var(--mp-tile-color);
+  background: color-mix(in srgb, var(--mp-tile-color) 14%, var(--background-primary));
+  color: var(--mp-tile-color);
+}
+
+.mp-task-form-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 0.6em);
+  gap: 3px;
+}
+
+.mp-task-form-tile-cell {
+  width: 0.6em;
+  height: 0.6em;
+  border-radius: 2px;
+  background: var(--background-modifier-border);
+}
+
+.mp-task-form-tile-cell.is-active {
+  background: var(--mp-tile-color);
+}
+
+.mp-task-form-tile-label {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  line-height: 1.2;
+  text-align: center;
+  overflow-wrap: anywhere;
+  hyphens: auto;
+}
+
+@media (max-width: 22em) {
+  .mp-task-form-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
