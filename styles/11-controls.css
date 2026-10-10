@@ -13,9 +13,12 @@
   overflow: hidden;
 }
 
+/* Свои «Закрыть» и «Готово» в шапке листа — системные кнопки Obsidian скрыты
+   (в мобильном Obsidian 1.11+ это плавающий крестик .modal-header-button поверх «Готово»). */
 .modal.mp-sheet > .modal-close-button,
 .modal.mp-sheet > .modal-header,
-.modal.mp-sheet > .modal-title {
+.modal.mp-sheet > .modal-title,
+.modal.mp-sheet .modal-header-button {
   display: none;
 }
 
@@ -42,9 +45,17 @@
   font-weight: var(--font-semibold);
 }
 
-.mp-sheet-submit {
+.mp-sheet-submit,
+.modal.mp-sheet button.mp-sheet-submit.mod-cta {
   background: var(--mp-ink);
   color: var(--mp-ink-inverse);
+}
+
+/* Неактивная «Готово» (пустое название) — тот же тёмный круг, приглушённый, как в образце. */
+.modal.mp-sheet button.mp-sheet-submit.mod-cta:disabled {
+  background: var(--mp-ink);
+  color: var(--mp-ink-inverse);
+  opacity: 0.3;
 }
 
 .mp-sheet-submit:hover:not(:disabled) {
