@@ -1,0 +1,681 @@
+/* Вкладка «Блокировка», редактор обоев и баннер (S2.T8, ТЗ §4.5; кадры 16–18). */
+
+.mp-ls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mp-gap);
+}
+
+.mp-ls-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+}
+
+.mp-ls-title {
+  margin: 0;
+  font-size: var(--h1-size);
+  font-weight: var(--font-bold);
+  line-height: var(--line-height-tight);
+}
+
+.mp-ls-eyebrow {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mp-ls-hint {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+/* --- Рамка «телефона» с предпросмотром --- */
+
+.mp-ls-phone {
+  --mp-ls-aspect: 1179 / 2556;
+  position: relative;
+  flex: none;
+  aspect-ratio: var(--mp-ls-aspect);
+  overflow: hidden;
+  border: 2px solid var(--background-modifier-border);
+  border-radius: 14% / 6.5%;
+  background: var(--background-secondary-alt);
+  container-type: inline-size;
+}
+
+.mp-ls-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.mp-ls-phone.is-failed .mp-ls-canvas {
+  opacity: 0.3;
+}
+
+/* Макет часов iOS: только в интерфейсе, на PNG не рисуется. */
+.mp-ls-clock {
+  position: absolute;
+  inset: 7% 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  user-select: none;
+}
+
+.mp-ls-clock-date {
+  font-size: 6cqw;
+  font-weight: var(--font-semibold);
+  line-height: 1.2;
+}
+
+.mp-ls-clock-time {
+  font-size: 22cqw;
+  font-weight: var(--font-bold);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.mp-ls-phone-thumb {
+  width: 6.5em;
+  cursor: var(--cursor);
+}
+
+.mp-ls-phone-gallery {
+  width: 100%;
+}
+
+.mp-ls-phone-large {
+  width: min(16em, 60vw);
+  margin: 0 auto;
+  touch-action: none;
+}
+
+.mp-ls-phone-large.is-cropping {
+  cursor: grab;
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+.mp-ls-crop-button {
+  position: absolute;
+  right: 6%;
+  bottom: 4%;
+  background: var(--background-primary);
+  box-shadow: var(--shadow-s);
+}
+
+.mp-ls-crop-button.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+/* --- Карточка «Текущий» --- */
+
+.mp-ls-current {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-3);
+  padding: var(--size-4-4);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--mp-radius-card);
+  background: var(--mp-surface);
+}
+
+.mp-ls-current-top {
+  display: flex;
+  gap: var(--size-4-4);
+  align-items: flex-start;
+}
+
+.mp-ls-current-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.mp-ls-current-template {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  font-size: var(--font-ui-large);
+  font-weight: var(--font-semibold);
+}
+
+.mp-ls-template-icon .svg-icon {
+  color: var(--mp-q-urgent);
+}
+
+.mp-ls-status {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: var(--size-4-2);
+  padding: var(--size-2-2) var(--size-4-3);
+  border-radius: var(--mp-radius-pill);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.mp-ls-status-dot {
+  flex: none;
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  background: var(--color-green);
+}
+
+.mp-ls-status.is-attention {
+  background: rgba(var(--color-red-rgb), 0.12);
+  color: var(--text-error);
+}
+
+.mp-ls-status.is-attention .mp-ls-status-dot {
+  background: var(--color-red);
+}
+
+.mp-ls-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--size-4-2);
+  min-height: var(--mp-touch);
+  padding: 0 var(--size-4-4);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--mp-radius-pill);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-weight: var(--font-semibold);
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-ls-button.mod-primary {
+  border-color: transparent;
+  background: var(--mp-ink);
+  color: var(--mp-ink-inverse);
+}
+
+.mp-ls-button.mod-primary:hover {
+  background: var(--mp-ink);
+  opacity: 0.9;
+}
+
+.mp-ls-update {
+  width: 100%;
+  border-color: transparent;
+  background: var(--background-modifier-hover);
+}
+
+.mp-ls-button.is-busy .mp-ls-button-icon .svg-icon,
+.mp-ls-banner-action.is-busy .mp-ls-banner-icon .svg-icon {
+  animation: mp-ls-spin 1s linear infinite;
+}
+
+.mp-ls-button-icon {
+  display: inline-flex;
+}
+
+@keyframes mp-ls-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --- Фильтр и галерея --- */
+
+.mp-ls-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+}
+
+.mp-ls-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9em, 1fr));
+  gap: var(--size-4-4);
+}
+
+.mp-ls-gallery-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--size-4-2);
+  height: auto;
+  padding: var(--size-4-2);
+  border: 2px solid transparent;
+  border-radius: var(--mp-radius-card);
+  background: transparent;
+  color: var(--text-normal);
+  text-align: start;
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-ls-gallery-card:hover {
+  background: var(--background-modifier-hover);
+}
+
+.mp-ls-gallery-card.is-active {
+  border-color: var(--interactive-accent);
+}
+
+.mp-ls-gallery-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mp-ls-gallery-title {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  font-weight: var(--font-semibold);
+}
+
+.mp-ls-selected {
+  display: inline-flex;
+  color: var(--interactive-accent);
+}
+
+.mp-ls-selected .svg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+/* --- Редактор --- */
+
+.mp-ls-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-4);
+}
+
+.mp-ls-editor-preview {
+  display: flex;
+  justify-content: center;
+  padding: var(--size-4-2) 0;
+}
+
+.mp-ls-editor-panel {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-3);
+}
+
+.mp-ls-sections {
+  display: flex;
+  gap: var(--size-4-2);
+  overflow-x: auto;
+}
+
+.mp-ls-section-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  min-height: var(--mp-touch);
+  padding: 0 var(--size-4-3);
+  border: none;
+  border-radius: var(--mp-radius-pill);
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  box-shadow: none;
+  white-space: nowrap;
+  cursor: var(--cursor);
+}
+
+.mp-ls-section-tab.is-active {
+  background: var(--mp-ink);
+  color: var(--mp-ink-inverse);
+}
+
+.mp-ls-section-icon {
+  display: inline-flex;
+}
+
+/* На узком экране у неактивных разделов — только значок (как на кадре 18). */
+@container (max-width: 360px) {
+  .mp-ls-section-tab:not(.is-active) .mp-ls-section-label {
+    display: none;
+  }
+}
+
+.mp-ls-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-3);
+  padding: var(--size-4-3);
+  border-radius: var(--mp-radius-card);
+  background: var(--background-secondary);
+}
+
+.mp-ls-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.mp-ls-option {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-3);
+  height: auto;
+  min-height: var(--mp-touch);
+  padding: var(--size-4-2) var(--size-4-3);
+  border: 2px solid transparent;
+  border-radius: var(--radius-m);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  text-align: start;
+  white-space: normal;
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-ls-option.is-active {
+  border-color: var(--interactive-accent);
+}
+
+.mp-ls-option-icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.mp-ls-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mp-ls-option-category {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.mp-ls-option-title {
+  font-weight: var(--font-semibold);
+}
+
+.mp-ls-option-desc {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+/* Образец палитры: карточка обоев с двумя строками текста. */
+.mp-ls-palette-swatch {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 3em;
+  height: 2.25em;
+  padding: 0 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background:
+    linear-gradient(var(--mp-ls-card), var(--mp-ls-card)),
+    linear-gradient(135deg, #5b6b73, #c9b79c);
+}
+
+.mp-ls-palette-line {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--mp-ls-text);
+}
+
+.mp-ls-palette-line.is-secondary {
+  width: 60%;
+  background: var(--mp-ls-secondary);
+}
+
+.mp-ls-bg-kinds {
+  align-self: flex-start;
+}
+
+.mp-ls-bg-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-3);
+}
+
+.mp-ls-image-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+
+.mp-ls-image-path {
+  flex: 1 1 10em;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mp-ls-field {
+  display: grid;
+  grid-template-columns: minmax(7em, auto) 1fr auto;
+  align-items: center;
+  gap: var(--size-4-3);
+  font-size: var(--font-ui-small);
+}
+
+.mp-ls-field-label {
+  color: var(--text-normal);
+}
+
+.mp-ls-field-value {
+  min-width: 3.5em;
+  color: var(--text-muted);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.mp-ls-range {
+  width: 100%;
+}
+
+.mp-ls-color {
+  width: 3em;
+  height: 2em;
+  padding: 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+
+.mp-ls-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+}
+
+.mp-ls-swatch {
+  width: 2.25em;
+  height: 2.25em;
+  padding: 0;
+  border: 2px solid var(--background-modifier-border);
+  border-radius: 50%;
+  background: var(--mp-ls-swatch);
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-ls-swatch.is-active {
+  border-color: var(--interactive-accent);
+  outline: 2px solid var(--background-primary);
+  outline-offset: -4px;
+}
+
+.mp-ls-calendar-dot {
+  display: inline-block;
+  width: 0.6em;
+  height: 0.6em;
+  margin-inline-end: var(--size-4-2);
+  border-radius: 50%;
+  background: var(--mp-ls-calendar);
+}
+
+.mp-ls-section-body .setting-item {
+  padding: var(--size-4-2) 0;
+}
+
+.mp-ls-section-body .setting-item-heading {
+  padding-top: 0;
+}
+
+/* Предупреждение о видимости названий на заблокированном экране (ТЗ §7). */
+.mp-ls-privacy {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2) var(--size-4-3);
+  border-radius: var(--radius-m);
+  background: rgba(var(--color-yellow-rgb), 0.14);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+}
+
+.mp-ls-privacy-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-yellow);
+}
+
+/* --- «Как настроить» --- */
+
+.mp-ls-help h3 {
+  margin: var(--size-4-4) 0 var(--size-4-2);
+  font-size: var(--font-ui-medium);
+}
+
+.mp-ls-help ol {
+  padding-inline-start: 1.4em;
+}
+
+.mp-ls-help li + li {
+  margin-top: var(--size-4-1);
+}
+
+.mp-ls-help-docs {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+/* --- Баннер над панелью вкладок (кадр 16) --- */
+
+.mp-ls-banner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-1);
+  padding: var(--size-4-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--mp-radius-card);
+  background: var(--background-primary);
+  box-shadow: var(--shadow-s);
+}
+
+.mp-ls-banner-action {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-3);
+  width: 100%;
+  height: auto;
+  min-height: var(--mp-touch);
+  padding: var(--size-4-1) var(--size-4-2);
+  border: none;
+  border-radius: var(--radius-m);
+  background: transparent;
+  color: var(--text-normal);
+  text-align: start;
+  white-space: normal;
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-ls-banner-action:hover {
+  background: var(--background-modifier-hover);
+}
+
+.mp-ls-banner-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 2.5em;
+  height: 2.5em;
+  border-radius: var(--radius-m);
+  background: var(--background-modifier-hover);
+}
+
+.mp-ls-banner[data-tone='attention'] .mp-ls-banner-icon {
+  background: rgba(var(--color-yellow-rgb), 0.2);
+  color: var(--color-orange);
+}
+
+.mp-ls-banner[data-tone='error'] .mp-ls-banner-icon {
+  background: rgba(var(--color-red-rgb), 0.15);
+  color: var(--text-error);
+}
+
+.mp-ls-banner[data-tone='success'] .mp-ls-banner-icon {
+  background: rgba(var(--color-green-rgb), 0.15);
+  color: var(--text-success);
+}
+
+.mp-ls-banner-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mp-ls-banner-title {
+  font-weight: var(--font-semibold);
+}
+
+.mp-ls-banner-subtitle {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.mp-ls-banner-help {
+  align-self: flex-end;
+  min-height: 2em;
+  padding: 0 var(--size-4-3);
+  border: none;
+  border-radius: var(--mp-radius-pill);
+  background: transparent;
+  color: var(--text-accent);
+  font-size: var(--font-ui-small);
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-ls-banner-help:hover {
+  background: var(--background-modifier-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-ls-button.is-busy .mp-ls-button-icon .svg-icon,
+  .mp-ls-banner-action.is-busy .mp-ls-banner-icon .svg-icon {
+    animation: none;
+  }
+}
