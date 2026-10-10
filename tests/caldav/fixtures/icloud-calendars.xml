@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<multistatus xmlns="DAV:">
+  <response>
+    <href>/123456789/calendars/</href>
+    <propstat>
+      <prop>
+        <resourcetype><collection/></resourcetype>
+      </prop>
+      <status>HTTP/1.1 200 OK</status>
+    </propstat>
+    <propstat>
+      <prop>
+        <displayname/>
+        <calendar-color xmlns="http://apple.com/ns/ical/"/>
+        <getctag xmlns="http://calendarserver.org/ns/"/>
+      </prop>
+      <status>HTTP/1.1 404 Not Found</status>
+    </propstat>
+  </response>
+  <response>
+    <href>/123456789/calendars/home/</href>
+    <propstat>
+      <prop>
+        <resourcetype><collection/><calendar xmlns="urn:ietf:params:xml:ns:caldav"/></resourcetype>
+        <displayname>Дом</displayname>
+        <calendar-color xmlns="http://apple.com/ns/ical/" symbolic-color="custom">#34AADCFF</calendar-color>
+        <supported-calendar-component-set xmlns="urn:ietf:params:xml:ns:caldav">
+          <comp name="VEVENT"/>
+        </supported-calendar-component-set>
+        <current-user-privilege-set>
+          <privilege><read/></privilege>
+          <privilege><write/></privilege>
+          <privilege><read-current-user-privilege-set/></privilege>
+        </current-user-privilege-set>
+        <getctag xmlns="http://calendarserver.org/ns/">HwoQEgwAAAh4yw==</getctag>
+        <sync-token>HwoQEgwAAAh4yw8AAAAAAAAAAAAAAAAA</sync-token>
+      </prop>
+      <status>HTTP/1.1 200 OK</status>
+    </propstat>
+  </response>
+  <response>
+    <href>/123456789/calendars/F1A2B3C4-shared/</href>
+    <propstat>
+      <prop>
+        <resourcetype><collection/><calendar xmlns="urn:ietf:params:xml:ns:caldav"/><shared xmlns="http://calendarserver.org/ns/"/></resourcetype>
+        <displayname>Семья</displayname>
+        <calendar-color xmlns="http://apple.com/ns/ical/">#ff2968</calendar-color>
+        <supported-calendar-component-set xmlns="urn:ietf:params:xml:ns:caldav">
+          <comp name="VEVENT"/>
+        </supported-calendar-component-set>
+        <current-user-privilege-set>
+          <privilege><read/></privilege>
+          <privilege><read-current-user-privilege-set/></privilege>
+        </current-user-privilege-set>
+        <getctag xmlns="http://calendarserver.org/ns/">ctag-shared</getctag>
+        <sync-token>token-shared</sync-token>
+      </prop>
+      <status>HTTP/1.1 200 OK</status>
+    </propstat>
+  </response>
+  <response>
+    <href>/123456789/calendars/tasks/</href>
+    <propstat>
+      <prop>
+        <resourcetype><collection/><calendar xmlns="urn:ietf:params:xml:ns:caldav"/></resourcetype>
+        <displayname>Напоминания</displayname>
+        <supported-calendar-component-set xmlns="urn:ietf:params:xml:ns:caldav">
+          <comp name="VTODO"/>
+        </supported-calendar-component-set>
+      </prop>
+      <status>HTTP/1.1 200 OK</status>
+    </propstat>
+  </response>
+  <response>
+    <href>/123456789/calendars/inbox/</href>
+    <propstat>
+      <prop>
+        <resourcetype><collection/><schedule-inbox xmlns="urn:ietf:params:xml:ns:caldav"/></resourcetype>
+      </prop>
+      <status>HTTP/1.1 200 OK</status>
+    </propstat>
+  </response>
+</multistatus>

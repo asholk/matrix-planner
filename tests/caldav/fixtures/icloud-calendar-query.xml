@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<multistatus xmlns="DAV:">
+  <response>
+    <href>/123456789/calendars/home/abc-1.ics</href>
+    <propstat>
+      <prop>
+        <getetag>"C=101@U=abc"</getetag>
+        <calendar-data xmlns="urn:ietf:params:xml:ns:caldav"><![CDATA[BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Apple Inc.//iOS 18.0//EN
+BEGIN:VEVENT
+UID:abc-1
+DTSTART:20261012T090000Z
+DTEND:20261012T100000Z
+SUMMARY:Встреча & обед
+END:VEVENT
+END:VCALENDAR
+]]></calendar-data>
+      </prop>
+      <status>HTTP/1.1 200 OK</status>
+    </propstat>
+  </response>
+  <response>
+    <href>/123456789/calendars/home/abc-2.ics</href>
+    <propstat>
+      <prop>
+        <getetag>"C=102@U=abc"</getetag>
+      </prop>
+      <status>HTTP/1.1 200 OK</status>
+    </propstat>
+  </response>
+</multistatus>

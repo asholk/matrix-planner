@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<multistatus xmlns="DAV:">
+  <response>
+    <href>/123456789/calendars/home/abc-1.ics</href>
+    <propstat>
+      <prop><getetag>"C=110@U=abc"</getetag></prop>
+      <status>HTTP/1.1 200 OK</status>
+    </propstat>
+  </response>
+  <response>
+    <href>/123456789/calendars/home/gone.ics</href>
+    <status>HTTP/1.1 404 Not Found</status>
+  </response>
+  <response>
+    <href>/123456789/calendars/home/</href>
+    <status>HTTP/1.1 507 Insufficient Storage</status>
+  </response>
+  <sync-token>HwoQEgwAAAh4yw8AAAAAAAAAAAAAAAAB</sync-token>
+</multistatus>
