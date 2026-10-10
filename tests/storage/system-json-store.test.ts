@@ -3,7 +3,7 @@ import type { App } from 'obsidian';
 import { createMockApp, type App as MockApp } from '../__mocks__/obsidian';
 import type { WriteGuard } from '../../src/app/contracts';
 import { createPlannerPaths } from '../../src/storage/paths';
-import { AdapterSystemJsonStore, isSystemJsonName, parseSystemJson } from '../../src/storage/system-json-store';
+import { AdapterSystemJsonStore, canWriteCalendarCache, isSystemJsonName, parseSystemJson } from '../../src/storage/system-json-store';
 import { KeyedWriteQueue } from '../../src/storage/write-queue';
 
 const SYSTEM = 'Планировщик/_system';
@@ -158,6 +158,27 @@ describe('storage/system-json-store', () => {
       expect(!update.ok && update.error.code).toBe('read-only');
       expect(!write.ok && write.error.code).toBe('read-only');
       expect(await ctx.app.vault.adapter.exists(`${SYSTEM}/calendar-cache.json`)).toBe(false);
+    });
+
+    it('calendar-cache.json пишется только через writeCalendarCache', async () => {
+      const result = await ctx.store.writeCalendarCache({ version: 1, generated_at: '2026-10-10T00:00:00.000Z' });
+      expect(result.ok).toBe(true);
+      expect(await ctx.store.read('calendar-cache.json')).toEqual({
+        status: 'ok',
+        value: { version: 1, generated_at: '2026-10-10T00:00:00.000Z' },
+      });
+      expect(canWriteCalendarCache(ctx.store)).toBe(true);
+      expect(canWriteCalendarCache({})).toBe(false);
+    });
+
+    it('writeCalendarCache: запрет схемы и файл новой версии', async () => {
+      await ctx.app.vault.adapter.write(`${SYSTEM}/calendar-cache.json`, '{"version":2}');
+      const newer = await ctx.store.writeCalendarCache({ version: 1 });
+      expect(!newer.ok && newer.error.code).toBe('read-only');
+      expect(fileText(ctx.app, `${SYSTEM}/calendar-cache.json`)).toBe('{"version":2}');
+      ctx.guard.set(false);
+      const blocked = await ctx.store.writeCalendarCache({ version: 3 });
+      expect(!blocked.ok && blocked.error.code).toBe('read-only');
     });
 
     it('новая схема запрещает запись, чтение разрешено', async () => {

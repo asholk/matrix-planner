@@ -80,7 +80,8 @@ export interface IcsEvent {
   rruleText?: string;
   exdates: IcsDateTime[];
   recurrenceId?: IcsDateTime;
-  status?: IcsEventStatus | string;
+  /** Известные значения — `IcsEventStatus`; прочие сохраняются как есть. */
+  status?: IcsEventStatus | (string & Record<never, never>);
   lastModified?: IcsDateTime;
   created?: IcsDateTime;
   dtstamp?: IcsDateTime;

@@ -729,7 +729,7 @@ export function rruleToPreset(rrule: Rrule | string | null | undefined, start: I
       return noParts ? ok('daily') : none;
     case 'WEEKLY': {
       if (noParts) return ok('weekly');
-      const single = rule.byDay?.length === 1 && rule.byDay[0]!.day === wd && rule.byDay[0]!.n === null;
+      const single = rule.byDay?.length === 1 && rule.byDay[0].day === wd && rule.byDay[0].n === null;
       return single && !has.byMonthDay && !has.byMonth && !has.bySetPos ? ok('weekly') : none;
     }
     case 'MONTHLY': {

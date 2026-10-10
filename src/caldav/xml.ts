@@ -141,9 +141,9 @@ export function buildMkcalendar(name: string, color?: string): string {
 export function normalizeColor(raw: string): string | undefined {
   const s = raw.trim();
   let m = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(s);
-  if (m) return `#${m[1]!.toUpperCase()}`;
+  if (m) return `#${m[1].toUpperCase()}`;
   m = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(s);
-  if (m) return `#${m[1]!}${m[1]!}${m[2]!}${m[2]!}${m[3]!}${m[3]!}`.toUpperCase();
+  if (m) return `#${m[1]}${m[1]}${m[2]}${m[2]}${m[3]}${m[3]}`.toUpperCase();
   return undefined;
 }
 

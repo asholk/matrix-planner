@@ -9,7 +9,7 @@
  */
 
 import { addDays } from '../model/dates';
-import type { IcsAlarm, IcsCalendar, IcsDateTime, IcsEvent, IcsEventStatus, IcsProperty, IcsTimezone } from './ics-types';
+import type { IcsAlarm, IcsCalendar, IcsDateTime, IcsEvent, IcsProperty, IcsTimezone } from './ics-types';
 import {
   WEEKDAYS,
   epochToZoned,
@@ -99,7 +99,7 @@ function splitTextList(value: string): string[] {
   const items: string[] = [];
   let current = '';
   for (let i = 0; i < value.length; i++) {
-    const ch = value[i]!;
+    const ch = value[i];
     if (ch === '\\' && i + 1 < value.length) {
       current += ch + value[i + 1];
       i++;
@@ -166,7 +166,7 @@ function parseComponents(text: string): Component[] {
   for (const line of unfoldLines(text)) {
     const prop = parseContentLine(line);
     if (!prop) continue;
-    const top = stack[stack.length - 1]!;
+    const top = stack[stack.length - 1];
     if (prop.name === 'BEGIN') {
       const child: Component = { name: prop.value.trim().toUpperCase(), props: [], children: [] };
       top.children.push(child);
@@ -437,7 +437,7 @@ function readEvent(component: Component, zones: ZoneMap): IcsEvent | null {
         break;
       }
       case 'STATUS':
-        event.status = p.value.trim().toUpperCase() as IcsEventStatus;
+        event.status = p.value.trim().toUpperCase();
         break;
       case 'LAST-MODIFIED': {
         const dt = readDateTime(p, zones);
@@ -476,7 +476,7 @@ function readEvent(component: Component, zones: ZoneMap): IcsEvent | null {
 
 function normalizeColor(value: string): string | undefined {
   const m = /^#?([0-9a-f]{6})(?:[0-9a-f]{2})?$/i.exec(value.trim());
-  if (m) return `#${m[1]!.toLowerCase()}`;
+  if (m) return `#${m[1].toLowerCase()}`;
   const short = /^#?([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(value.trim());
   if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`.toLowerCase();
   return undefined;
@@ -604,7 +604,7 @@ export function buildVtimezone(timeZone: string, year: number): string[] {
     }
   } else {
     // Нерегулярные переходы (смена правил зоны): точные даты года без RRULE.
-    const first = transitions[0]!;
+    const first = transitions[0];
     lines.push(
       'BEGIN:STANDARD',
       'DTSTART:19700101T000000',

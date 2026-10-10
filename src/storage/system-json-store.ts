@@ -4,7 +4,8 @@
  * - `read` различает отсутствие и повреждение;
  * - `update` перечитывает файл в очереди, передаёт мутатору свежий объект
  *   (неизвестные поля сохраняются, если мутатор их не трогает) и не перезаписывает повреждённый файл;
- * - `calendar-cache.json` пишет только компаньон: запись запрещена.
+ * - `calendar-cache.json` через `update`/`write` не пишется: его пишет компаньон или движок
+ *   синхронизации CalDAV плагина — только через отдельный метод `writeCalendarCache`.
  */
 
 import type { App } from 'obsidian';
@@ -52,7 +53,16 @@ export interface SystemJsonStoreDeps {
   migrationGuard?: WriteGuard;
 }
 
-export class AdapterSystemJsonStore implements SystemJsonStore {
+/** Запись `calendar-cache.json` движком синхронизации календаря (src/caldav). */
+export interface CalendarCacheFileWriter {
+  writeCalendarCache(value: Record<string, unknown>): Promise<OpResult>;
+}
+
+export function canWriteCalendarCache(store: unknown): store is CalendarCacheFileWriter {
+  return typeof (store as Partial<CalendarCacheFileWriter> | null)?.writeCalendarCache === 'function';
+}
+
+export class AdapterSystemJsonStore implements SystemJsonStore, CalendarCacheFileWriter {
   constructor(
     private readonly app: App,
     private readonly deps: SystemJsonStoreDeps,
@@ -105,11 +115,41 @@ export class AdapterSystemJsonStore implements SystemJsonStore {
     return this.deps.queue.run(path, async () => this.recheck<void>(name, path) ?? this.writePath(path, value));
   }
 
+  /**
+   * Явное исключение из запрета: кэш календаря целиком пишет движок синхронизации CalDAV.
+   * Запрет схемы (`guard`) действует; файл более новой версии не перезаписывается.
+   */
+  async writeCalendarCache(value: Record<string, unknown>): Promise<OpResult> {
+    if (!isRecord(value)) return errorResult('invalid', 'value must be an object');
+    const name = SYSTEM_FILES.calendarCache;
+    const path = this.path(name);
+    const check = (): OpResult | null => {
+      const blocked = this.deps.guard.check();
+      if (blocked) return errorResult('read-only', undefined, undefined, blocked.messageKey);
+      return this.path(name) !== path ? errorResult('outside-root', path) : null;
+    };
+    const early = check();
+    if (early) return early;
+    return this.deps.queue.run(path, async () => {
+      const recheck = check();
+      if (recheck) return recheck;
+      const current = await this.readPath(path);
+      if (current.status === 'ok' && isRecord(current.value)) {
+        const version = current.value.version;
+        const own = value.version;
+        if (typeof version === 'number' && typeof own === 'number' && version > own) {
+          return errorResult('read-only', 'calendar cache has a newer version');
+        }
+      }
+      return this.writePath(path, value);
+    });
+  }
+
   // -------------------------------------------------------------------------
 
   private checkWritable<T>(name: SystemJsonName): OpResult<T> | null {
     if (!isSystemJsonName(name)) return errorResult<T>('invalid', `unknown system file: ${String(name)}`);
-    if (name === SYSTEM_FILES.calendarCache) return errorResult<T>('read-only', 'calendar cache is written by the companion only');
+    if (name === SYSTEM_FILES.calendarCache) return errorResult<T>('read-only', 'calendar cache is written by writeCalendarCache only');
     const guard = isMigrationFileName(name) ? (this.deps.migrationGuard ?? this.deps.guard) : this.deps.guard;
     const blocked = guard.check();
     return blocked ? errorResult<T>('read-only', undefined, undefined, blocked.messageKey) : null;

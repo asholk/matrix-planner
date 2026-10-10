@@ -10,6 +10,8 @@ import { MARKER_FILE_NAME, PLANNER_LAYOUT } from '../model/types';
 import type {
   ArchiveSetting,
   CalendarSourceFilter,
+  CalendarSyncSettings,
+  IcsSubscriptionSetting,
   LocalTimeString,
   PlannerSettings,
   Unsubscribe,
@@ -22,6 +24,8 @@ import {
   ARCHIVE_DAYS_MAX,
   ARCHIVE_DAYS_MIN,
   SETTINGS_VERSION,
+  SYNC_INTERVAL_MAX,
+  SYNC_INTERVAL_MIN,
   createDefaultSettings,
   migrateSettings,
 } from './defaults';
@@ -215,6 +219,47 @@ function normalizeWallpaper(raw: unknown, fallback: WallpaperSettings): Wallpape
   };
 }
 
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+const DEFAULT_SUBSCRIPTION_COLOR = '#8e8e93';
+
+function normalizeSubscriptions(raw: unknown, fallback: IcsSubscriptionSetting[]): IcsSubscriptionSetting[] {
+  if (!Array.isArray(raw)) return fallback.map((item) => ({ ...item }));
+  const result: IcsSubscriptionSetting[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue;
+    const url = typeof entry.url === 'string' ? entry.url.trim() : '';
+    if (url === '' || result.some((item) => item.url === url)) continue;
+    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+    const color = typeof entry.color === 'string' && HEX_COLOR.test(entry.color.trim()) ? entry.color.trim() : DEFAULT_SUBSCRIPTION_COLOR;
+    result.push({ ...entry, name, url, color });
+  }
+  return result;
+}
+
+/** Интервал синхронизации — целое число минут в пределах; иначе запасное значение. */
+export function normalizeSyncInterval(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isInteger(value)) return null;
+  return value >= SYNC_INTERVAL_MIN && value <= SYNC_INTERVAL_MAX ? value : null;
+}
+
+function normalizeCalendarSync(raw: unknown, fallback: CalendarSyncSettings): CalendarSyncSettings {
+  const source = asRecord(raw);
+  const write = source.writeCalendarHref;
+  return {
+    ...source,
+    enabled: pickBoolean(source.enabled, fallback.enabled),
+    provider: pickEnum(source.provider, ['icloud', 'caldav'] as const, fallback.provider),
+    serverUrl: typeof source.serverUrl === 'string' ? source.serverUrl.trim() : fallback.serverUrl,
+    username: typeof source.username === 'string' ? source.username.trim() : fallback.username,
+    writeCalendarHref: write === null || (typeof write === 'string' && write.length > 0) ? write : fallback.writeCalendarHref,
+    readCalendarHrefs: pickStringList(source.readCalendarHrefs, fallback.readCalendarHrefs),
+    tasksToCalendar: pickBoolean(source.tasksToCalendar, fallback.tasksToCalendar),
+    completedTasksToCalendar: pickBoolean(source.completedTasksToCalendar, fallback.completedTasksToCalendar),
+    intervalMinutes: normalizeSyncInterval(source.intervalMinutes) ?? fallback.intervalMinutes,
+    icsSubscriptions: normalizeSubscriptions(source.icsSubscriptions, fallback.icsSubscriptions),
+  };
+}
+
 function normalizeSources(raw: unknown, fallback: CalendarSourceFilter): CalendarSourceFilter {
   const source = asRecord(raw);
   return {
@@ -265,6 +310,7 @@ export function normalizeSettings(raw: unknown, fallback: PlannerSettings = crea
         : fallback.defaultEventCalendarId,
     visibleCalendars: normalizeVisibleCalendars(source.visibleCalendars, fallback.visibleCalendars),
     wallpaper: normalizeWallpaper(source.wallpaper, fallback.wallpaper),
+    calendarSync: normalizeCalendarSync(source.calendarSync, fallback.calendarSync),
     ui: normalizeUi(source.ui, fallback.ui),
   };
 }

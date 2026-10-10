@@ -16,7 +16,7 @@ import type {
   SettingsSection,
   WallpaperRenderer,
 } from './contracts';
-import type { PlannerSettings } from '../model/types';
+import { SYSTEM_FILES, type PlannerSettings } from '../model/types';
 import { registerDictionary, t } from '../i18n';
 import { ruCache } from '../i18n/ru/cache';
 import { enCache } from '../i18n/en/cache';
@@ -36,6 +36,14 @@ import { ruWallpaperLayout } from '../i18n/ru/wallpaper-layout';
 import { enWallpaperLayout } from '../i18n/en/wallpaper-layout';
 import { ruWallpaperRender } from '../i18n/ru/wallpaper-render';
 import { enWallpaperRender } from '../i18n/en/wallpaper-render';
+import { ruCaldav } from '../i18n/ru/caldav';
+import { enCaldav } from '../i18n/en/caldav';
+import { CalDavClient } from '../caldav/client';
+import { createObsidianHttp } from '../caldav/http';
+import { createLocalJsonStore, hostOf, LocalPasswordStore, syncStateKey } from '../caldav/credentials';
+import { CalendarSyncEngine, CalendarSyncScheduler } from '../caldav/sync-engine';
+import { calendarSyncSection } from '../caldav/settings-section';
+import { canWriteCalendarCache } from '../storage/system-json-store';
 import { SystemCalendarCacheReader } from '../calendar/cache-reader';
 import { PlannerDayItemsProvider } from '../calendar/day-items';
 import { createCalendarTab } from '../calendar/calendar-tab';
@@ -59,7 +67,7 @@ import { PlannerWallpaperService } from '../wallpaper/render-service';
 import { createUpdateBanner } from '../wallpaper/update-banner';
 import { createVaultImagePicker } from '../wallpaper/wallpaper-editor';
 import { SETTINGS_SECTION_ORDER } from '../settings/settings-tab';
-import { registerPlannerCommands } from './commands';
+import { registerCalendarSyncCommand, registerPlannerCommands } from './commands';
 import { composeCore, type CoreContext, type CoreExtension, type CoreHandle, type CoreOverrides } from './compose-core';
 
 /**
@@ -77,6 +85,7 @@ export function registerPlannerDictionaries(): void {
     ['lockscreen', ruLockscreen, enLockscreen],
     [WALLPAPER_LAYOUT_MODULE, ruWallpaperLayout, enWallpaperLayout],
     ['wallpaperRender', ruWallpaperRender, enWallpaperRender],
+    ['caldav', ruCaldav, enCaldav],
   ];
   for (const [module, ru, en] of pairs) {
     registerDictionary('ru', module, ru);
@@ -101,6 +110,8 @@ export interface PlannerHandle {
   protocol: PlannerProtocolHandler;
   /** Первое чтение кэша календаря и компаньона завершено, индекс готов. */
   started: Promise<void>;
+  /** Синхронизация с «Календарём» iOS (CalDAV). */
+  calendarSync: CalendarSyncEngine;
 }
 
 export interface PlannerExtension extends CoreExtension {
@@ -236,19 +247,65 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
   // --- Команды этапа 2 ---
   registerPlannerCommands(plugin, { actions, wallpaperStatus });
 
+  // --- Синхронизация с «Календарём» iOS (CalDAV, подписки ICS) ---
+  const http = createObsidianHttp();
+  const credentialHost = hostOf(app);
+  const passwords = new LocalPasswordStore(credentialHost);
+  const syncEngine = new CalendarSyncEngine({
+    settings,
+    index,
+    events,
+    repository,
+    tombstones,
+    cache: {
+      read: () => systemJson.read(SYSTEM_FILES.calendarCache),
+      write: (value) =>
+        canWriteCalendarCache(systemJson)
+          ? systemJson.writeCalendarCache(value)
+          : Promise.resolve({ ok: false, error: { code: 'read-only', detail: 'calendar cache writer unavailable' } }),
+    },
+    passwords,
+    state: createLocalJsonStore(credentialHost, () => syncStateKey(core.marker.getState().marker?.vault_id ?? null)),
+    clock,
+    notifier,
+    createClient: (credentials) => new CalDavClient(credentials, { http, xmlParser: new DOMParser() }),
+    onCacheWritten: () => {
+      void calendarCache.refresh().catch((error: unknown) => ctx.log('Cannot read calendar cache', error));
+    },
+    log: (message, error) => ctx.log(message, error),
+  });
+  const syncScheduler = new CalendarSyncScheduler({
+    engine: syncEngine,
+    isEnabled: () => settings.get().calendarSync.enabled && !ctx.isUnloaded(),
+    intervalMs: () => settings.get().calendarSync.intervalMinutes * 60_000,
+    now: () => Date.now(),
+    setTimeout: (callback, ms) => window.setTimeout(callback, ms),
+    clearTimeout: (id) => window.clearTimeout(id),
+  });
+  plugin.register(() => syncScheduler.dispose());
+  // Интервал проверяется раз в минуту: смена настройки не требует перерегистрации таймера.
+  plugin.registerInterval(window.setInterval(() => syncScheduler.tick(), 60_000));
+  registerCalendarSyncCommand(plugin, { syncNow: () => void syncEngine.syncNow({ manual: true }) });
+
   // --- Изменения данных → «Есть изменения» в баннере ---
   // До первой индексации и чтения кэша изменения не считаются: это загрузка, а не правка.
   let tracking = false;
   const markDataChanged = (): void => {
     if (tracking && !ctx.isUnloaded()) wallpaperStatus.markDataChanged();
   };
-  plugin.register(index.onChange(() => markDataChanged()));
+  plugin.register(
+    index.onChange(() => {
+      markDataChanged();
+      if (tracking) syncScheduler.schedule();
+    }),
+  );
   plugin.register(calendarCache.onChange(() => markDataChanged()));
   // Новая метка удаления (своя или с другого устройства) меняет состав обоев.
   plugin.register(
     tombstones.onChange(() => {
       void dayItems.refreshTombstones();
       markDataChanged();
+      if (tracking) syncScheduler.schedule();
     }),
   );
   // Файл фона изменён, удалён или переименован — сбросить кэш картинки и пометить обои устаревшими.
@@ -268,6 +325,7 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
         void companion.read().catch((error: unknown) => ctx.log('Cannot read companion state', error));
       }
       if (wallpaperInputsChanged(next, previous)) markDataChanged();
+      if (tracking && JSON.stringify(next.calendarSync) !== JSON.stringify(previous.calendarSync)) syncScheduler.schedule();
     }),
   );
 
@@ -285,6 +343,8 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
         .finally(() => {
           tracking = !ctx.isUnloaded();
           resolve();
+          // Первая синхронизация календаря — после готовности индекса.
+          if (tracking && settings.get().calendarSync.enabled) void syncScheduler.run();
         });
     });
   });
@@ -332,9 +392,12 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
         list: () => KNOWN_PROFILES,
         resolveAuto: () => wallpaper.resolveProfile({ ...settings.get().wallpaper, profile: 'auto' }),
       },
-      sections: [syncWarningSection()],
+      sections: [
+        syncWarningSection(),
+        calendarSyncSection({ app, settings, engine: syncEngine, passwords, notifier }),
+      ],
     },
-    planner: { services, protocol, started },
+    planner: { services, protocol, started, calendarSync: syncEngine },
   };
 }
 

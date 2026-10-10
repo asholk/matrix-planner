@@ -516,6 +516,37 @@ export interface VisibleCalendarsSetting {
   calendarIds: string[];
 }
 
+export type CalendarSyncProvider = 'icloud' | 'caldav';
+
+/** Подписка ICS (только чтение). */
+export interface IcsSubscriptionSetting {
+  name: string;
+  url: string;
+  /** CSS-цвет `#RRGGBB`. */
+  color: string;
+}
+
+/**
+ * Настройки синхронизации календаря. Пароль здесь не хранится (data.json синхронизируется):
+ * он лежит в `app.secretStorage` или в локальном хранилище устройства.
+ */
+export interface CalendarSyncSettings {
+  enabled: boolean;
+  provider: CalendarSyncProvider;
+  /** Адрес сервера для `caldav`; для iCloud не используется. */
+  serverUrl: string;
+  /** Apple ID или имя пользователя. */
+  username: string;
+  /** Календарь для событий и задач; `null` — найти или создать «Планировщик». */
+  writeCalendarHref: string | null;
+  /** Показываемые календари; пустой список — все календари с событиями. */
+  readCalendarHrefs: string[];
+  tasksToCalendar: boolean;
+  completedTasksToCalendar: boolean;
+  intervalMinutes: number;
+  icsSubscriptions: IcsSubscriptionSetting[];
+}
+
 export type PlannerTabId = 'tasks' | 'calendar' | 'lockscreen' | 'settings';
 export type TasksLayout = 'grid' | 'list';
 export type TasksListGrouping = 'quadrant' | 'date';
@@ -548,6 +579,8 @@ export interface PlannerSettings {
   visibleCalendars: VisibleCalendarsSetting;
   // Экран блокировки
   wallpaper: WallpaperSettings;
+  /** Синхронизация с «Календарём» iOS через CalDAV (iCloud или другой сервер) и подписки ICS. */
+  calendarSync: CalendarSyncSettings;
   // Состояние интерфейса (не показывается в настройках)
   ui: {
     lastTab: PlannerTabId;

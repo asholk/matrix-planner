@@ -162,3 +162,18 @@ export function registerPlannerCommands(host: CommandHost, deps: PlannerCommandD
     },
   });
 }
+
+export interface CalendarSyncCommandDeps {
+  /** Ручная синхронизация с уведомлением о результате. */
+  syncNow(): void;
+}
+
+/** «Синхронизировать календарь» (CalDAV, src/caldav). */
+export function registerCalendarSyncCommand(host: CommandHost, deps: CalendarSyncCommandDeps): void {
+  host.addCommand({
+    id: 'sync-calendar',
+    name: t('caldav.commands.sync'),
+    icon: 'refresh-ccw',
+    callback: () => deps.syncNow(),
+  });
+}

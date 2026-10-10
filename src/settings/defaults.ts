@@ -4,7 +4,7 @@
  */
 
 import { DEFAULT_ROOT_FOLDER } from '../model/types';
-import type { PlannerSettings, WallpaperSettings } from './types';
+import type { CalendarSyncSettings, PlannerSettings, WallpaperSettings } from '../model/types';
 
 /** Текущая версия формата настроек (`PlannerSettings.version`). */
 export const SETTINGS_VERSION = 1;
@@ -34,6 +34,29 @@ export function createDefaultWallpaperSettings(): WallpaperSettings {
   };
 }
 
+/** Интервал синхронизации календаря по умолчанию и пределы, мин. */
+export const DEFAULT_SYNC_INTERVAL_MINUTES = 15;
+export const SYNC_INTERVAL_MIN = 5;
+export const SYNC_INTERVAL_MAX = 1440;
+
+/** Сервер CalDAV iCloud. */
+export const ICLOUD_CALDAV_URL = 'https://caldav.icloud.com';
+
+export function createDefaultCalendarSyncSettings(): CalendarSyncSettings {
+  return {
+    enabled: false,
+    provider: 'icloud',
+    serverUrl: '',
+    username: '',
+    writeCalendarHref: null,
+    readCalendarHrefs: [],
+    tasksToCalendar: true,
+    completedTasksToCalendar: false,
+    intervalMinutes: DEFAULT_SYNC_INTERVAL_MINUTES,
+    icsSubscriptions: [],
+  };
+}
+
 /** Новый объект настроек по умолчанию (каждый вызов — независимая копия). */
 export function createDefaultSettings(): PlannerSettings {
   return {
@@ -49,6 +72,7 @@ export function createDefaultSettings(): PlannerSettings {
     defaultEventCalendarId: null,
     visibleCalendars: { planner: true, birthdays: true, calendarIds: [] },
     wallpaper: createDefaultWallpaperSettings(),
+    calendarSync: createDefaultCalendarSyncSettings(),
     ui: {
       lastTab: 'tasks',
       tasksLayout: 'grid',
