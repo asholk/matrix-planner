@@ -1,0 +1,61 @@
+{
+  "description": "Эталонные данные раскладки обоев (S2.T4): профили по screen × dpr, набор задач и событий на 10.10.2026 по образцу экрана блокировки, эталонные цвета для проверки контраста.",
+  "date": "2026-10-10",
+  "screens": [
+    { "name": "iPhone 15 Pro", "width": 393, "height": 852, "devicePixelRatio": 3, "expectedId": "iphone-1179x2556" },
+    { "name": "iPhone 16 Pro Max", "width": 440, "height": 956, "devicePixelRatio": 3, "expectedId": "iphone-1320x2868" },
+    { "name": "iPhone 16 Pro", "width": 402, "height": 874, "devicePixelRatio": 3, "expectedId": "iphone-1206x2622" },
+    { "name": "iPhone 15 Pro, альбомная ориентация", "width": 852, "height": 393, "devicePixelRatio": 3, "expectedId": "iphone-1179x2556" },
+    { "name": "iPhone 13 mini (масштаб iOS: 375 × 812 @3)", "width": 375, "height": 812, "devicePixelRatio": 3, "expectedId": "iphone-1125x2436" },
+    { "name": "Android", "width": 412, "height": 915, "devicePixelRatio": 2.625, "expectedId": "screen-1082x2402" }
+  ],
+  "profiles": [
+    { "id": "iphone-1080x2340", "width": 1080, "height": 2340 },
+    { "id": "iphone-1179x2556", "width": 1179, "height": 2556 },
+    { "id": "iphone-1320x2868", "width": 1320, "height": 2868 }
+  ],
+  "tasks": {
+    "do": [
+      { "title": "Танцы", "due": "2026-10-11" },
+      { "title": "Кулинария", "due": "2026-10-11" }
+    ],
+    "plan": [{ "title": "Стоматолог и консультация ортодонта в новой клинике", "due": "2026-10-16" }],
+    "urgent": [
+      { "title": "Забрать Авито на почте до закрытия отделения", "due": null },
+      { "title": "Хрум чудо-юдо", "due": "2026-10-11T17:00" }
+    ],
+    "someday": [
+      { "title": "Оплатить налоги", "due": null },
+      { "title": "Оформить документы для получения налогового вычета", "due": null },
+      { "title": "Разобрать антресоль", "due": null },
+      { "title": "Выучить португальский", "due": null }
+    ]
+  },
+  "days": {
+    "2026-10-05": [{ "source": "event", "title": "Бабушка — день рождения", "allDay": true, "color": "#3E8BF0" }],
+    "2026-10-06": [{ "source": "external", "title": "Годовщина свадьбы", "allDay": false, "color": "#3E8BF0" }],
+    "2026-10-07": [{ "source": "task", "title": "Тренировка", "allDay": false, "color": "#3E8BF0" }],
+    "2026-10-08": [
+      { "source": "task", "title": "Сдать отчёт", "allDay": false, "color": "#E5484D" },
+      { "source": "task", "title": "Оплатить интернет", "allDay": false, "color": "#E5484D" },
+      { "source": "event", "title": "Созвон", "allDay": false, "color": "#30A46C" },
+      { "source": "event", "title": "Парикмахер", "allDay": false, "color": "#8E4EC6" },
+      { "source": "event", "title": "Кино", "allDay": false, "color": "#F76B15" }
+    ],
+    "2026-10-09": [
+      { "source": "event", "title": "Формальная встреча с подрядчиком", "allDay": false, "color": "#3E8BF0" },
+      { "source": "task", "title": "Сосковать документы", "allDay": false, "color": "#E5484D" },
+      { "source": "note", "title": "Секретная заметка", "allDay": true, "color": "#8E8E93" },
+      { "source": "event", "title": "Встреча 1", "allDay": false, "color": "#3E8BF0" },
+      { "source": "event", "title": "Встреча 2", "allDay": false, "color": "#3E8BF0" },
+      { "source": "event", "title": "Встреча 3", "allDay": false, "color": "#3E8BF0" }
+    ],
+    "2026-10-10": [
+      { "source": "task", "title": "Танцы", "allDay": false, "color": "#E5484D" },
+      { "source": "task", "title": "Хрум чудо-юдо", "allDay": false, "color": "#F2B33D" }
+    ],
+    "2026-10-11": [{ "source": "task", "title": "Кулинария", "allDay": false, "color": "#E5484D" }],
+    "2026-10-20": [{ "source": "event", "title": "Отпуск", "allDay": true, "color": "#30A46C" }]
+  },
+  "referenceColors": ["#E5484D", "#3E8BF0", "#F2B33D", "#8E8E93", "#30A46C", "#12A594", "#0090FF", "#8E4EC6", "#F76B15", "#FFE629"]
+}
