@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "description": "Сортировка задач в квадранте (ТЗ §4.2): просроченные → по дате срока (внутри дня: высокий приоритет, затем со временем по времени, затем без времени) → без срока по дате создания. 'now' — текущее местное время устройства; время задач плавающее. 'expected' — порядок id.",
+  "sorting": [
+    {
+      "name": "example from the specification",
+      "now": "2026-10-10T12:00",
+      "tasks": [
+        { "id": "no-due", "title": "Без срока", "due": null, "priority": "normal", "created": "2026-10-01T10:00", "done": false },
+        { "id": "tomorrow-0900", "title": "Завтра 09:00", "due": "2026-10-11T09:00", "priority": "normal", "created": "2026-10-01T10:00", "done": false },
+        { "id": "today", "title": "Сегодня", "due": "2026-10-10", "priority": "normal", "created": "2026-10-01T10:00", "done": false },
+        { "id": "today-1700", "title": "Сегодня 17:00", "due": "2026-10-10T17:00", "priority": "normal", "created": "2026-10-01T10:00", "done": false }
+      ],
+      "expected": ["today-1700", "today", "tomorrow-0900", "no-due"]
+    },
+    {
+      "name": "overdue, high priority within a day, no due by created",
+      "now": "2026-10-10T12:00",
+      "tasks": [
+        { "id": "n3", "title": "Без срока, без даты создания", "due": null, "priority": "normal", "created": null, "done": false },
+        { "id": "t1", "title": "Сегодня 17:00", "due": "2026-10-10T17:00", "priority": "normal", "created": "2026-10-01T10:00", "done": false },
+        { "id": "h1", "title": "Сегодня, высокий", "due": "2026-10-10", "priority": "high", "created": "2026-10-01T10:00", "done": false },
+        { "id": "f1", "title": "12 окт.", "due": "2026-10-12", "priority": "high", "created": "2026-10-01T10:00", "done": false },
+        { "id": "o2", "title": "Сегодня 09:00 (просрочена)", "due": "2026-10-10T09:00", "priority": "normal", "created": "2026-10-01T10:00", "done": false },
+        { "id": "n1", "title": "Без срока, новая", "due": null, "priority": "high", "created": "2026-10-01T10:00", "done": false },
+        { "id": "t3", "title": "Сегодня", "due": "2026-10-10", "priority": "normal", "created": "2026-10-01T10:00", "done": false },
+        { "id": "h2", "title": "Сегодня 18:00, высокий", "due": "2026-10-10T18:00", "priority": "high", "created": "2026-10-01T10:00", "done": false },
+        { "id": "o1", "title": "Вчера", "due": "2026-10-09", "priority": "normal", "created": "2026-10-01T10:00", "done": false },
+        { "id": "t2", "title": "Сегодня 13:00", "due": "2026-10-10T13:00", "priority": "normal", "created": "2026-10-01T10:00", "done": false },
+        { "id": "n2", "title": "Без срока, старая", "due": null, "priority": "normal", "created": "2026-09-30T10:00", "done": false }
+      ],
+      "expected": ["o1", "o2", "h2", "h1", "t2", "t1", "t3", "f1", "n2", "n1", "n3"]
+    }
+  ],
+  "overdue": [
+    { "name": "time not yet reached", "due": "2026-10-10T09:00", "now": "2026-10-10T08:59", "done": false, "expected": false },
+    { "name": "time reached", "due": "2026-10-10T09:00", "now": "2026-10-10T09:01", "done": false, "expected": true },
+    { "name": "date-only today is not overdue", "due": "2026-10-10", "now": "2026-10-10T23:59", "done": false, "expected": false },
+    { "name": "date-only yesterday is overdue", "due": "2026-10-09", "now": "2026-10-10T00:00", "done": false, "expected": true },
+    { "name": "done task is never overdue", "due": "2026-10-09", "now": "2026-10-10T12:00", "done": true, "expected": false },
+    { "name": "no due is never overdue", "due": null, "now": "2026-10-10T12:00", "done": false, "expected": false }
+  ]
+}

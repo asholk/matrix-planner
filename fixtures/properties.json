@@ -1,0 +1,258 @@
+{
+  "version": 1,
+  "description": "Разбор свойств заметок Планировщика (ТЗ §3.2–3.6, §3.9). 'frontmatter' — свойства после YAML; 'expected' — подмножество полей результата. kind: task | event | note | invalid | null (не заметка Планировщика). 'issues' — проблемы в порядке обнаружения (property + code). 'extra' — сохранённые неизвестные свойства.",
+  "notes": [
+    {
+      "name": "task from the specification with unknown properties",
+      "path": "Планировщик/Задачи/Стоматолог.md",
+      "frontmatter": {
+        "type": "task", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3E", "quadrant": "do", "due": "2026-10-11T09:00", "repeat": "none",
+        "repeat_anchor": "2026-10-11", "remind": "at", "priority": "high", "done": false, "completed": null,
+        "completions": [], "created": "2026-10-10T13:20", "tags": ["work"], "custom": 42
+      },
+      "expected": {
+        "kind": "task", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3E", "quadrant": "do",
+        "due": { "date": "2026-10-11", "time": "09:00" }, "repeat": "none", "repeatAnchor": "2026-10-11",
+        "remind": "at", "priority": "high", "done": false, "completions": [], "created": "2026-10-10T13:20",
+        "extra": { "tags": ["work"], "custom": 42 }, "issues": []
+      }
+    },
+    {
+      "name": "task with date-only due and seconds in created",
+      "path": "Планировщик/Задачи/Купить хлеб.md",
+      "frontmatter": { "type": "task", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3F", "quadrant": "plan", "due": "2026-10-11", "created": "2026-10-10T13:20:45" },
+      "expected": {
+        "kind": "task", "due": { "date": "2026-10-11", "time": null }, "repeat": "none", "repeatAnchor": "2026-10-11",
+        "remind": "none", "priority": "normal", "done": false, "created": "2026-10-10T13:20",
+        "props": { "due": "2026-10-11", "repeat_anchor": null }, "extra": {}, "issues": []
+      }
+    },
+    {
+      "name": "task without id is invalid",
+      "path": "Планировщик/Задачи/Без id.md",
+      "frontmatter": { "type": "task", "quadrant": "do" },
+      "expected": { "kind": "invalid", "declaredType": "task", "issues": [{ "property": "id", "code": "missing" }] }
+    },
+    {
+      "name": "task with unknown quadrant is invalid",
+      "path": "Планировщик/Задачи/Квадрант.md",
+      "frontmatter": { "type": "task", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3G", "quadrant": "urgent-ish" },
+      "expected": { "kind": "invalid", "declaredType": "task", "issues": [{ "property": "quadrant", "code": "invalid-value" }] }
+    },
+    {
+      "name": "invalid values fall back to defaults",
+      "path": "Планировщик/Задачи/Ошибки.md",
+      "frontmatter": {
+        "type": "task", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3H", "quadrant": "urgent", "due": "tomorrow", "remind": "2h",
+        "priority": "very", "done": "yes", "completions": ["2026-10-01", "bad", "2026-10-01", "2026-09-30"]
+      },
+      "expected": {
+        "kind": "task", "due": null, "remind": "none", "priority": "normal", "done": false,
+        "completions": ["2026-09-30", "2026-10-01"],
+        "issues": [
+          { "property": "due", "code": "invalid-date" },
+          { "property": "remind", "code": "invalid-value" },
+          { "property": "priority", "code": "invalid-value" },
+          { "property": "done", "code": "invalid-type" },
+          { "property": "completions", "code": "invalid-date" }
+        ]
+      }
+    },
+    {
+      "name": "recurring task is never done",
+      "path": "Планировщик/Задачи/Зарядка.md",
+      "frontmatter": { "type": "task", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3J", "quadrant": "plan", "due": "2026-10-10T07:00", "repeat": "daily", "done": true, "completions": ["2026-10-09"] },
+      "expected": { "kind": "task", "repeat": "daily", "done": false, "repeatAnchor": "2026-10-10", "props": { "done": true }, "issues": [] }
+    },
+    {
+      "name": "repeat without due becomes none",
+      "path": "Планировщик/Задачи/Без срока.md",
+      "frontmatter": { "type": "task", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3K", "quadrant": "someday", "repeat": "weekly" },
+      "expected": { "kind": "task", "repeat": "none", "due": null, "repeatAnchor": null, "issues": [{ "property": "repeat", "code": "inconsistent" }] }
+    },
+    {
+      "name": "other note types are not planner notes",
+      "path": "Планировщик/Проект.md",
+      "frontmatter": { "type": "project", "id": "x" },
+      "expected": { "kind": null }
+    },
+    {
+      "name": "note without frontmatter",
+      "path": "Планировщик/Пусто.md",
+      "frontmatter": null,
+      "expected": { "kind": null }
+    },
+    {
+      "name": "timed event with unknown property",
+      "path": "Планировщик/События/Встреча.md",
+      "frontmatter": {
+        "type": "event", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3M", "start": "2026-10-21T09:00", "end": "2026-10-21T10:00",
+        "all_day": false, "tz": null, "repeat": "none", "color": "red", "icon": "star", "calendar_id": null, "url": null, "location": "Office"
+      },
+      "expected": {
+        "kind": "event", "start": { "date": "2026-10-21", "time": "09:00" }, "end": { "date": "2026-10-21", "time": "10:00" },
+        "allDay": false, "tz": null, "color": "red", "icon": "star", "calendarId": null, "extra": { "location": "Office" }, "issues": []
+      }
+    },
+    {
+      "name": "all-day event drops start time, end is exclusive",
+      "path": "Планировщик/События/Отпуск.md",
+      "frontmatter": { "type": "event", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3N", "start": "2026-10-21T09:00", "end": "2026-10-22", "all_day": true },
+      "expected": {
+        "kind": "event", "allDay": true, "start": { "date": "2026-10-21", "time": null }, "end": { "date": "2026-10-22", "time": null },
+        "props": { "start": "2026-10-21", "end": "2026-10-22", "all_day": true }, "issues": []
+      }
+    },
+    {
+      "name": "missing end crosses midnight",
+      "path": "Планировщик/События/Поздно.md",
+      "frontmatter": { "type": "event", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3P", "start": "2026-10-21T23:30" },
+      "expected": { "kind": "event", "end": { "date": "2026-10-22", "time": "00:30" }, "issues": [{ "property": "end", "code": "missing" }] }
+    },
+    {
+      "name": "end before start is replaced",
+      "path": "Планировщик/События/Наоборот.md",
+      "frontmatter": { "type": "event", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3Q", "start": "2026-10-21T10:00", "end": "2026-10-21T09:00" },
+      "expected": { "kind": "event", "end": { "date": "2026-10-21", "time": "11:00" }, "issues": [{ "property": "end", "code": "inconsistent" }] }
+    },
+    {
+      "name": "invalid time zone and color",
+      "path": "Планировщик/События/Марс.md",
+      "frontmatter": { "type": "event", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3R", "start": "2026-10-21T10:00", "end": "2026-10-21T11:00", "tz": "Mars/Base", "color": "pink" },
+      "expected": {
+        "kind": "event", "tz": null, "color": "blue",
+        "issues": [{ "property": "tz", "code": "invalid-value" }, { "property": "color", "code": "invalid-value" }]
+      }
+    },
+    {
+      "name": "event with IANA time zone",
+      "path": "Планировщик/События/Москва.md",
+      "frontmatter": { "type": "event", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3S", "start": "2026-10-21T10:00", "end": "2026-10-21T11:00", "tz": "Europe/Moscow" },
+      "expected": { "kind": "event", "tz": "Europe/Moscow", "issues": [] }
+    },
+    {
+      "name": "date-only start without all_day becomes all-day",
+      "path": "Планировщик/События/День.md",
+      "frontmatter": { "type": "event", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3T", "start": "2026-10-21" },
+      "expected": {
+        "kind": "event", "allDay": true, "end": { "date": "2026-10-22", "time": null },
+        "issues": [{ "property": "all_day", "code": "inconsistent" }, { "property": "end", "code": "missing" }]
+      }
+    },
+    {
+      "name": "event without start is invalid",
+      "path": "Планировщик/События/Без начала.md",
+      "frontmatter": { "type": "event", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3V" },
+      "expected": { "kind": "invalid", "declaredType": "event", "issues": [{ "property": "start", "code": "missing" }] }
+    },
+    {
+      "name": "quick note with date",
+      "path": "Планировщик/Заметки/Идея.md",
+      "frontmatter": { "type": "note", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3W", "date": "2026-10-21", "aliases": ["idea"] },
+      "expected": { "kind": "note", "date": "2026-10-21", "extra": { "aliases": ["idea"] }, "issues": [] }
+    },
+    {
+      "name": "quick note date-time is reduced to date",
+      "path": "Планировщик/Заметки/Время.md",
+      "frontmatter": { "type": "note", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3X", "date": "2026-10-21T10:00" },
+      "expected": { "kind": "note", "date": "2026-10-21", "issues": [] }
+    },
+    {
+      "name": "quick note without date",
+      "path": "Планировщик/Заметки/Без даты.md",
+      "frontmatter": { "type": "note", "id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3Y", "date": null },
+      "expected": { "kind": "note", "date": null, "issues": [] }
+    },
+    {
+      "name": "quick note without id is invalid",
+      "path": "Планировщик/Заметки/Без id.md",
+      "frontmatter": { "type": "note", "date": "2026-10-21" },
+      "expected": { "kind": "invalid", "declaredType": "note", "issues": [{ "property": "id", "code": "missing" }] }
+    }
+  ],
+  "matrix": [
+    {
+      "name": "no file gives defaults",
+      "path": null, "language": "ru", "frontmatter": null,
+      "expected": {
+        "quadrants": [
+          { "key": "do", "title": "Важно и срочно", "color": "#E5484D", "icon": "flame" },
+          { "key": "plan", "title": "Важно", "color": "#3E8BF0", "icon": "calendar-days" },
+          { "key": "urgent", "title": "Срочно", "color": "#F2B33D", "icon": "zap" },
+          { "key": "someday", "title": "Когда-нибудь", "color": "#8E8E93", "icon": "menu" }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "name": "file without quadrants",
+      "path": "Планировщик/Матрица.md", "language": "en", "frontmatter": {},
+      "expected": {
+        "quadrants": [
+          { "key": "do", "title": "Important and urgent", "color": "#E5484D", "icon": "flame" },
+          { "key": "plan", "title": "Important", "color": "#3E8BF0", "icon": "calendar-days" },
+          { "key": "urgent", "title": "Urgent", "color": "#F2B33D", "icon": "zap" },
+          { "key": "someday", "title": "Someday", "color": "#8E8E93", "icon": "menu" }
+        ],
+        "issues": [{ "property": "quadrants", "code": "missing" }]
+      }
+    },
+    {
+      "name": "partial and invalid entries",
+      "path": "Планировщик/Матрица.md", "language": "ru",
+      "frontmatter": {
+        "quadrants": [
+          { "key": "do", "title": "Горит", "color": "#abc", "icon": "flame-kindling" },
+          { "key": "plan", "color": "red" },
+          { "key": "bad", "title": "?" }
+        ]
+      },
+      "expected": {
+        "quadrants": [
+          { "key": "do", "title": "Горит", "color": "#AABBCC", "icon": "flame-kindling" },
+          { "key": "plan", "title": "Важно", "color": "#3E8BF0", "icon": "calendar-days" },
+          { "key": "urgent", "title": "Срочно", "color": "#F2B33D", "icon": "zap" },
+          { "key": "someday", "title": "Когда-нибудь", "color": "#8E8E93", "icon": "menu" }
+        ],
+        "issues": [
+          { "property": "quadrants[1].color", "code": "invalid-value" },
+          { "property": "quadrants[2].key", "code": "invalid-value" },
+          { "property": "quadrants.urgent", "code": "missing" },
+          { "property": "quadrants.someday", "code": "missing" }
+        ]
+      }
+    }
+  ],
+  "marker": [
+    {
+      "name": "current schema",
+      "frontmatter": { "root": "Планировщик", "schema": 1, "vault_id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3Z", "migrating": false },
+      "expected": { "status": "ok", "marker": { "root": "Планировщик", "schema": 1, "vault_id": "01JA7Q3K8Z6Y2V5N4M0C1B2D3Z", "migrating": false } }
+    },
+    {
+      "name": "schema as string",
+      "frontmatter": { "root": "Планировщик", "schema": "1", "vault_id": "v" },
+      "expected": { "status": "ok", "marker": { "root": "Планировщик", "schema": 1, "vault_id": "v", "migrating": false } }
+    },
+    {
+      "name": "newer schema is read-only",
+      "frontmatter": { "root": "Планировщик", "schema": 2, "vault_id": "v" },
+      "expected": { "status": "newer" }
+    },
+    {
+      "name": "migration in progress",
+      "frontmatter": { "root": "Планировщик", "schema": 1, "vault_id": "v", "migrating": true },
+      "expected": { "status": "migrating" }
+    },
+    {
+      "name": "missing schema is invalid",
+      "frontmatter": { "root": "Планировщик", "vault_id": "v" },
+      "expected": { "status": "invalid", "marker": null }
+    },
+    {
+      "name": "no frontmatter is invalid",
+      "frontmatter": null,
+      "expected": { "status": "invalid", "marker": null }
+    }
+  ]
+}
