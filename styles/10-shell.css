@@ -32,6 +32,12 @@ body.is-phone .workspace-leaf-content[data-type='matrix-planner'] > .view-header
   display: none;
 }
 
+/* Obsidian сдвигает содержимое под плавающий заголовок (safe-area + высота заголовка).
+   Заголовок скрыт — оставляем только safe-area. */
+body.is-phone .workspace-leaf-content[data-type='matrix-planner'] > .view-content {
+  margin-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+}
+
 /* Без заголовка вид может начинаться под строкой состояния: отступ — только недостающая часть safe-area. */
 body.is-phone .mp-view {
   padding-top: max(0px, calc(env(safe-area-inset-top, 0px) - var(--mp-view-top, 0px)));

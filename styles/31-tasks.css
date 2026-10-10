@@ -406,7 +406,8 @@
   -webkit-line-clamp: 2;
   line-clamp: 2;
   overflow: hidden;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  hyphens: auto;
   font-size: var(--font-ui-medium);
   line-height: var(--line-height-tight);
 }
@@ -567,4 +568,90 @@
 .mp-view.is-phone .mp-task-handle {
   width: 1.25em;
   opacity: 0.45;
+}
+
+/* Телефон: плотнее, чтобы на ширине ~390px слова не рвались (референс LockDay). */
+.mp-view.is-phone .mp-matrix {
+  gap: 0.6em;
+}
+
+.mp-view.is-phone .mp-quadrant {
+  min-height: 14em;
+  padding: 0.7em 0.6em;
+}
+
+.mp-view.is-phone .mp-quadrant-header {
+  gap: 0.35em;
+  margin-bottom: 0.4em;
+}
+
+.mp-view.is-phone .mp-quadrant-icon,
+.mp-view.is-phone .mp-quadrant-add {
+  width: 1.7em;
+  height: 1.7em;
+}
+
+.mp-view.is-phone .mp-quadrant-title {
+  font-size: var(--font-ui-small);
+}
+
+.mp-view.is-phone .mp-quadrant-list {
+  gap: 0.4em;
+}
+
+.mp-view.is-phone .mp-task-card {
+  gap: 0.15em;
+  padding: 0.35em 0.2em 0.35em 0.3em;
+}
+
+.mp-tasks button.mp-task-check {
+  background: transparent;
+  box-shadow: none;
+}
+
+.mp-view.is-phone .mp-task-check {
+  width: 2em;
+}
+
+.mp-view.is-phone .mp-task-check-mark {
+  width: 1.35em;
+  height: 1.35em;
+}
+
+.mp-view.is-phone .mp-task-title {
+  font-size: var(--font-ui-small);
+}
+
+.mp-view.is-phone .mp-task-handle {
+  width: 0.8em;
+}
+
+/* Кнопки карточки без фона и тени Obsidian (на мобильных у button есть подложка). */
+.mp-tasks button.mp-task-main,
+.mp-tasks button.mp-task-more {
+  background: transparent;
+  box-shadow: none;
+}
+
+.mp-tasks .mp-task-title {
+  hyphens: manual;
+  word-break: normal;
+}
+
+/* Телефон: маркер перетаскивания поверх правого края карточки — не отнимает ширину у названия. */
+.mp-view.is-phone .mp-task-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 0.9em;
+  opacity: 0.35;
+}
+
+.mp-view.is-phone .mp-task-card {
+  padding-right: 0.7em;
+}
+
+.mp-view.is-phone .mp-task-check {
+  width: 1.8em;
 }
