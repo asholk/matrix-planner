@@ -1,0 +1,870 @@
+/* Вкладка «Календарь» (S2.T6, ТЗ §4.4, кадры 09, 13, 15).
+   Цвет элемента — `--mp-item-color` на строке/плашке: события — `var(--mp-event-<цвет>)`
+   из 40-events-notes.css, задачи — цвет квадранта, внешние события — цвет календаря. */
+
+.mp-calendar {
+  --mp-cal-hour: 3.25em;
+  --mp-cal-time-col: 3.5em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mp-gap);
+  position: relative;
+}
+
+.mp-cal-week[hidden],
+.mp-cal-picker[hidden] {
+  display: none;
+}
+
+/* --- Шапка --- */
+
+.mp-cal-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+}
+
+.mp-cal-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  min-width: 0;
+}
+
+.mp-cal-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  min-height: var(--mp-touch);
+  padding: 0 var(--size-2-2);
+  border: none;
+  border-radius: var(--radius-m);
+  background: transparent;
+  color: var(--text-normal);
+  font-size: var(--h2-size);
+  font-weight: var(--font-bold);
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-cal-title:hover {
+  background: var(--background-modifier-hover);
+}
+
+.mp-cal-title-icon {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.mp-cal-title-icon .svg-icon {
+  width: 0.75em;
+  height: 0.75em;
+}
+
+.mp-cal-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  margin-left: auto;
+}
+
+.mp-cal-actions .mp-icon-button,
+.mp-cal-today {
+  background: var(--mp-surface);
+}
+
+.mp-cal-filter.is-active {
+  background: var(--mp-ink);
+  color: var(--mp-ink-inverse);
+}
+
+.mp-cal-today {
+  font-weight: var(--font-semibold);
+}
+
+/* Выбор месяца и года — всплывающая панель под заголовком. */
+.mp-cal-picker {
+  position: absolute;
+  z-index: var(--layer-popover);
+  top: calc(var(--mp-touch) + var(--size-4-2));
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  width: min(22em, 100%);
+  padding: var(--size-4-3);
+  border-radius: var(--mp-radius-card);
+  background: var(--background-primary);
+  box-shadow: var(--shadow-l);
+}
+
+.mp-cal-picker-close {
+  align-self: flex-end;
+}
+
+/* --- Лента недели --- */
+
+.mp-cal-week {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+}
+
+.mp-cal-week-days {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--size-2-1);
+  touch-action: pan-y;
+  user-select: none;
+}
+
+.mp-cal-week-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--size-2-2);
+  height: auto;
+  min-height: var(--mp-touch);
+  padding: var(--size-2-2) 0;
+  border: none;
+  border-radius: var(--radius-m);
+  background: transparent;
+  color: var(--text-normal);
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-cal-week-day:hover .mp-cal-week-number {
+  background: var(--background-modifier-hover);
+}
+
+.mp-cal-week-weekday {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  text-transform: uppercase;
+}
+
+.mp-cal-week-day.is-today .mp-cal-week-weekday {
+  color: var(--text-accent);
+  font-weight: var(--font-semibold);
+}
+
+.mp-cal-week-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1em;
+  height: 2.1em;
+  border-radius: 50%;
+  font-size: var(--font-ui-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Сегодня — кругом акцентного цвета; выбранный день — заливкой. */
+.mp-cal-week-day.is-today .mp-cal-week-number {
+  box-shadow: inset 0 0 0 2px var(--interactive-accent);
+  color: var(--text-accent);
+  font-weight: var(--font-semibold);
+}
+
+.mp-cal-week-day.is-selected .mp-cal-week-number,
+.mp-cal-week-day.is-selected:hover .mp-cal-week-number {
+  background: var(--mp-ink);
+  color: var(--mp-ink-inverse);
+  font-weight: var(--font-semibold);
+}
+
+.mp-cal-week-day.is-selected.is-today .mp-cal-week-number {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  box-shadow: none;
+}
+
+.mp-cal-week-marks {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 0.75em;
+}
+
+.mp-cal-dot {
+  display: inline-block;
+  flex: none;
+  width: 0.4em;
+  height: 0.4em;
+  border-radius: 50%;
+  background: var(--mp-item-color, var(--text-faint));
+}
+
+.mp-cal-dot-note {
+  background: var(--text-faint);
+}
+
+.mp-cal-week-check {
+  display: inline-flex;
+  color: var(--color-green);
+}
+
+.mp-cal-week-check .svg-icon {
+  width: 0.75em;
+  height: 0.75em;
+  stroke-width: 3;
+}
+
+.mp-cal-week-arrow {
+  background: transparent;
+}
+
+/* --- Список дня --- */
+
+.mp-cal-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mp-gap);
+}
+
+.mp-cal-day {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.mp-cal-day-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+}
+
+.mp-cal-day-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-4-2);
+  margin: 0;
+  font-size: var(--font-ui-large);
+  font-weight: var(--font-bold);
+}
+
+.mp-cal-day-date {
+  color: var(--text-muted);
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-normal);
+}
+
+.mp-cal-day-count {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.mp-cal-notice,
+.mp-cal-empty {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-4-2);
+  padding: var(--size-4-3);
+  border-radius: var(--mp-radius-card);
+  background: var(--mp-surface);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.mp-cal-notice {
+  background: var(--background-modifier-hover);
+}
+
+.mp-cal-notice-icon,
+.mp-cal-empty-icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.mp-cal-notice-icon .svg-icon,
+.mp-cal-empty-icon .svg-icon {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+.mp-cal-empty {
+  flex-direction: column;
+  align-items: center;
+  padding: var(--size-4-6) var(--size-4-4);
+  text-align: center;
+}
+
+.mp-cal-empty-icon .svg-icon {
+  width: 1.75em;
+  height: 1.75em;
+  color: var(--text-faint);
+}
+
+.mp-cal-loading {
+  padding: var(--size-4-6);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.mp-cal-day-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-3);
+  padding: var(--size-4-3);
+  border-radius: var(--mp-radius-card);
+  background: var(--mp-surface);
+}
+
+.mp-cal-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.mp-cal-block-title {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.mp-cal-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+/* Строка: [время][точка с линией][цветная плашка]. */
+.mp-cal-row {
+  --mp-item-color: var(--text-faint);
+  display: flex;
+  align-items: stretch;
+  gap: var(--size-4-2);
+  min-width: 0;
+}
+
+.mp-cal-row-time {
+  flex: none;
+  width: var(--mp-cal-time-col);
+  padding-top: var(--size-4-2);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.mp-cal-row-rail {
+  position: relative;
+  display: flex;
+  flex: none;
+  justify-content: center;
+  width: 0.75em;
+}
+
+.mp-cal-row-rail::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--size-4-2) + 0.9em);
+  bottom: calc(var(--size-4-2) * -1);
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--background-modifier-border);
+}
+
+.mp-cal-row:last-child .mp-cal-row-rail::after {
+  display: none;
+}
+
+.mp-cal-row-dot {
+  position: relative;
+  z-index: 1;
+  width: 0.6em;
+  height: 0.6em;
+  margin-top: calc(var(--size-4-2) + 0.3em);
+  border-radius: 50%;
+  background: var(--mp-item-color);
+}
+
+.mp-cal-row-card {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--size-4-2);
+  min-width: 0;
+  min-height: var(--mp-touch);
+  padding: var(--size-4-2) var(--size-4-3) var(--size-4-2) calc(var(--size-4-3) + 3px);
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--mp-item-color) 14%, var(--background-primary));
+  cursor: var(--cursor);
+  transition: background-color var(--mp-transition);
+}
+
+.mp-cal-row-card:hover {
+  background: color-mix(in srgb, var(--mp-item-color) 22%, var(--background-primary));
+}
+
+.mp-cal-row-card:focus-visible,
+.mp-cal-timeline-card:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+.mp-cal-row-bar {
+  position: absolute;
+  top: var(--size-4-2);
+  bottom: var(--size-4-2);
+  left: var(--size-2-2);
+  width: 3px;
+  border-radius: 2px;
+  background: var(--mp-item-color);
+}
+
+.mp-cal-row-task .mp-cal-row-bar,
+.mp-cal-row-note .mp-cal-row-bar {
+  display: none;
+}
+
+.mp-cal-row-note .mp-cal-row-card {
+  background: var(--background-secondary);
+}
+
+/* Кружок выполнения задачи. */
+.mp-cal-check {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.5em;
+  height: 1.5em;
+  padding: 0;
+  border: 2px solid var(--mp-item-color);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-on-accent);
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-cal-check .svg-icon {
+  width: 0.9em;
+  height: 0.9em;
+  stroke-width: 3;
+}
+
+.is-completed .mp-cal-check,
+.is-completing .mp-cal-check {
+  border-color: var(--color-green);
+  background: var(--color-green);
+}
+
+.mp-cal-row.is-busy .mp-cal-check,
+.mp-cal-timeline-block.is-busy .mp-cal-check {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.mp-cal-row-icon,
+.mp-cal-row-kind {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.9em;
+  height: 1.9em;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--mp-item-color) 22%, transparent);
+  color: var(--mp-item-color);
+}
+
+.mp-cal-row-kind {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.mp-cal-row-icon .svg-icon,
+.mp-cal-row-kind .svg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+.mp-cal-row-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mp-cal-row-title {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  min-width: 0;
+  color: var(--text-normal);
+  font-weight: var(--font-medium);
+}
+
+.mp-cal-row-title-text {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
+.mp-cal-row.is-completed .mp-cal-row-title-text {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.mp-cal-row-flag {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-red);
+}
+
+.mp-cal-row-flag .svg-icon {
+  width: 0.9em;
+  height: 0.9em;
+  fill: currentColor;
+}
+
+.mp-cal-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-2-2);
+  color: color-mix(in srgb, var(--mp-item-color) 75%, var(--text-normal));
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-medium);
+}
+
+.mp-cal-row-meta-part {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-2-1);
+}
+
+.mp-cal-row-meta-icon {
+  display: inline-flex;
+}
+
+.mp-cal-row-meta-icon .svg-icon {
+  width: 0.9em;
+  height: 0.9em;
+}
+
+.mp-cal-row-sep {
+  color: var(--text-faint);
+}
+
+/* --- Временная шкала --- */
+
+.mp-cal-timeline {
+  position: relative;
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: var(--mp-radius-card);
+  background: var(--mp-surface);
+}
+
+.mp-cal-timeline-grid {
+  position: relative;
+  height: calc(var(--mp-cal-hour) * 24);
+  margin: var(--size-4-2) 0;
+}
+
+.mp-cal-timeline-hour {
+  position: absolute;
+  top: var(--mp-cal-top);
+  left: var(--mp-cal-time-col);
+  right: var(--size-4-2);
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.mp-cal-timeline-hour-label {
+  position: absolute;
+  top: 0;
+  right: calc(100% + var(--size-4-2));
+  transform: translateY(-50%);
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mp-cal-timeline-lane {
+  position: absolute;
+  inset: 0 var(--size-4-2) 0 calc(var(--mp-cal-time-col) + var(--size-4-1));
+}
+
+.mp-cal-timeline-block {
+  --mp-item-color: var(--text-faint);
+  position: absolute;
+  top: var(--mp-cal-top);
+  left: var(--mp-cal-left);
+  width: var(--mp-cal-width);
+  height: var(--mp-cal-height);
+  padding: 1px;
+}
+
+.mp-cal-timeline-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-2-3);
+  height: 100%;
+  padding: var(--size-2-2) var(--size-4-2);
+  overflow: hidden;
+  border-left: 3px solid var(--mp-item-color);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--mp-item-color) 18%, var(--background-primary));
+  font-size: var(--font-ui-smaller);
+  cursor: var(--cursor);
+}
+
+.mp-cal-timeline-block.is-short .mp-cal-timeline-card {
+  align-items: center;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.mp-cal-timeline-block.is-short .mp-cal-timeline-time {
+  display: none;
+}
+
+.mp-cal-timeline-card .mp-cal-check {
+  width: 1.3em;
+  height: 1.3em;
+}
+
+.mp-cal-timeline-body {
+  min-width: 0;
+}
+
+.mp-cal-timeline-title {
+  overflow: hidden;
+  color: var(--text-normal);
+  font-weight: var(--font-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mp-cal-timeline-block.is-completed .mp-cal-timeline-title {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.mp-cal-timeline-time {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.mp-cal-timeline-now {
+  position: absolute;
+  z-index: 2;
+  top: var(--mp-cal-top);
+  left: calc(var(--mp-cal-time-col) - 0.3em);
+  right: var(--size-4-2);
+  height: 2px;
+  background: var(--color-red);
+  pointer-events: none;
+}
+
+.mp-cal-timeline-now::before {
+  content: '';
+  position: absolute;
+  top: -0.25em;
+  left: 0;
+  width: 0.6em;
+  height: 0.6em;
+  border-radius: 50%;
+  background: var(--color-red);
+}
+
+/* --- Месяц --- */
+
+.mp-cal-month {
+  --mp-cal-bars: 3;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--mp-radius-card);
+  background: var(--mp-surface);
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.mp-cal-month-head {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  padding: var(--size-4-2) 0 var(--size-2-2);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.mp-cal-month-weekday {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  text-align: center;
+  text-transform: uppercase;
+}
+
+/* Неделя: строка чисел, дорожки плашек, строка «+N»; дни — фон на всю высоту. */
+.mp-cal-month-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-rows: 2.4em repeat(var(--mp-cal-bars), 1.45em) 1.2em;
+  row-gap: 2px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.mp-cal-month-week:last-child {
+  border-bottom: none;
+}
+
+.mp-cal-month-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  grid-column: var(--mp-cal-col);
+  grid-row: 1 / -1;
+  height: auto;
+  min-height: 0;
+  padding: var(--size-2-2) 0 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-normal);
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-cal-month-day:hover {
+  background: var(--background-modifier-hover);
+}
+
+.mp-cal-month-day.is-outside {
+  color: var(--text-faint);
+}
+
+.mp-cal-month-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.mp-cal-month-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9em;
+  height: 1.9em;
+  border-radius: 50%;
+  font-variant-numeric: tabular-nums;
+}
+
+.mp-cal-month-day.is-today .mp-cal-month-number {
+  box-shadow: inset 0 0 0 2px var(--interactive-accent);
+  color: var(--text-accent);
+  font-weight: var(--font-semibold);
+}
+
+.mp-cal-month-day.is-selected .mp-cal-month-number {
+  background: var(--mp-ink);
+  color: var(--mp-ink-inverse);
+  font-weight: var(--font-semibold);
+}
+
+.mp-cal-month-day.is-selected.is-today .mp-cal-month-number {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  box-shadow: none;
+}
+
+.mp-cal-month-more {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.2em;
+}
+
+.mp-cal-month-bar {
+  --mp-item-color: var(--text-faint);
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  grid-column: var(--mp-cal-col) / span var(--mp-cal-span);
+  grid-row: var(--mp-cal-lane);
+  min-width: 0;
+  height: auto;
+  margin: 0 2px;
+  padding: 0 var(--size-2-2);
+  overflow: hidden;
+  border: none;
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--mp-item-color) 28%, var(--background-primary));
+  color: var(--text-normal);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-medium);
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-cal-month-bar.continues-before {
+  margin-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.mp-cal-month-bar.continues-after {
+  margin-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.mp-cal-month-bar.mp-cal-row-task {
+  background: color-mix(in srgb, var(--mp-item-color) 20%, var(--background-primary));
+}
+
+.mp-cal-month-bar.is-completed {
+  opacity: 0.6;
+}
+
+.mp-cal-month-bar-mark {
+  display: inline-flex;
+  flex: none;
+  color: var(--mp-item-color);
+}
+
+.mp-cal-month-bar-mark .svg-icon {
+  width: 0.85em;
+  height: 0.85em;
+}
+
+.mp-cal-month-bar-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Узкий вид: заголовок над кнопками, меньше дорожек текста. */
+@media (max-width: 420px) {
+  .mp-cal-title {
+    font-size: var(--h3-size);
+  }
+
+  .mp-cal-month-bar {
+    padding: 0 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-cal-row-card {
+    transition: none;
+  }
+}
