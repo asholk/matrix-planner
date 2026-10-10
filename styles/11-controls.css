@@ -1,0 +1,365 @@
+/* Общие элементы управления (S1.T4): лист формы, лист «Добавить», выбор даты. */
+
+/* ---------- Лист формы ---------- */
+
+.modal.mp-sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(36em, 100%);
+  max-height: 90vh;
+  padding: 0;
+  border-radius: var(--mp-radius-card);
+  background: var(--background-primary);
+  overflow: hidden;
+}
+
+.modal.mp-sheet > .modal-close-button,
+.modal.mp-sheet > .modal-header,
+.modal.mp-sheet > .modal-title {
+  display: none;
+}
+
+.mp-sheet-header {
+  flex: none;
+  padding: var(--size-4-2) var(--size-4-3) 0;
+}
+
+.mp-sheet-bar {
+  display: grid;
+  grid-template-columns: var(--mp-touch) 1fr var(--mp-touch);
+  align-items: center;
+  gap: var(--size-4-2);
+  min-height: calc(var(--mp-touch) + var(--size-4-2));
+}
+
+.mp-sheet-title {
+  margin: 0;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+}
+
+.mp-sheet-submit {
+  background: var(--mp-ink);
+  color: var(--mp-ink-inverse);
+}
+
+.mp-sheet-submit:hover:not(:disabled) {
+  background: var(--mp-ink);
+  opacity: 0.9;
+}
+
+.mp-sheet.is-busy .mp-sheet-submit .svg-icon {
+  animation: mp-pulse 900ms ease-in-out infinite;
+}
+
+.mp-sheet-body.modal-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--size-4-3) var(--mp-gutter) var(--mp-gutter);
+}
+
+.mp-sheet-error {
+  color: var(--text-error);
+}
+
+/* Ручка протягивания (мобильные). */
+.mp-sheet-grabber {
+  width: 2.5em;
+  height: 5px;
+  margin: 0 auto var(--size-4-2);
+  border-radius: var(--mp-radius-pill);
+  background: var(--background-modifier-border-hover);
+  touch-action: none;
+  cursor: grab;
+}
+
+.mp-sheet-grabber::before {
+  /* Увеличенная зона касания. */
+  content: '';
+  display: block;
+  height: 24px;
+  margin: -10px -24px 0;
+}
+
+/* Нижний лист на мобильных. */
+.modal.mp-sheet.mp-sheet-bottom {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
+  width: 100%;
+  max-width: 100%;
+  max-height: calc(100% - var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) - var(--size-4-8));
+  height: auto;
+  margin: 0;
+  border-radius: var(--mp-radius-card) var(--mp-radius-card) 0 0;
+  transform: translateY(var(--mp-sheet-drag, 0px));
+  transition: transform var(--mp-transition);
+}
+
+.modal.mp-sheet.mp-sheet-bottom.is-dragging {
+  transition: none;
+}
+
+.modal.mp-sheet.mp-sheet-bottom .mp-sheet-body {
+  padding-bottom: calc(var(--mp-gutter) + var(--mp-safe-bottom));
+  padding-left: calc(var(--mp-gutter) + var(--mp-safe-left));
+  padding-right: calc(var(--mp-gutter) + var(--mp-safe-right));
+}
+
+/* iPhone: форма во весь экран. */
+.modal.mp-sheet.mp-sheet-full {
+  height: calc(100% - env(safe-area-inset-top, 0px));
+  max-height: none;
+}
+
+/* ---------- Лист «Добавить» (кадр 10) ---------- */
+
+.mp-add-sheet-title {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+}
+
+.mp-add-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--mp-gap);
+}
+
+.mp-add-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--size-4-3);
+  height: auto;
+  min-height: 7.5em;
+  padding: var(--size-4-4) var(--size-4-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--mp-radius-card);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  box-shadow: var(--shadow-s);
+  white-space: normal;
+  cursor: var(--cursor);
+}
+
+.mp-add-tile:hover:not(:disabled) {
+  background: var(--background-modifier-hover);
+}
+
+.mp-add-tile:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.mp-add-tile-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5em;
+  height: 3.5em;
+  border-radius: var(--mp-radius-pill);
+}
+
+.mp-add-tile-icon .svg-icon {
+  width: 1.6em;
+  height: 1.6em;
+}
+
+.mp-add-tile-task .mp-add-tile-icon {
+  background: var(--mp-q-do-bg);
+  color: var(--mp-q-do);
+}
+
+.mp-add-tile-event .mp-add-tile-icon {
+  background: var(--mp-q-plan-bg);
+  color: var(--mp-q-plan);
+}
+
+.mp-add-tile-note .mp-add-tile-icon {
+  background: var(--mp-q-urgent-bg);
+  color: var(--mp-q-urgent);
+}
+
+.mp-add-tile-label {
+  font-weight: var(--font-semibold);
+  text-align: center;
+}
+
+/* ---------- Выбор даты (кадр 04) ---------- */
+
+.mp-datepicker {
+  --mp-day-size: 2.5em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  max-width: 24em;
+  padding: var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--mp-radius-card);
+  background: var(--background-primary);
+  box-shadow: var(--shadow-s);
+}
+
+.mp-datepicker-quick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+
+.mp-datepicker-clear {
+  width: 2.25em;
+  height: 2.25em;
+  margin-left: auto;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.mp-datepicker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+}
+
+.mp-datepicker-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  min-height: var(--mp-touch);
+  padding: 0 var(--size-4-2);
+  border: none;
+  background: transparent;
+  color: var(--text-normal);
+  box-shadow: none;
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-bold);
+  cursor: var(--cursor);
+}
+
+.mp-datepicker-title-icon {
+  display: inline-flex;
+}
+
+.mp-datepicker-title-icon .svg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+.mp-datepicker-nav {
+  display: flex;
+  gap: var(--size-4-1);
+}
+
+.mp-datepicker-nav .mp-icon-button {
+  background: transparent;
+}
+
+.mp-datepicker-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mp-datepicker-row {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  justify-items: center;
+}
+
+.mp-datepicker-weekday {
+  padding: var(--size-4-1) 0;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+}
+
+.mp-datepicker-day {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--mp-day-size);
+  height: var(--mp-day-size);
+  padding: 0;
+  border: none;
+  border-radius: var(--mp-radius-pill);
+  background: transparent;
+  color: var(--text-normal);
+  box-shadow: none;
+  font-size: var(--font-ui-medium);
+  font-variant-numeric: tabular-nums;
+  cursor: var(--cursor);
+}
+
+.mp-datepicker-day.is-empty {
+  cursor: default;
+}
+
+.mp-datepicker-day:not(.is-empty):hover {
+  background: var(--background-modifier-hover);
+}
+
+.mp-datepicker-day.is-today {
+  color: var(--text-accent);
+  font-weight: var(--font-bold);
+}
+
+.mp-datepicker-day.is-selected,
+.mp-datepicker-day.is-selected:hover {
+  background: var(--mp-ink);
+  color: var(--mp-ink-inverse);
+  font-weight: var(--font-bold);
+}
+
+.mp-datepicker-months {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--size-4-2);
+}
+
+.mp-datepicker-month {
+  min-height: var(--mp-touch);
+  border: none;
+  border-radius: var(--radius-m);
+  background: transparent;
+  color: var(--text-normal);
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-datepicker-month:hover {
+  background: var(--background-modifier-hover);
+}
+
+.mp-datepicker-month.is-current {
+  color: var(--text-accent);
+}
+
+.mp-datepicker-month.is-selected {
+  background: var(--mp-ink);
+  color: var(--mp-ink-inverse);
+}
+
+@keyframes mp-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-sheet.is-busy .mp-sheet-submit .svg-icon {
+    animation: none;
+  }
+}

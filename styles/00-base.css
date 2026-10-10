@@ -1,0 +1,110 @@
+/* Базовые переменные и общие элементы Matrix planner (S1.T4).
+   Размеры — в em/rem и переменных шрифта Obsidian, чтобы работал масштаб шрифта. */
+
+body {
+  /* Цвета квадрантов по умолчанию (ТЗ §6); переопределяются из «Матрица.md». */
+  --mp-q-do: #e5484d;
+  --mp-q-do-bg: #fdecec;
+  --mp-q-plan: #3e8bf0;
+  --mp-q-plan-bg: #e8f1fd;
+  --mp-q-urgent: #f2b33d;
+  --mp-q-urgent-bg: #fdf4e2;
+  --mp-q-someday: #8e8e93;
+  --mp-q-someday-bg: #eef0f3;
+
+  --mp-radius-card: var(--radius-l);
+  --mp-radius-pill: 999px;
+  --mp-gap: var(--size-4-3);
+  --mp-gutter: var(--size-4-4);
+  --mp-fab-size: 3.5em;
+  --mp-touch: 2.75em;
+  --mp-surface: var(--background-primary);
+  --mp-surface-muted: var(--background-secondary);
+  --mp-ink: var(--text-normal);
+  --mp-ink-inverse: var(--background-primary);
+  --mp-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --mp-safe-left: env(safe-area-inset-left, 0px);
+  --mp-safe-right: env(safe-area-inset-right, 0px);
+  --mp-transition: 160ms ease;
+}
+
+/* В тёмной теме фоны квадрантов — полупрозрачные оттенки цвета квадранта. */
+body.theme-dark {
+  --mp-q-do-bg: rgba(229, 72, 77, 0.18);
+  --mp-q-plan-bg: rgba(62, 139, 240, 0.18);
+  --mp-q-urgent-bg: rgba(242, 179, 61, 0.18);
+  --mp-q-someday-bg: rgba(142, 142, 147, 0.2);
+}
+
+.mp-view,
+.mp-sheet {
+  font-size: var(--font-ui-medium);
+  color: var(--text-normal);
+}
+
+/* Круглая кнопка со значком (закрыть, стрелки, «Готово»). */
+.mp-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--mp-touch);
+  height: var(--mp-touch);
+  padding: 0;
+  border: none;
+  border-radius: var(--mp-radius-pill);
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-icon-button:hover:not(:disabled) {
+  background: var(--background-modifier-active-hover);
+}
+
+.mp-icon-button:disabled,
+.mp-icon-button[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.mp-icon-button .svg-icon {
+  width: 1.25em;
+  height: 1.25em;
+}
+
+/* Видимый фокус клавиатуры для всех кнопок плагина. */
+.mp-view button:focus-visible,
+.mp-sheet button:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* Таблетка-переключатель (быстрые даты, фильтры). */
+.mp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  min-height: 2.25em;
+  padding: 0 var(--size-4-3);
+  border: none;
+  border-radius: var(--mp-radius-pill);
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-chip.is-active {
+  background: var(--mp-ink);
+  color: var(--mp-ink-inverse);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body {
+    --mp-transition: 0ms linear;
+  }
+}
