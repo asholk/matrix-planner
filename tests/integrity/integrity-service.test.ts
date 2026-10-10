@@ -179,6 +179,19 @@ describe('integrity/VaultIntegrityService', () => {
     expect(kept.ok).toBe(false);
   });
 
+  it('заметка с неверным значением свойства (due: 2026-02-30) попадает в «Требуют внимания»', async () => {
+    const ctx = await setup({
+      [`${T}/Плохая дата.md`]: task('01JA7Q3K8Z6Y2V5N4M0C1B2D3E', 'due: 2026-02-30'),
+      [`${T}/Хорошая.md`]: task('01JA7Q3K8Z6Y2V5N4M0C1B2D3F', 'due: 2026-02-28'),
+    });
+    const result = await ctx.service.check();
+    if (!result.ok) throw new Error('check failed');
+    const invalid = byKind(result.value, 'invalid-properties');
+    expect(invalid.map((i) => i.paths[0])).toEqual([`${T}/Плохая дата.md`]);
+    expect(invalid[0]?.itemId).toBe('01JA7Q3K8Z6Y2V5N4M0C1B2D3E');
+    expect(invalid[0]?.issues?.map((i) => i.property)).toContain('due');
+  });
+
   it('конфликтная копия показывается с исходной заметкой; пометку можно снять', async () => {
     const ctx = await setup({
       [`${T}/Отчёт.md`]: task('R1'),
@@ -221,8 +234,21 @@ describe('integrity/VaultIntegrityService', () => {
     expect(result.ok && byKind(result.value, 'schema').map((i) => i.messageKey)).toEqual(['integrity.items.schema.newer']);
   });
 
+  it('строчный и прописной ULID — один ID: дубликат находится, копии выдаётся новый id', async () => {
+    const ctx = await setup({
+      [`${T}/A.md`]: task('01JA7Q3K8Z6Y2V5N4M0C1B2D3E'),
+      [`${T}/B.md`]: task('01ja7q3k8z6y2v5n4m0c1b2d3e'),
+    });
+    const result = await ctx.service.check();
+    if (!result.ok) throw new Error('check failed');
+    const dups = byKind(result.value, 'duplicate-id');
+    expect(dups).toHaveLength(1);
+    expect(dups[0]?.itemId).toBe('01JA7Q3K8Z6Y2V5N4M0C1B2D3E');
+    expect(frontmatterOf(ctx.app, `${T}/B.md`)['id']).toBe('NEWID0001');
+  });
+
   it('onChange получает новый отчёт', async () => {
-    const ctx = await setup({ [`${T}/A.md`]: task('A1') });
+    const ctx = await setup({ [`${T}/A.md`]: task('01JA7Q3K8Z6Y2V5N4M0C1B2D3E') });
     const reports: Array<IntegrityReport | null> = [];
     ctx.service.onChange((report) => reports.push(report));
     await ctx.service.check();

@@ -23,6 +23,7 @@ import type {
   Unsubscribe,
   VaultPath,
 } from '../model/types';
+import { canonicalId } from '../model/ids';
 import { isUnder, titleFromPath } from './paths';
 
 /** Таймеры (в тестах можно подменить). */
@@ -40,7 +41,10 @@ export interface NoteIndexDeps {
   parser: PlannerNoteParser;
   getPaths(): PlannerPaths;
   timers?: IndexTimers;
-  /** Сколько ждать `metadataCache.resolved` перед тем, как считать индекс готовым. */
+  /**
+   * Интервал повторной проверки, если `metadataCache.resolved` не пришёл: индекс
+   * становится готовым, только когда у всех markdown-файлов под корнем есть кэш.
+   */
   resolveFallbackMs?: number;
   /** Таймаут `waitFor` по умолчанию. */
   waitTimeoutMs?: number;
@@ -118,15 +122,40 @@ export class MetadataNoteIndex implements NoteIndex {
       if (!this.started) return;
       this.buildAll();
       if (this.isCacheResolved()) this.markReady();
-      else {
-        this.fallbackTimer = this.timers.set(() => {
-          this.fallbackTimer = null;
-          if (this.ready || !this.started) return;
-          this.buildAll();
-          this.markReady();
-        }, this.deps.resolveFallbackMs ?? 5000);
-      }
+      else this.scheduleReadyCheck();
     });
+  }
+
+  /**
+   * Таймаут не объявляет готовность: он только перепроверяет кэш. Готовность — после
+   * `resolved` или когда у всех markdown-файлов под корнем уже есть кэш метаданных.
+   */
+  private scheduleReadyCheck(): void {
+    this.fallbackTimer = this.timers.set(() => {
+      this.fallbackTimer = null;
+      if (this.ready || !this.started) return;
+      const pending = this.uncachedFiles();
+      if (pending === 0 || this.isCacheResolved()) {
+        this.buildAll();
+        this.markReady();
+        return;
+      }
+      this.deps.log?.(`Matrix planner: metadata cache is not resolved yet, ${pending} notes without cache`);
+      this.scheduleReadyCheck();
+    }, this.deps.resolveFallbackMs ?? 5000);
+  }
+
+  /** Число markdown-файлов под корнем без кэша метаданных. */
+  private uncachedFiles(): number {
+    const root = this.app.vault.getFolderByPath(this.deps.getPaths().root);
+    if (!root) return 0;
+    const files: TFile[] = [];
+    this.collectFiles(root, files);
+    let count = 0;
+    for (const file of files) {
+      if (file.extension === 'md' && !this.app.metadataCache.getFileCache(file)) count += 1;
+    }
+    return count;
   }
 
   /** Отписка от событий и отмена ожиданий. */
@@ -194,7 +223,7 @@ export class MetadataNoteIndex implements NoteIndex {
   }
 
   getAllById(id: ItemId): readonly PlannerItem[] {
-    const paths = this.idToPaths.get(id);
+    const paths = this.idToPaths.get(canonicalId(id));
     if (!paths) return [];
     const result: PlannerItem[] = [];
     for (const path of [...paths].sort(comparePaths)) {

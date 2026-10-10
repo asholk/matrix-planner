@@ -107,16 +107,16 @@ export function groupTasksByDate(tasks: readonly Task[], now: FloatingDateTime):
 
 /**
  * Записи фильтра «Выполнено»: выполненные неповторяющиеся задачи и каждое выполненное
- * повторение (`completions`). Сначала новые.
+ * повторение (`completions`, в том числе после смены повтора на «Никогда»). Сначала новые.
  */
 export function completionEntries(tasks: readonly Task[]): CompletionEntry[] {
   const entries: CompletionEntry[] = [];
   for (const task of tasks) {
-    if (task.repeat !== 'none') {
-      for (const date of task.completions) {
-        entries.push({ taskId: task.id, date, completedAt: null, instanceDate: date });
-      }
-    } else if (task.done) {
+    // Повторения из истории показываются независимо от текущего правила повтора.
+    for (const date of task.completions) {
+      entries.push({ taskId: task.id, date, completedAt: null, instanceDate: date });
+    }
+    if (task.repeat === 'none' && task.done) {
       const completed = parseFloating(task.completed);
       const date = completed?.date ?? task.due?.date ?? parseFloating(task.created)?.date ?? null;
       if (date === null) continue;
@@ -136,8 +136,8 @@ export function completionEntries(tasks: readonly Task[]): CompletionEntry[] {
 export function countCompletions(tasks: readonly Task[]): number {
   let count = 0;
   for (const task of tasks) {
-    if (task.repeat !== 'none') count += task.completions.length;
-    else if (task.done) count++;
+    count += task.completions.length;
+    if (task.repeat === 'none' && task.done) count++;
   }
   return count;
 }

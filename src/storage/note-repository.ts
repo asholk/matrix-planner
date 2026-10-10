@@ -151,14 +151,20 @@ export class ObsidianNoteRepository implements NoteRepository {
     let lastError: unknown = null;
     for (let attempt = 0; attempt < MAX_CREATE_ATTEMPTS; attempt += 1) {
       const target = uniqueFilePath(folder, base, '.md', (candidate) => this.isTaken(candidate));
-      try {
-        const file = await this.deps.queue.run(target, () => this.app.vault.create(target, text));
-        return okResult(file.path);
-      } catch (error) {
-        lastError = error;
-        // Гонка: файл появился между проверкой и созданием — берём следующий суффикс.
-        if (!this.isTaken(target)) break;
-      }
+      let failed = false;
+      const result = await this.runGuarded<VaultPath>(target, [], async () => {
+        try {
+          const file = await this.app.vault.create(target, text);
+          return okResult(file.path);
+        } catch (error) {
+          lastError = error;
+          failed = true;
+          return errorResult<VaultPath>('write-failed', describeError(error), error);
+        }
+      });
+      if (!failed) return result;
+      // Гонка: файл появился между проверкой и созданием — берём следующий суффикс.
+      if (!this.isTaken(target)) break;
     }
     return errorResult('write-failed', describeError(lastError), lastError);
   }
@@ -167,7 +173,7 @@ export class ObsidianNoteRepository implements NoteRepository {
     const target = this.fileFor(path);
     if (!target.ok) return target;
     const file = target.value;
-    return this.deps.queue.run(file.path, async () => {
+    return this.runGuarded(file.path, [], async () => {
       let changed = false;
       try {
         await this.app.fileManager.processFrontMatter(file, (frontmatter: FrontmatterRecord) => {
@@ -201,7 +207,7 @@ export class ObsidianNoteRepository implements NoteRepository {
     const target = this.fileFor(path);
     if (!target.ok) return target;
     const file = target.value;
-    return this.deps.queue.run(file.path, async () => {
+    return this.runGuarded(file.path, [], async () => {
       try {
         const editor = this.activeEditorFor(file);
         if (editor) {
@@ -262,7 +268,7 @@ export class ObsidianNoteRepository implements NoteRepository {
     if (resolved === null) return errorResult('outside-root', path);
     const file = this.app.vault.getAbstractFileByPath(resolved);
     if (!file) return errorResult('not-found', resolved);
-    return this.deps.queue.run(resolved, async () => {
+    return this.runGuarded(resolved, [], async () => {
       try {
         await this.app.fileManager.trashFile(file);
         return okResult(undefined, true);
@@ -315,7 +321,7 @@ export class ObsidianNoteRepository implements NoteRepository {
     if (resolved === null) return errorResult('outside-root', path);
     const folderResult = await this.createFolders(parentPath(resolved));
     if (!folderResult.ok) return folderResult;
-    return this.deps.queue.run(resolved, async () => {
+    return this.runGuarded(resolved, [], async () => {
       try {
         const existing = this.app.vault.getAbstractFileByPath(resolved);
         if (existing instanceof TFile) await this.app.vault.modifyBinary(existing, data);
@@ -343,6 +349,21 @@ export class ObsidianNoteRepository implements NoteRepository {
     return blocked ? errorResult<T>('read-only', undefined, undefined, blocked.messageKey) : null;
   }
 
+  /**
+   * Задание очереди с повторной проверкой запрета и корня перед изменением:
+   * пока задание ждало, схема могла стать `newer`/`migrating`, а корень — смениться.
+   */
+  private runGuarded<T>(key: VaultPath, extraPaths: VaultPath[], job: () => Promise<OpResult<T>>): Promise<OpResult<T>> {
+    return this.deps.queue.run(key, async () => {
+      const blocked = this.checkGuard<T>();
+      if (blocked) return blocked;
+      for (const path of [key, ...extraPaths]) {
+        if (this.resolve(path) === null) return errorResult<T>('outside-root', path);
+      }
+      return job();
+    });
+  }
+
   /** Проверки пишущей операции над существующим файлом. */
   private fileFor(path: VaultPath): OpResult<TFile> {
     const blocked = this.checkGuard<TFile>();
@@ -366,7 +387,7 @@ export class ObsidianNoteRepository implements NoteRepository {
 
   private async renameTo(file: TFile, destination: VaultPath): Promise<OpResult<VaultPath>> {
     const from = file.path;
-    return this.deps.queue.run(from, async () => {
+    return this.runGuarded(from, [destination], async () => {
       try {
         await this.app.fileManager.renameFile(file, destination);
         return okResult(file.path === from ? destination : file.path, true);

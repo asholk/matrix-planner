@@ -11,7 +11,7 @@
 
 import type { ParsedLinkResult } from '../app/contracts';
 import { isValidDate } from '../model/dates';
-import { isUlid } from '../model/ids';
+import { canonicalId, isUlid } from '../model/ids';
 import { QUADRANT_KEYS } from '../model/types';
 import type { PlannerLink, PlannerTabId, QuadrantKey } from '../model/types';
 
@@ -90,8 +90,8 @@ export function parseLinkParams(params: Readonly<Record<string, string | undefin
     case 'open': {
       const id = readParam(params, 'id');
       if (id === null) return fail(LINK_ERROR_KEYS.missingId);
-      // Crockford base32 нечувствителен к регистру.
-      const normalized = id.toUpperCase();
+      // Crockford base32 нечувствителен к регистру: тот же канонический вид, что в индексе.
+      const normalized = canonicalId(id);
       if (!isUlid(normalized)) return fail(LINK_ERROR_KEYS.invalidId);
       return { ok: true, link: { action: 'open', id: normalized } };
     }

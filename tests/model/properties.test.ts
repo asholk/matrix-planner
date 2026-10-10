@@ -131,6 +131,29 @@ describe('unknown properties are preserved', () => {
   });
 });
 
+describe('item id', () => {
+  const input = (id: unknown) => ({
+    path: 'a.md',
+    title: 'a',
+    mtime: 1,
+    frontmatter: { type: 'task', id, quadrant: 'do' },
+    archived: false,
+    deletedInCalendar: false,
+  });
+
+  it('lowercase ULID is canonicalized to uppercase without issues', () => {
+    const parsed = parsePlannerNote(input(' 01ja7q3k8z6y2v5n4m0c1b2d3e '));
+    expect(parsed).toMatchObject({ kind: 'task', id: '01JA7Q3K8Z6Y2V5N4M0C1B2D3E' });
+    expect(parsed && parsed.kind === 'task' ? issueCodes(parsed.issues) : null).toEqual([]);
+  });
+
+  it('non-ULID id is an issue, the note is kept', () => {
+    const parsed = parsePlannerNote(input('my-task'));
+    expect(parsed).toMatchObject({ kind: 'task', id: 'my-task' });
+    expect(parsed && parsed.kind === 'task' ? issueCodes(parsed.issues) : null).toEqual([{ property: 'id', code: 'invalid-value' }]);
+  });
+});
+
 describe('serialization and helpers', () => {
   it('writes task properties in specification order', () => {
     const fm = taskToFrontmatter({

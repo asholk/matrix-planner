@@ -169,6 +169,22 @@ describe('storage/system-json-store', () => {
       expect(await ctx.store.read('companion.json')).toEqual({ status: 'ok', value: { version: 1 } });
     });
 
+    it('ожидающая запись не выполняется, если запрет появился в очереди', async () => {
+      const path = `${SYSTEM}/companion.json`;
+      await ctx.app.vault.adapter.write(path, '{"version":1}');
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      void ctx.queue.run(path, () => gate);
+      const update = ctx.store.update('companion.json', (current) => ({ ...current, x: 1 }));
+      const write = ctx.store.write('companion.json', { version: 2 });
+      ctx.guard.set(false);
+      release();
+      const [u, w] = await Promise.all([update, write]);
+      expect(!u.ok && u.error.code).toBe('read-only');
+      expect(!w.ok && w.error.code).toBe('read-only');
+      expect(await ctx.store.read('companion.json')).toEqual({ status: 'ok', value: { version: 1 } });
+    });
+
     it('файл резервной копии миграции использует отдельный запрет', async () => {
       ctx.guard.set(false);
       expect((await ctx.store.write('migration-2.json', { schema_from: 1 })).ok).toBe(true);

@@ -42,6 +42,7 @@ describe('parseLinkParams', () => {
   it('validates open id and normalizes case', () => {
     expect(parseLinkParams({ action: 'open', id: ID })).toEqual({ ok: true, link: { action: 'open', id: ID } });
     expect(parseLinkParams({ action: 'open', id: ID.toLowerCase() })).toEqual({ ok: true, link: { action: 'open', id: ID } });
+    expect(parseLinkParams({ action: 'open', id: ` ${ID.toLowerCase()} ` })).toEqual({ ok: true, link: { action: 'open', id: ID } });
     expect(parseLinkParams({ action: 'open' })).toEqual({ ok: false, messageKey: 'protocol.errors.missingId' });
     expect(parseLinkParams({ action: 'open', id: 'Задача' })).toEqual({ ok: false, messageKey: 'protocol.errors.invalidId' });
   });

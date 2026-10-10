@@ -206,6 +206,45 @@ describe('integrity/migrations', () => {
     expect(ctx.fake.m.migrating).toBe(true);
   });
 
+  it('повреждённый YAML заметки прерывает миграцию: схема не повышается, заметки не меняются', async () => {
+    const ctx = await setup(
+      {
+        [`${T}/A.md`]: note('alpha'),
+        [`${T}/Broken.md`]: ['---', 'type: task', 'old_prop: [oops', '---', 'Тело', ''].join('\n'),
+        [`${T}/Plain.md`]: 'Заметка без свойств\n',
+      },
+      { schema: 1, migrating: false },
+    );
+    const result = await runMigrations(ctx.deps);
+    expect(result).toMatchObject({ ok: false, error: { code: 'invalid' } });
+    expect(!result.ok && result.error.detail).toContain('Broken.md');
+    expect(fm(ctx.app, `${T}/A.md`)['old_prop']).toBe('alpha');
+    expect(ctx.log).toEqual([]);
+    expect(ctx.fake.m.schema).toBe(1);
+    expect(ctx.fake.m.migrating).toBe(true);
+  });
+
+  it('нечитаемая заметка прерывает миграцию', async () => {
+    const ctx = await setup({ [`${T}/A.md`]: note('alpha'), [`${T}/B.md`]: note('beta') }, { schema: 1, migrating: false });
+    const vault = ctx.app.vault as unknown as { read(file: { path: string }): Promise<string> };
+    const read = vault.read.bind(vault);
+    vault.read = async (file) => {
+      if (file.path === `${T}/B.md`) throw new Error('EIO');
+      return read(file);
+    };
+    const result = await runMigrations(ctx.deps);
+    expect(result).toMatchObject({ ok: false, error: { code: 'invalid' } });
+    expect(fm(ctx.app, `${T}/A.md`)['old_prop']).toBe('alpha');
+    expect(ctx.fake.m.schema).toBe(1);
+  });
+
+  it('заметка без блока свойств не мешает миграции', async () => {
+    const ctx = await setup({ [`${T}/A.md`]: note('alpha'), [`${T}/Plain.md`]: 'Просто текст\n' }, { schema: 1, migrating: false });
+    const result = await runMigrations(ctx.deps);
+    expect(result).toMatchObject({ ok: true, value: { changedNotes: 1 } });
+    expect(ctx.fake.m.schema).toBe(2);
+  });
+
   it('новая схема: только чтение, ничего не пишется', async () => {
     const ctx = await setup({ [`${T}/A.md`]: note('alpha') }, { schema: 3, migrating: false });
     const result = await runMigrations(ctx.deps);

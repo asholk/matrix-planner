@@ -21,6 +21,7 @@ import type { AttentionItem, IntegrityReport, ItemId, OpResult, Unsubscribe, Vau
 import { registerDictionary } from '../i18n';
 import { ruIntegrity } from '../i18n/ru/integrity';
 import { enIntegrity } from '../i18n/en/integrity';
+import { canonicalId } from '../model/ids';
 import { describeError, errorResult, okResult } from '../storage/note-repository';
 import { isUnder, MARKER_PATH } from '../storage/paths';
 import {
@@ -33,6 +34,7 @@ import {
   findConflictCopies,
   findDuplicateIds,
   invalidItem,
+  itemIssuesItem,
   pendingDeletionItem,
   schemaItem,
   sortAttentionItems,
@@ -239,6 +241,11 @@ export class VaultIntegrityService implements IntegrityService {
       state.acknowledged = state.acknowledged.filter((key) => liveCopyKeys.has(key));
 
       for (const note of index.getInvalid()) items.push(invalidItem(note));
+      // Разобранные заметки с проблемами свойств (неверная дата, значение вне набора и т. п.).
+      for (const item of planner) {
+        const issue = itemIssuesItem(item);
+        if (issue) items.push(issue);
+      }
 
       const events = index.getEvents();
       for (const event of events) if (event.deletedInCalendar) items.push(deletedInCalendarItem(event));
@@ -246,7 +253,7 @@ export class VaultIntegrityService implements IntegrityService {
       if (this.deps.tombstones) {
         const listed = await this.deps.tombstones.list();
         if (listed.ok) {
-          const ids = new Set(listed.value.map((record) => record.id));
+          const ids = new Set(listed.value.map((record) => canonicalId(record.id)));
           for (const event of events) if (ids.has(event.id) && exists(event.path)) items.push(pendingDeletionItem(event));
         }
       }
@@ -289,7 +296,8 @@ export class VaultIntegrityService implements IntegrityService {
     const newId = this.deps.ids.next();
     let applied = false;
     const result = await this.deps.repository.updateFrontmatter(path, (frontmatter) => {
-      if (frontmatter['id'] !== oldId) return;
+      const current = frontmatter['id'];
+      if (typeof current !== 'string' || canonicalId(current) !== oldId) return;
       frontmatter['id'] = newId;
       applied = true;
     });

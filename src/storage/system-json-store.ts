@@ -75,6 +75,8 @@ export class AdapterSystemJsonStore implements SystemJsonStore {
     if (blocked) return blocked;
     const path = this.path(name);
     return this.deps.queue.run(path, async () => {
+      const recheck = this.recheck<Record<string, unknown>>(name, path);
+      if (recheck) return recheck;
       const current = await this.readPath(path);
       if (current.status === 'corrupt') return errorResult<Record<string, unknown>>('invalid', current.detail);
       if (current.status === 'ok' && !isRecord(current.value)) {
@@ -100,7 +102,7 @@ export class AdapterSystemJsonStore implements SystemJsonStore {
     if (blocked) return blocked;
     if (!isRecord(value)) return errorResult('invalid', 'value must be an object');
     const path = this.path(name);
-    return this.deps.queue.run(path, () => this.writePath(path, value));
+    return this.deps.queue.run(path, async () => this.recheck<void>(name, path) ?? this.writePath(path, value));
   }
 
   // -------------------------------------------------------------------------
@@ -111,6 +113,14 @@ export class AdapterSystemJsonStore implements SystemJsonStore {
     const guard = isMigrationFileName(name) ? (this.deps.migrationGuard ?? this.deps.guard) : this.deps.guard;
     const blocked = guard.check();
     return blocked ? errorResult<T>('read-only', undefined, undefined, blocked.messageKey) : null;
+  }
+
+  /** Повторная проверка внутри очереди: запрет мог появиться, а корень — смениться, пока задание ждало. */
+  private recheck<T>(name: SystemJsonName, path: VaultPath): OpResult<T> | null {
+    const blocked = this.checkWritable<T>(name);
+    if (blocked) return blocked;
+    if (this.path(name) !== path) return errorResult<T>('outside-root', path);
+    return null;
   }
 
   private async readPath(path: VaultPath): Promise<SystemJsonReadResult> {

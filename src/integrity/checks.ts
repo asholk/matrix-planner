@@ -10,8 +10,10 @@ import type {
   ItemId,
   MarkerState,
   PlannerEvent,
+  PlannerItem,
   VaultPath,
 } from '../model/types';
+import { canonicalId } from '../model/ids';
 
 // ---------------------------------------------------------------------------
 // Пути
@@ -120,10 +122,12 @@ export function findDuplicateIds(
 ): DuplicateGroup[] {
   const byId = new Map<ItemId, VaultPath[]>();
   for (const item of items) {
-    const list = byId.get(item.id);
+    // ID сравниваются в каноническом виде: строчный и прописной ULID — один и тот же ID.
+    const id = canonicalId(item.id);
+    const list = byId.get(id);
     if (list) {
       if (!list.includes(item.path)) list.push(item.path);
-    } else byId.set(item.id, [item.path]);
+    } else byId.set(id, [item.path]);
   }
   const rank = (path: VaultPath): number =>
     (options.isCopy?.(path) ? 2 : 0) + (options.isSecondary?.(path) ? 1 : 0);
@@ -180,10 +184,28 @@ export function invalidItem(note: InvalidPlannerNote): AttentionItem {
     key: `invalid-properties:${note.path}`,
     kind: 'invalid-properties',
     paths: [note.path],
-    itemId: typeof rawId === 'string' && rawId !== '' ? rawId : null,
+    itemId: typeof rawId === 'string' && rawId.trim() !== '' ? canonicalId(rawId) : null,
     messageKey: 'integrity.items.invalid',
     messageParams: { properties, type: note.declaredType },
     issues: note.issues,
+  };
+}
+
+/**
+ * Заметка разобрана, но с проблемами свойств (например, `due: 2026-02-30`): показывается
+ * в списке, а неверные значения заменены значениями по умолчанию — пользователь должен это видеть.
+ */
+export function itemIssuesItem(item: Pick<PlannerItem, 'kind' | 'id' | 'path' | 'issues'>): AttentionItem | null {
+  if (item.issues.length === 0) return null;
+  const properties = [...new Set(item.issues.map((issue) => issue.property))].join(', ');
+  return {
+    key: `invalid-properties:${item.path}`,
+    kind: 'invalid-properties',
+    paths: [item.path],
+    itemId: item.id,
+    messageKey: 'integrity.items.invalid',
+    messageParams: { properties, type: item.kind },
+    issues: item.issues,
   };
 }
 

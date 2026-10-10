@@ -108,4 +108,15 @@ describe('completions', () => {
   it('counts completions of a series', () => {
     expect(countCompletions(tasks)).toBe(3);
   });
+
+  it('keeps history after the repeat rule is changed to never', () => {
+    const changed = [makeTask({ id: 'was-daily', repeat: 'none', due: at('2026-10-11'), completions: ['2026-10-08'] })];
+    expect(completionEntries(changed)).toEqual([
+      { taskId: 'was-daily', date: '2026-10-08', completedAt: null, instanceDate: '2026-10-08' },
+    ]);
+    expect(countCompletions(changed)).toBe(1);
+    const doneToo = [{ ...changed[0]!, done: true, completed: '2026-10-11T09:00' }];
+    expect(completionEntries(doneToo).map((e) => e.instanceDate)).toEqual([null, '2026-10-08']);
+    expect(countCompletions(doneToo)).toBe(2);
+  });
 });

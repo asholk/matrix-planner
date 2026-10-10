@@ -75,18 +75,32 @@ export function schemaStatus(schema: number, migrating: boolean): SchemaStatus {
   return 'ok';
 }
 
+/** Результат разбора блока свойств с различением отсутствия и повреждения. */
+export type FrontmatterParseResult =
+  | { status: 'ok'; frontmatter: FrontmatterRecord }
+  | { status: 'none' }
+  | { status: 'corrupt'; detail: string };
+
+/** Разбирает YAML блока свойств: `none` — блока нет, `corrupt` — YAML не разбирается или не объект. */
+export function parseFrontmatterDetailed(text: string): FrontmatterParseResult {
+  const split = splitFrontmatterText(text);
+  if (split.yaml === null) return { status: 'none' };
+  if (split.yaml.trim() === '') return { status: 'ok', frontmatter: {} };
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(split.yaml);
+  } catch (error) {
+    return { status: 'corrupt', detail: error instanceof Error ? error.message : String(error) };
+  }
+  if (parsed === null || parsed === undefined) return { status: 'ok', frontmatter: {} };
+  if (typeof parsed === 'object' && !Array.isArray(parsed)) return { status: 'ok', frontmatter: parsed as FrontmatterRecord };
+  return { status: 'corrupt', detail: 'frontmatter is not a mapping' };
+}
+
 /** Разбирает YAML блока свойств текста заметки; `null` — блока нет или он повреждён. */
 export function parseFrontmatterText(text: string): FrontmatterRecord | null {
-  const split = splitFrontmatterText(text);
-  if (split.yaml === null) return null;
-  if (split.yaml.trim() === '') return {};
-  try {
-    const parsed: unknown = parseYaml(split.yaml);
-    if (parsed === null || parsed === undefined) return {};
-    return typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as FrontmatterRecord) : null;
-  } catch {
-    return null;
-  }
+  const result = parseFrontmatterDetailed(text);
+  return result.status === 'ok' ? result.frontmatter : null;
 }
 
 // ---------------------------------------------------------------------------

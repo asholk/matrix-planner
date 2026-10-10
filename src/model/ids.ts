@@ -58,6 +58,16 @@ export function isUlid(value: unknown): value is ItemId {
   return typeof value === 'string' && ULID_RE.test(value);
 }
 
+/**
+ * Канонический вид ID: Crockford base32 нечувствителен к регистру, поэтому ULID в любом
+ * регистре приводится к верхнему. Не-ULID возвращается без пробелов по краям, как есть.
+ */
+export function canonicalId(value: string): ItemId {
+  const trimmed = value.trim();
+  const upper = trimmed.toUpperCase();
+  return isUlid(upper) ? upper : trimmed;
+}
+
 /** 16 случайных цифр base32 (по 5 бит из каждого байта). */
 function randomDigits(random: RandomSource): number[] {
   const bytes = new Uint8Array(RANDOM_LENGTH);

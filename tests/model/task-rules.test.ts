@@ -86,6 +86,15 @@ describe('completion idempotency', () => {
     expect(restored.completions).toEqual([]);
   });
 
+  it('history occurrence can be uncompleted after repeat changed to never', () => {
+    const t = task({ due: '2026-10-11', repeat: 'none', completions: ['2026-10-08', '2026-10-09'] });
+    expect(planUncomplete(t, { instanceDate: '2026-10-08' })).toEqual({
+      kind: 'change',
+      patch: { completions: ['2026-10-09'] },
+    });
+    expect(planUncomplete(t, { instanceDate: '2026-10-01' })).toEqual({ kind: 'skip' });
+  });
+
   it('monthly series keeps the 31st through February', () => {
     let current = task({ due: '2026-01-31', repeat: 'monthly' });
     const dues: string[] = [];
@@ -112,6 +121,23 @@ describe('reschedule and quadrant', () => {
       kind: 'change',
       patch: { due: '2026-02-02', repeat_anchor: '2026-01-31' },
     });
+  });
+
+  it('never moves a recurring task onto a completed occurrence', () => {
+    const t = task({
+      due: '2026-10-12T09:00',
+      repeat: 'daily',
+      repeat_anchor: '2026-10-01',
+      completions: ['2026-10-10', '2026-10-11'],
+    });
+    const outcome = planReschedule(t, '2026-10-10');
+    expect(outcome).toEqual({ kind: 'skip' });
+    const later = task({ ...t, due: '2026-10-15T09:00' });
+    const moved = planReschedule(later, '2026-10-10');
+    expect(moved).toEqual({ kind: 'change', patch: { due: '2026-10-12T09:00' } });
+    // После переноса выполнение срока действительно отмечает повторение.
+    const next = applyTaskPatch(later, (moved as { patch: object }).patch);
+    expect(planComplete(next, { now: NOW }).kind).toBe('change');
   });
 
   it('postpones to tomorrow relative to today', () => {
@@ -175,6 +201,22 @@ describe('task form', () => {
       kind: 'change',
       patch: { due: null, repeat: 'none', remind: 'none', repeat_anchor: null },
     });
+  });
+
+  it('form due on a completed occurrence moves to the next pending one', () => {
+    const t = task({
+      due: '2026-10-19T09:00',
+      repeat: 'weekly',
+      repeat_anchor: '2026-09-28',
+      completions: ['2026-10-05'],
+    });
+    const outcome = planDraftUpdate(t, { due: { date: '2026-10-05', time: '09:00' } });
+    expect(outcome).toEqual({
+      kind: 'change',
+      patch: { due: '2026-10-12T09:00', repeat_anchor: '2026-10-05' },
+    });
+    const next = applyTaskPatch(t, (outcome as { patch: object }).patch);
+    expect(planComplete(next, { now: NOW }).kind).toBe('change');
   });
 
   it('no changes is a skip', () => {

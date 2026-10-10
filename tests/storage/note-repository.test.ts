@@ -15,16 +15,21 @@ function setup() {
     canWrite: () => writable,
     check: () => (writable ? null : { code: 'read-only', messageKey: 'storage.readOnly.newer' }),
   };
-  const paths = createPlannerPaths('Планировщик');
+  let paths = createPlannerPaths('Планировщик');
+  const queue = new KeyedWriteQueue();
   const repo = new ObsidianNoteRepository(app as unknown as App, {
     getPaths: () => paths,
     guard,
-    queue: new KeyedWriteQueue(),
+    queue,
     untitled: () => 'Без названия',
   });
   return {
     app,
     repo,
+    queue,
+    setRoot: (root: string) => {
+      paths = createPlannerPaths(root);
+    },
     setWritable: (value: boolean) => {
       writable = value;
     },
@@ -257,6 +262,47 @@ describe('storage/note-repository', () => {
       // Чтение разрешено.
       const read = await ctx.repo.readBody(`${TASKS}/A.md`);
       expect(read.ok).toBe(true);
+    });
+  });
+
+  describe('повторная проверка в очереди', () => {
+    /** Занимает очередь по ключу до вызова `release`. */
+    function hold(key: string): () => void {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      void ctx.queue.run(key, () => gate);
+      return () => release();
+    }
+
+    it('ожидающая операция не пишет, если схема стала новее', async () => {
+      const path = `${TASKS}/Задача.md`;
+      await ctx.app.vault.create(path, NOTE);
+      const release = hold(path);
+      const update = ctx.repo.updateFrontmatter(path, (fm) => {
+        fm.quadrant = 'plan';
+      });
+      const body = ctx.repo.updateBody(path, () => 'новое');
+      const trash = ctx.repo.trash(path);
+      ctx.setWritable(false);
+      release();
+      for (const result of await Promise.all([update, body, trash])) {
+        expect(!result.ok && result.error.code).toBe('read-only');
+      }
+      expect(text(ctx.app, path)).toBe(NOTE);
+    });
+
+    it('ожидающая операция не пишет, если корень сменился', async () => {
+      const path = `${TASKS}/Задача.md`;
+      await ctx.app.vault.create(path, NOTE);
+      const release = hold(path);
+      const update = ctx.repo.updateFrontmatter(path, (fm) => {
+        fm.quadrant = 'plan';
+      });
+      ctx.setRoot('Другой');
+      release();
+      const result = await update;
+      expect(!result.ok && result.error.code).toBe('outside-root');
+      expect(text(ctx.app, path)).toBe(NOTE);
     });
   });
 

@@ -26,7 +26,7 @@ import {
   type PlannerPaths,
   type VaultPath,
 } from '../model/types';
-import { MigrationWriteGuard, parseFrontmatterText } from '../storage/marker';
+import { MigrationWriteGuard, parseFrontmatterDetailed } from '../storage/marker';
 import { describeError, errorResult, ObsidianNoteRepository, okResult } from '../storage/note-repository';
 import { isUnder, MARKER_PATH } from '../storage/paths';
 import { AdapterSystemJsonStore } from '../storage/system-json-store';
@@ -152,7 +152,10 @@ export interface MigrationDeps {
   repository: Pick<NoteRepository, 'updateFrontmatter'>;
   /** Хранилище служебных JSON с `migrationGuard`. */
   systemJson: Pick<SystemJsonStore, 'read' | 'update'>;
-  /** Заметки корня с актуальными свойствами (из файла, а не из кэша). */
+  /**
+   * Заметки корня с актуальными свойствами (из файла, а не из кэша).
+   * Нечитаемый файл или повреждённый YAML — исключение (`MigrationReadError`): миграция прерывается.
+   */
   listNotes(): Promise<NoteSnapshot[]>;
   clock: Clock;
   /** По умолчанию `MIGRATIONS` и `SCHEMA_VERSION`; в тестах — тестовая миграция. */
@@ -229,7 +232,14 @@ async function applyStep(deps: MigrationDeps, step: Migration, from: number): Pr
   if (existing?.['status'] === 'done') return { ok: true, value: 0, changed: false };
 
   const notes = readBackupNotes(existing?.['notes']);
-  const snapshots = await deps.listNotes();
+  let snapshots: NoteSnapshot[];
+  try {
+    snapshots = await deps.listNotes();
+  } catch (error) {
+    // Без данных всех заметок шаг не выполняется и схема не повышается.
+    deps.log?.('Matrix planner: migration aborted, notes cannot be read', error);
+    return { ok: false, error: { code: 'invalid', detail: describeError(error), cause: error } };
+  }
 
   // Фаза 1: план и резервная копия — до любых изменений заметок.
   const plans: Array<{ path: VaultPath; changes: PropertyChanges }> = [];
@@ -325,7 +335,23 @@ export function createVaultMigrationDeps(app: App, options: VaultMigrationOption
   };
 }
 
-/** Заметки корня (без `_system` и обоев) со свойствами, прочитанными из файла. */
+/** Заметку нельзя прочитать или разобрать её свойства — миграцию продолжать нельзя. */
+export class MigrationReadError extends Error {
+  constructor(
+    readonly path: VaultPath,
+    readonly reason: 'read-failed' | 'corrupt-frontmatter',
+    detail: string,
+  ) {
+    super(`${path}: ${reason}: ${detail}`);
+    this.name = 'MigrationReadError';
+  }
+}
+
+/**
+ * Заметки корня (без `_system` и обоев) со свойствами, прочитанными из файла.
+ * Заметки без блока свойств пропускаются; нечитаемый файл или повреждённый YAML —
+ * `MigrationReadError`.
+ */
 export async function listVaultNotes(app: App, paths: PlannerPaths, log?: (message: string, error?: unknown) => void): Promise<NoteSnapshot[]> {
   const root = app.vault.getFolderByPath(paths.root);
   if (!root) return [];
@@ -344,12 +370,16 @@ export async function listVaultNotes(app: App, paths: PlannerPaths, log?: (messa
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const result: NoteSnapshot[] = [];
   for (const file of files) {
+    let text: string;
     try {
-      const frontmatter = parseFrontmatterText(await app.vault.read(file));
-      if (frontmatter) result.push({ path: file.path, frontmatter });
+      text = await app.vault.read(file);
     } catch (error) {
       log?.(`Matrix planner: cannot read ${file.path} for migration`, error);
+      throw new MigrationReadError(file.path, 'read-failed', describeError(error));
     }
+    const parsed = parseFrontmatterDetailed(text);
+    if (parsed.status === 'corrupt') throw new MigrationReadError(file.path, 'corrupt-frontmatter', parsed.detail);
+    if (parsed.status === 'ok') result.push({ path: file.path, frontmatter: parsed.frontmatter });
   }
   return result;
 }

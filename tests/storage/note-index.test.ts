@@ -151,6 +151,22 @@ describe('storage/note-index', () => {
       expect(index.isReady()).toBe(true);
     });
 
+    it('таймаут не объявляет готовность, пока у заметок под корнем нет кэша', async () => {
+      const app = createMockApp({ resolved: false });
+      app.metadataCache.autoFlush = false;
+      await app.vault.create(`${TASKS}/A.md`, task('A'));
+      const { index, timers } = setup(app);
+      index.start();
+      timers.fireAll();
+      expect(index.isReady()).toBe(false);
+      // Таймер перепроверки поставлен снова.
+      expect(timers.count()).toBe(1);
+      app.metadataCache.flush();
+      timers.fireAll();
+      expect(index.isReady()).toBe(true);
+      expect(index.getTasks().map((t) => t.id)).toEqual(['A']);
+    });
+
     it('передаёт парсеру признак архива', async () => {
       const { app, index } = setup();
       await app.vault.create(`${TASKS}/Архив/2026-10/Старая.md`, task('OLD'));
@@ -158,6 +174,15 @@ describe('storage/note-index', () => {
       index.start();
       expect((index.getById('OLD') as unknown as { archived: boolean }).archived).toBe(true);
     });
+  });
+
+  it('поиск по ID не зависит от регистра ULID', async () => {
+    const { app, index } = setup();
+    await app.vault.create(`${TASKS}/U.md`, task('01JA7Q3K8Z6Y2V5N4M0C1B2D3E'));
+    await tick();
+    index.start();
+    expect(index.getById('01ja7q3k8z6y2v5n4m0c1b2d3e')?.path).toBe(`${TASKS}/U.md`);
+    expect(index.getAllById(' 01JA7Q3K8Z6Y2V5N4M0C1B2D3E ')).toHaveLength(1);
   });
 
   describe('инкрементальные изменения', () => {

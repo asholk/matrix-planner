@@ -40,6 +40,7 @@ import {
   type TaskProperties,
   type VaultPath,
 } from './types';
+import { canonicalId, isUlid } from './ids';
 import { addDays, addMinutes, compareFloating, formatFloating, isValidTimeZone, parseFloating } from './dates';
 import { buildMatrixConfig, defaultQuadrant, EVENT_DEFAULTS, TASK_DEFAULTS } from './defaults';
 
@@ -163,7 +164,10 @@ class Reader {
     return null;
   }
 
-  /** Обязательный ID: непустая строка. */
+  /**
+   * Обязательный ID: непустая строка, ULID приводится к верхнему регистру.
+   * Не-ULID — проблема `invalid-value`, но заметка не отбрасывается.
+   */
   id(): string | null {
     const value = this.fm.id;
     if (isEmpty(value)) {
@@ -174,7 +178,13 @@ class Reader {
       this.issue('id', 'invalid-type', value);
       return null;
     }
-    return value.trim();
+    const id = canonicalId(value);
+    if (id === '') {
+      this.issue('id', 'missing');
+      return null;
+    }
+    if (!isUlid(id)) this.issue('id', 'invalid-value', value);
+    return id;
   }
 
   /** Список дат: уникальные, по возрастанию; невалидные элементы отбрасываются с проблемой. */

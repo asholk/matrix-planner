@@ -109,11 +109,17 @@ export interface UncompleteOptions {
 /**
  * Вернуть в работу.
  * - Неповторяющаяся: `done: false`, `completed: null`; не выполнена — пропуск.
+ *   Дата из истории `completions` (повтор сменён на «Никогда») убирается из истории.
  * - Повторяющаяся: D убирается из `completions` (нет — пропуск); `due` возвращается на D,
  *   если D раньше текущего срока (время срока сохраняется).
  */
 export function planUncomplete(task: TaskRuleInput, options: UncompleteOptions = {}): TaskRuleOutcome {
   if (!isRecurring(task.repeat)) {
+    // История повторений остаётся после смены правила на «Никогда» — её можно отменить.
+    const instance = options.instanceDate ?? null;
+    if (instance !== null && task.completions.includes(instance)) {
+      return { kind: 'change', patch: { completions: task.completions.filter((d) => d !== instance) } };
+    }
     if (!task.done) return SKIP;
     return { kind: 'change', patch: { done: false, completed: null } };
   }
@@ -130,13 +136,32 @@ export function planUncomplete(task: TaskRuleInput, options: UncompleteOptions =
 // ---------------------------------------------------------------------------
 
 /**
+ * Инвариант повторяющейся задачи: `due` — невыполненное повторение. Если `date` уже есть
+ * в `completions`, берётся ближайшее невыполненное повторение серии после неё.
+ */
+function pendingOnOrAfter(
+  rule: TaskRuleInput['repeat'],
+  anchor: LocalDateString,
+  date: LocalDateString,
+  completions: readonly LocalDateString[],
+): LocalDateString | null {
+  if (!isRecurring(rule) || !completions.includes(date)) return date;
+  return nextPendingOccurrence(rule, anchor, date, completions);
+}
+
+/**
  * Перенести срок на дату (меню, перетаскивание в календаре). Время сохраняется.
  * Якорь серии не меняется — перенос разовый; пустой якорь фиксируется старой датой срока.
+ * Повторяющаяся задача не переносится на уже выполненное повторение — срок встаёт
+ * на ближайшее невыполненное повторение после этой даты.
  */
 export function planReschedule(task: TaskRuleInput, date: LocalDateString): TaskRuleOutcome {
   const due = parseFloating(task.due);
-  if (due && due.date === date) return SKIP;
-  const patch: TaskPropertiesPatch = { due: withDate(due, date) };
+  const anchor = task.repeat_anchor ?? due?.date ?? date;
+  const target = pendingOnOrAfter(task.repeat, anchor, date, task.completions);
+  if (target === null) return stale('not-occurrence');
+  if (due && due.date === target) return SKIP;
+  const patch: TaskPropertiesPatch = { due: withDate(due, target) };
   if (isRecurring(task.repeat) && task.repeat_anchor === null && due) patch.repeat_anchor = due.date;
   return { kind: 'change', patch };
 }
@@ -208,16 +233,23 @@ export function planDraftUpdate(
   if (patch.quadrant !== undefined && patch.quadrant !== task.quadrant) out.quadrant = patch.quadrant;
   if (patch.priority !== undefined && patch.priority !== task.priority) out.priority = patch.priority;
 
-  const nextDue = next.due ? formatFloating(next.due) : null;
-  if (nextDue !== task.due) out.due = nextDue;
-  if (next.repeat !== task.repeat) out.repeat = next.repeat;
-  if (next.remind !== task.remind) out.remind = next.remind;
-
   let anchor: LocalDateString | null;
   if (next.repeat === 'none' || !next.due) anchor = null;
   else if (next.repeat !== task.repeat || next.due.date !== currentDue?.date) anchor = next.due.date;
   else anchor = task.repeat_anchor ?? next.due.date;
   if (anchor !== task.repeat_anchor) out.repeat_anchor = anchor;
+
+  // Срок повторяющейся задачи не может быть уже выполненным повторением.
+  let nextDueValue = next.due;
+  if (nextDueValue && anchor !== null) {
+    const pending = pendingOnOrAfter(next.repeat, anchor, nextDueValue.date, task.completions);
+    if (pending === null) return stale('not-occurrence');
+    nextDueValue = { date: pending, time: nextDueValue.time };
+  }
+  const nextDue = nextDueValue ? formatFloating(nextDueValue) : null;
+  if (nextDue !== task.due) out.due = nextDue;
+  if (next.repeat !== task.repeat) out.repeat = next.repeat;
+  if (next.remind !== task.remind) out.remind = next.remind;
 
   return Object.keys(out).length === 0 ? SKIP : { kind: 'change', patch: out };
 }
