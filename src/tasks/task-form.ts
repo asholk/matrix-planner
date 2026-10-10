@@ -14,8 +14,6 @@ import { localDateOf } from '../model/dates';
 import { registerDictionary, t } from '../i18n';
 import { ruTaskForm } from '../i18n/ru/task-form';
 import { enTaskForm } from '../i18n/en/task-form';
-import { ruModel } from '../i18n/ru/model';
-import { enModel } from '../i18n/en/model';
 import { shortDateLabel } from '../ui/controls/date-picker';
 import {
   REMIND_OPTIONS,
@@ -39,9 +37,7 @@ import {
 
 registerDictionary('ru', 'taskForm', ruTaskForm);
 registerDictionary('en', 'taskForm', enTaskForm);
-// Названия повторов и напоминаний; повторная регистрация словаря модуля безвредна.
-registerDictionary('ru', 'model', ruModel);
-registerDictionary('en', 'model', enModel);
+// Словарь `model` (названия повторов и напоминаний) регистрирует сборка: app/compose-core.
 
 export type TaskFormDeps = Pick<
   CoreServices,

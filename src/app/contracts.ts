@@ -565,6 +565,11 @@ export interface PlannerViewOptions {
   actions: PlannerActions;
   platform: PlatformInfo;
   initialTab: PlannerTabId;
+  /**
+   * С этой ширины вида «Задачи» и «Календарь» стоят рядом.
+   * `null` — выключено; не задано — 900 px (ТЗ §7.1).
+   */
+  splitMinWidth?: number | null;
   /** Сохранение последней вкладки. */
   onTabChange?(tab: PlannerTabId): void;
 }

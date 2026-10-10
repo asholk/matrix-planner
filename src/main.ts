@@ -1,15 +1,19 @@
 import { Plugin } from 'obsidian';
+import { composeCore, type CoreHandle } from './app/compose-core';
 
 /**
  * Точка входа плагина. Только жизненный цикл: модули подключаются
- * сборкой в app/compose-core.ts (S1.T10) и app/compose-planner.ts (S2.T9).
+ * сборкой в app/compose-core.ts (этап 1) и app/compose-planner.ts (этап 2, S2.T9).
  */
 export default class MatrixPlannerPlugin extends Plugin {
+  core: CoreHandle | null = null;
+
   async onload(): Promise<void> {
-    // Каркас: функции регистрируются интеграционными задачами.
+    this.core = await composeCore(this);
   }
 
   onunload(): void {
-    // Подписки освобождаются через register*/registerEvent.
+    // Подписки, вид, команды и индекс освобождаются через register*/registerEvent.
+    this.core = null;
   }
 }

@@ -38,8 +38,6 @@ import {
 import { interpolate, registerDictionary, t, tPlural } from '../i18n';
 import { ruTasks } from '../i18n/ru/tasks';
 import { enTasks } from '../i18n/en/tasks';
-import { ruModel } from '../i18n/ru/model';
-import { enModel } from '../i18n/en/model';
 import {
   QUADRANT_CSS_VARS,
   buildTaskMenu,
@@ -70,9 +68,7 @@ import {
 
 registerDictionary('ru', 'tasks', ruTasks);
 registerDictionary('en', 'tasks', enTasks);
-// Подписи дат (`formatDueLabel`) берутся из словаря модели.
-registerDictionary('ru', 'model', ruModel);
-registerDictionary('en', 'model', enModel);
+// Подписи дат (`formatDueLabel`) берутся из словаря `model`; его регистрирует сборка (app/compose-core).
 
 /** Длительность анимации выполнения перед записью, мс. */
 const COMPLETE_ANIMATION_MS = 260;
