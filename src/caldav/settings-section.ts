@@ -52,12 +52,13 @@ export interface CalendarSyncSectionDeps {
 /** Текст состояния синхронизации для настроек. */
 export function syncStatusText(status: CalendarSyncStatus, formatTime: (iso: string) => string, icloud = true): string {
   if (status.running) return t('caldav.settings.status.running');
+  const pushed = status.lastPushAt ? `. ${t('caldav.settings.status.pushed', { time: formatTime(status.lastPushAt) })}` : '';
   const lastOk = status.lastSyncAt ? t('caldav.settings.status.ok', { time: formatTime(status.lastSyncAt) }) : null;
-  if (!status.error) return lastOk ?? t('caldav.settings.status.never');
+  if (!status.error) return `${lastOk ?? t('caldav.settings.status.never')}${pushed}`;
   const kind = status.error.kind;
   const key = kind === 'not-configured' ? 'notConfigured' : kind === 'auth' && !icloud ? 'authCaldav' : kind;
   const error = t(`caldav.settings.status.${key}`);
-  return status.lastSyncAt ? `${error}. ${t('caldav.settings.status.lastOk', { time: formatTime(status.lastSyncAt) })}` : error;
+  return status.lastSyncAt ? `${error}. ${t('caldav.settings.status.lastOk', { time: formatTime(status.lastSyncAt) })}${pushed}` : `${error}${pushed}`;
 }
 
 function formatTime(iso: string): string {
@@ -153,6 +154,7 @@ export function calendarSyncSection(deps: CalendarSyncSectionDeps): SettingsSect
         .addButton((button) =>
           button.setButtonText(t('caldav.settings.test.button')).onClick(async () => {
             button.setDisabled(true).setButtonText(t('caldav.settings.test.running'));
+            // Успешная проверка включает синхронизацию (уведомление показывает движок).
             const result = await deps.engine.testConnection();
             if (result.ok) deps.notifier.show(t('caldav.settings.test.found', { count: result.calendars.length }));
             else deps.notifier.show(errorNotice(result.kind));

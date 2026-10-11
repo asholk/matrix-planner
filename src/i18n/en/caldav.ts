@@ -18,6 +18,12 @@ export const enCaldav = {
     calendarCreateFailed: 'Cannot create calendar "{name}"',
     authCaldav: 'Cannot sign in to the calendar. Check your username and password',
     notConfiguredCaldav: 'Enter the server address, username and password in the iOS Calendar settings',
+    enabled: 'iOS Calendar sync is turned on',
+    enabledCaldav: 'Calendar sync is turned on',
+    pushNetwork: 'Cannot send changes to the calendar: the server is unreachable. Will retry later',
+    savedEvent: 'Event saved in Obsidian. To see it in the iOS Calendar, connect iCloud: Settings → iOS Calendar',
+    savedTask: 'Task saved in Obsidian. To see it in the iOS Calendar, connect iCloud: Settings → iOS Calendar',
+    openSettings: 'Open settings',
     confirmDeletion: {
       one: 'Deleting {count} event from the calendar needs confirmation in the iOS Calendar settings',
       other: 'Deleting {count} events from the calendar needs confirmation in the iOS Calendar settings',
@@ -119,6 +125,7 @@ export const enCaldav = {
       cache: 'Cannot write the calendar cache',
       notConfigured: 'Username or password is missing',
       lastOk: 'Last successful sync: {time}',
+      pushed: 'Changes last sent: {time}',
     },
   },
 } satisfies Dictionary;

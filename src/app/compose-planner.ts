@@ -43,6 +43,8 @@ import { createObsidianHttp } from '../caldav/http';
 import { createLocalJsonStore, hostOf, LocalPasswordStore, syncStateKey } from '../caldav/credentials';
 import { CalendarSyncEngine, CalendarSyncScheduler, resourceKey } from '../caldav/sync-engine';
 import { calendarSyncSection } from '../caldav/settings-section';
+import { createSaveFeedback, showActionNotice } from '../caldav/sync-feedback';
+import { openTaskForm } from '../tasks/task-form';
 import { canWriteCalendarCache } from '../storage/system-json-store';
 import { SystemCalendarCacheReader } from '../calendar/cache-reader';
 import { PlannerDayItemsProvider } from '../calendar/day-items';
@@ -219,9 +221,19 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
 
   // --- Действия: формы события и заметки, открытие элементов ---
   const openNoteInEditor = (path: string): Promise<void> => actions.openNote(path);
-  const plannerActions: Pick<PlannerActions, 'openEventForm' | 'openNoteForm' | 'openItem' | 'isAvailable'> = {
+  // Синхронизация не настроена — после сохранения подсказка, как подключить «Календарь» iOS.
+  const saveFeedback = createSaveFeedback({
+    isConfigured: () => syncEngine.isConfigured(),
+    notify: showActionNotice,
+    openSettings: () => void actions.showTab('settings'),
+  });
+  const plannerActions: Pick<PlannerActions, 'openEventForm' | 'openTaskForm' | 'openNoteForm' | 'openItem' | 'isAvailable'> = {
     openEventForm: (request) => {
-      openEventForm(services, request);
+      openEventForm(services, request, { onSaved: () => saveFeedback.afterSave('event') });
+    },
+    openTaskForm: (request) => {
+      // Подсказка — для новой задачи со сроком: только такие попадают в календарь.
+      openTaskForm(services, request, { onSaved: (task) => saveFeedback.afterSave('task', task !== null && task.due !== null) });
     },
     openNoteForm: (request) => {
       openNoteForm({ ...services, notes, openNote: openNoteInEditor }, request);
@@ -296,6 +308,14 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
   plugin.register(() => syncScheduler.dispose());
   // Интервал проверяется раз в минуту: смена настройки не требует перерегистрации таймера.
   plugin.registerInterval(window.setInterval(() => syncScheduler.tick(), 60_000));
+  // На iPhone приложение в фоне замирает вместе с таймерами: ожидающее отправляется сразу.
+  if (typeof document !== 'undefined') {
+    plugin.registerDomEvent(document, 'visibilitychange', () => {
+      if (document.visibilityState === 'hidden') void syncScheduler.flush();
+      else syncScheduler.tick();
+    });
+  }
+  plugin.registerDomEvent(window, 'pagehide', () => void syncScheduler.flush());
   registerCalendarSyncCommand(plugin, {
     syncNow: () => void syncEngine.syncNow({ manual: true }),
     pendingDeletions: () => syncEngine.getPendingDeletions(),
@@ -308,10 +328,16 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
   const markDataChanged = (): void => {
     if (tracking && !ctx.isUnloaded()) wallpaperStatus.markDataChanged();
   };
+  // Для синхронизации правки считаются с готовности индекса, не с конца стартовой загрузки
+  // кэша: иначе изменение в этом промежутке ждало бы интервала.
+  const syncTracking = (): boolean => index.isReady() && !ctx.isUnloaded();
   plugin.register(
-    index.onChange(() => {
+    index.onChange((change) => {
       markDataChanged();
-      if (tracking) syncScheduler.schedule();
+      if (!syncTracking()) return;
+      // Изменённые элементы — адресно через ~1 с, полный проход — позже.
+      if (change.kind === 'upsert' || change.kind === 'remove') syncScheduler.push(change.ids);
+      syncScheduler.schedule();
     }),
   );
   plugin.register(calendarCache.onChange(() => markDataChanged()));
@@ -320,7 +346,7 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
     tombstones.onChange(() => {
       void dayItems.refreshTombstones();
       markDataChanged();
-      if (tracking) syncScheduler.schedule();
+      if (syncTracking()) syncScheduler.schedule();
     }),
   );
   // Файл фона изменён, удалён или переименован — сбросить кэш картинки и пометить обои устаревшими.
@@ -340,7 +366,7 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
         void companion.read().catch((error: unknown) => ctx.log('Cannot read companion state', error));
       }
       if (wallpaperInputsChanged(next, previous)) markDataChanged();
-      if (tracking && JSON.stringify(next.calendarSync) !== JSON.stringify(previous.calendarSync)) syncScheduler.schedule();
+      if (syncTracking() && JSON.stringify(next.calendarSync) !== JSON.stringify(previous.calendarSync)) syncScheduler.schedule();
     }),
   );
 

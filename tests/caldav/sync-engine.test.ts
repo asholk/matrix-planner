@@ -5,7 +5,9 @@ import {
   CalendarSyncEngine,
   CalendarSyncScheduler,
   itemHref,
+  PUSH_DELAY_MS,
   type CalDavApi,
+  type PushOutcome,
   type SyncOutcome,
 } from '../../src/caldav/sync-engine';
 import { parseIcs } from '../../src/caldav/ics';
@@ -84,6 +86,7 @@ class FakeCalDav implements CalDavApi {
   }
 
   async discover() {
+    this.log.push({ method: 'PROPFIND', href: HOST });
     if (this.networkDown) return fail<never>('network');
     return { ok: true as const, value: { principalHref: `${HOST}/123/principal/`, homeHref: HOME, calendars: this.calendars.map((c) => ({ ...c })) } };
   }
@@ -746,6 +749,205 @@ describe('caldav/sync-engine', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Адресная отправка изменений
+// ---------------------------------------------------------------------------
+
+describe('caldav/sync-engine: адресная отправка', () => {
+  let ctx: ReturnType<typeof setup>;
+  const NEW_EVENT = '01JA2B3C4D5E6F7G8H9JKMNPN1';
+  const NEW_TASK = '01JA2B3C4D5E6F7G8H9JKMNPN2';
+  beforeEach(() => {
+    ctx = setup();
+    ctx.server.setResource(`${WORK}foreign-1.ics`, FOREIGN_ICS);
+  });
+
+  function expectPushed(outcome: PushOutcome, pushed: number): void {
+    expect(outcome).toEqual({ status: 'ok', pushed, failed: 0 });
+  }
+
+  function methods(): string[] {
+    return ctx.server.log.map((r) => r.method);
+  }
+
+  it('новое событие → один PUT без выборки календарей и без повторного обнаружения', async () => {
+    expectOk(await ctx.engine.syncNow());
+    ctx.notes.map.set(`${paths.events}/Йога.md`, { fm: eventFm(NEW_EVENT, '2026-10-16T08:00', '2026-10-16T09:00'), body: '' });
+    ctx.server.log.length = 0;
+
+    // Остальные элементы не менялись — для них запросов нет.
+    expectPushed(await ctx.engine.pushItems([NEW_EVENT, EVENT_ID, TASK_TIMED]), 1);
+    expect(ctx.server.log).toEqual([{ method: 'PUT', href: itemHref(PLANNER, NEW_EVENT), etag: undefined, create: true }]);
+    expect(parseIcs(ctx.server.resources.get(itemHref(PLANNER, NEW_EVENT))!.ics).events[0].summary).toBe('Йога');
+    expect(ctx.engine.getStatus().lastPushAt).toBe(ctx.now.value.toISOString());
+
+    // Следующий полный проход не пишет событие повторно.
+    ctx.server.log.length = 0;
+    expectOk(await ctx.engine.syncNow());
+    expect(ctx.server.writes()).toEqual([]);
+  });
+
+  it('без обнаружения в сессии — обнаружение и PUT, но без выборки календарей', async () => {
+    expectPushed(await ctx.engine.pushItems([EVENT_ID]), 1);
+    expect(methods()).toEqual(['PROPFIND', 'MKCALENDAR', 'PUT']);
+    expect(ctx.server.resources.has(itemHref(PLANNER, EVENT_ID))).toBe(true);
+  });
+
+  it('изменение события → GET и PUT с If-Match только этого события', async () => {
+    expectOk(await ctx.engine.syncNow());
+    const href = itemHref(PLANNER, EVENT_ID);
+    const etag = ctx.server.resources.get(href)!.etag;
+    fm(ctx.notes, EVENT_ID).start = '2026-10-12T09:00';
+    ctx.server.log.length = 0;
+
+    expectPushed(await ctx.engine.pushItems([EVENT_ID]), 1);
+    expect(ctx.server.log).toEqual([
+      { method: 'GET', href },
+      { method: 'PUT', href, etag, create: undefined },
+    ]);
+    expect(parseIcs(ctx.server.resources.get(href)!.ics).events[0].start.time).toBe('09:00');
+  });
+
+  it('событие уже есть на сервере (создано другим устройством) → 412 → перечитать и записать', async () => {
+    expectOk(await ctx.engine.syncNow());
+    ctx.notes.map.set(`${paths.events}/Йога.md`, { fm: eventFm(NEW_EVENT, '2026-10-16T08:00', '2026-10-16T09:00'), body: '' });
+    ctx.server.setResource(itemHref(PLANNER, NEW_EVENT), FOREIGN_ICS.replace('UID:foreign-1', `UID:${NEW_EVENT}`));
+    expectPushed(await ctx.engine.pushItems([NEW_EVENT]), 1);
+    expect(parseIcs(ctx.server.resources.get(itemHref(PLANNER, NEW_EVENT))!.ics).events[0].summary).toBe('Йога');
+  });
+
+  it('задача со сроком → адресная отправка; выполненная → удаление события', async () => {
+    expectOk(await ctx.engine.syncNow());
+    ctx.notes.map.set(`${paths.tasks}/Купить молоко.md`, { fm: taskFm(NEW_TASK, '2026-10-17'), body: '' });
+    ctx.server.log.length = 0;
+    expectPushed(await ctx.engine.pushItems([NEW_TASK]), 1);
+    expect(ctx.server.log).toEqual([{ method: 'PUT', href: itemHref(PLANNER, NEW_TASK), etag: undefined, create: true }]);
+    expect(parseIcs(ctx.server.resources.get(itemHref(PLANNER, NEW_TASK))!.ics).events[0].summary).toBe('○ Купить молоко');
+
+    fm(ctx.notes, NEW_TASK).due = '2026-10-18';
+    expectPushed(await ctx.engine.pushItems([NEW_TASK]), 1);
+    expect(parseIcs(ctx.server.resources.get(itemHref(PLANNER, NEW_TASK))!.ics).events[0].start.date).toBe('2026-10-18');
+
+    fm(ctx.notes, NEW_TASK).done = true;
+    fm(ctx.notes, NEW_TASK).completed = '2026-10-11T12:00';
+    ctx.server.log.length = 0;
+    expectPushed(await ctx.engine.pushItems([NEW_TASK]), 1);
+    expect(ctx.server.writes()).toEqual([expect.objectContaining({ method: 'DELETE', href: itemHref(PLANNER, NEW_TASK) })]);
+  });
+
+  it('удалённое событие (метка) → DELETE адресно; метка обработана для полного прохода', async () => {
+    expectOk(await ctx.engine.syncNow());
+    const href = itemHref(PLANNER, EVENT_ID);
+    ctx.notes.map.delete(ctx.notes.pathOf(EVENT_ID)!);
+    await ctx.tombstones.add(EVENT_ID);
+    ctx.server.log.length = 0;
+
+    expectPushed(await ctx.engine.pushItems([EVENT_ID]), 1);
+    expect(ctx.server.log).toEqual([{ method: 'DELETE', href }]);
+    expect(ctx.server.resources.has(href)).toBe(false);
+
+    ctx.server.log.length = 0;
+    expectOk(await ctx.engine.syncNow());
+    expect(ctx.server.writes()).toEqual([]);
+  });
+
+  it('удаление больше порога — не адресно, а через подтверждение в полном проходе', async () => {
+    const extra = ['01JA2B3C4D5E6F7G8H9JKMNPA1', '01JA2B3C4D5E6F7G8H9JKMNPA2', '01JA2B3C4D5E6F7G8H9JKMNPA3'];
+    extra.forEach((id, i) => ctx.notes.map.set(`${paths.events}/Событие ${i}.md`, { fm: eventFm(id, '2026-10-20T10:00', '2026-10-20T11:00'), body: '' }));
+    expectOk(await ctx.engine.syncNow());
+    const ids = [EVENT_ID, ...extra];
+    for (const id of ids) {
+      ctx.notes.map.delete(ctx.notes.pathOf(id)!);
+      await ctx.tombstones.add(id);
+    }
+    ctx.server.log.length = 0;
+
+    expectPushed(await ctx.engine.pushItems(ids), 0);
+    expect(ctx.server.writes()).toEqual([]);
+    expectOk(await ctx.engine.syncNow());
+    expect(ctx.engine.getPendingDeletions()).toBe(4);
+    for (const id of ids) expect(ctx.server.resources.has(itemHref(PLANNER, id))).toBe(true);
+  });
+
+  it('изменение во время идущей синхронизации → ещё один проход', async () => {
+    expectOk(await ctx.engine.syncNow());
+    const href = itemHref(PLANNER, EVENT_ID);
+    let second: Promise<SyncOutcome> | null = null;
+    ctx.server.beforePut = (target) => {
+      if (second || target !== href) return;
+      // Правка во время записи: текущий проход уже сериализовал прежнюю версию.
+      fm(ctx.notes, EVENT_ID).start = '2026-10-12T08:00';
+      second = ctx.engine.syncNow();
+    };
+    fm(ctx.notes, EVENT_ID).end = '2026-10-12T11:30';
+    const first = ctx.engine.syncNow();
+    expectOk(await first);
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
+    expectOk(await second!);
+    expect(parseIcs(ctx.server.resources.get(href)!.ics).events[0].start.time).toBe('08:00');
+  });
+
+  it('отправка во время полного прохода выполняется после него', async () => {
+    expectOk(await ctx.engine.syncNow());
+    ctx.notes.map.set(`${paths.events}/Йога.md`, { fm: eventFm(NEW_EVENT, '2026-10-16T08:00', '2026-10-16T09:00'), body: '' });
+    let pushed: Promise<PushOutcome> | null = null;
+    ctx.server.beforePut = () => {
+      pushed ??= ctx.engine.pushItems([NEW_EVENT]);
+    };
+    fm(ctx.notes, EVENT_ID).start = '2026-10-12T07:00';
+    // Полный проход видит и новое событие: адресная отправка после него ничего не повторяет.
+    expectOk(await ctx.engine.syncNow());
+    expect(pushed).not.toBeNull();
+    expect(await pushed!).toEqual({ status: 'ok', pushed: 0, failed: 0 });
+    expect(ctx.server.log.filter((r) => r.method === 'PUT' && r.href === itemHref(PLANNER, NEW_EVENT))).toHaveLength(1);
+  });
+
+  it('ошибка сети при отправке — одно уведомление с причиной; выключено или нет пароля — без запросов', async () => {
+    expectOk(await ctx.engine.syncNow());
+    fm(ctx.notes, EVENT_ID).start = '2026-10-12T09:00';
+    ctx.server.networkDown = true;
+    expect(await ctx.engine.pushItems([EVENT_ID])).toMatchObject({ status: 'error', kind: 'network' });
+    expect(await ctx.engine.pushItems([EVENT_ID])).toMatchObject({ status: 'error', kind: 'network' });
+    expect(ctx.notices.filter((n) => /unreachable/.test(n))).toHaveLength(1);
+    expect(ctx.engine.getStatus().error?.kind).toBe('network');
+
+    ctx.server.networkDown = false;
+    expectPushed(await ctx.engine.pushItems([EVENT_ID]), 1);
+    expect(ctx.engine.getStatus().error).toBeNull();
+
+    ctx.server.log.length = 0;
+    ctx.settings.calendarSync.enabled = false;
+    expect(await ctx.engine.pushItems([EVENT_ID])).toEqual({ status: 'skipped', reason: 'disabled' });
+    expect(ctx.server.log).toEqual([]);
+  });
+
+  it('успешная проверка подключения включает синхронизацию и запускает первую', async () => {
+    ctx.settings.calendarSync.enabled = false;
+    expect(ctx.engine.isConfigured()).toBe(false);
+    const result = await ctx.engine.testConnection();
+    expect(result).toMatchObject({ ok: true, enabled: true });
+    expect(ctx.settings.calendarSync.enabled).toBe(true);
+    expect(ctx.engine.isConfigured()).toBe(true);
+    expect(ctx.notices).toContain('iOS Calendar sync is turned on');
+    // Первая синхронизация запущена проверкой: следующий вызов ждёт её завершения в очереди.
+    expectOk(await ctx.engine.syncNow());
+    expect(ctx.server.resources.has(itemHref(PLANNER, EVENT_ID))).toBe(true);
+
+    // Повторная проверка ничего не включает и не уведомляет.
+    const notices = ctx.notices.length;
+    expect(await ctx.engine.testConnection()).toMatchObject({ ok: true, enabled: false });
+    expect(ctx.notices.length).toBe(notices);
+  });
+
+  it('неудачная проверка синхронизацию не включает', async () => {
+    ctx.settings.calendarSync.enabled = false;
+    ctx.server.discover = async () => fail('auth');
+    expect(await ctx.engine.testConnection()).toMatchObject({ ok: false, kind: 'auth' });
+    expect(ctx.settings.calendarSync.enabled).toBe(false);
+  });
+});
+
 describe('caldav/CalendarSyncScheduler', () => {
   it('debounce после изменений и интервал', async () => {
     const timers = new Map<number, () => void>();
@@ -758,6 +960,7 @@ describe('caldav/CalendarSyncScheduler', () => {
           runs.push(now);
           return { status: 'skipped', reason: 'disabled' } as const;
         },
+        pushItems: async () => ({ status: 'skipped', reason: 'disabled' }) as const,
       },
       isEnabled: () => true,
       intervalMs: () => 15 * 60_000,
@@ -783,5 +986,67 @@ describe('caldav/CalendarSyncScheduler', () => {
     const issued = nextId;
     scheduler.schedule();
     expect(nextId).toBe(issued);
+  });
+});
+
+describe('caldav/CalendarSyncScheduler: адресная отправка', () => {
+  function create(enabled = true) {
+    const timers = new Map<number, { callback: () => void; ms: number }>();
+    let nextId = 0;
+    const pushes: string[][] = [];
+    const fulls: number[] = [];
+    const scheduler = new CalendarSyncScheduler({
+      engine: {
+        syncNow: async () => {
+          fulls.push(1);
+          return { status: 'skipped', reason: 'disabled' } as const;
+        },
+        pushItems: async (ids) => {
+          pushes.push([...ids]);
+          return { status: 'ok', pushed: 1, failed: 0 } as const;
+        },
+      },
+      isEnabled: () => enabled,
+      intervalMs: () => 15 * 60_000,
+      now: () => 0,
+      setTimeout: (callback, ms) => {
+        timers.set(++nextId, { callback, ms });
+        return nextId;
+      },
+      clearTimeout: (id) => timers.delete(id),
+    });
+    return { scheduler, timers, pushes, fulls };
+  }
+
+  it('изменения отправляются через ~1 с, раньше полного прохода', () => {
+    const { scheduler, timers, pushes, fulls } = create();
+    scheduler.push(['a']);
+    scheduler.schedule();
+    scheduler.push(['b', 'a']);
+    const delays = [...timers.values()].map((timer) => timer.ms).sort((x, y) => x - y);
+    expect(delays).toEqual([PUSH_DELAY_MS, 10_000]);
+    expect(PUSH_DELAY_MS).toBeLessThanOrEqual(1_000);
+    [...timers.values()].find((timer) => timer.ms === PUSH_DELAY_MS)!.callback();
+    expect(pushes).toEqual([['a', 'b']]);
+    expect(fulls).toEqual([]);
+  });
+
+  it('уход в фон (flush) — немедленная отправка без ожидания таймера', () => {
+    const { scheduler, timers, pushes } = create();
+    scheduler.push(['a']);
+    expect(scheduler.flush()).not.toBeNull();
+    expect(pushes).toEqual([['a']]);
+    expect(timers.size).toBe(0);
+    // Нечего отправлять — ничего не вызывается.
+    expect(scheduler.flush()).toBeNull();
+    expect(pushes).toHaveLength(1);
+  });
+
+  it('выключенная синхронизация — без таймеров и отправки', () => {
+    const { scheduler, timers, pushes } = create(false);
+    scheduler.push(['a']);
+    expect(timers.size).toBe(0);
+    expect(scheduler.flush()).toBeNull();
+    expect(pushes).toEqual([]);
   });
 });

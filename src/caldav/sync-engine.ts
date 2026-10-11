@@ -86,6 +86,8 @@ export interface CalendarSyncStatus {
    * `MASS_DELETE_THRESHOLD` за один проход). 0 — подтверждение не нужно.
    */
   pendingDeletions: number;
+  /** Время последней успешной адресной отправки изменений (ISO). */
+  lastPushAt: string | null;
 }
 
 export interface SyncStats {
@@ -101,8 +103,15 @@ export type SyncOutcome =
   | { status: 'skipped'; reason: 'disabled' | 'not-ready' }
   | { status: 'error'; kind: SyncErrorKind; detail: string };
 
+/** Адресная отправка изменённых элементов (без полной выборки календарей). */
+export type PushOutcome =
+  | { status: 'ok'; pushed: number; failed: number }
+  | { status: 'skipped'; reason: 'disabled' | 'not-ready' | 'empty' }
+  | { status: 'error'; kind: SyncErrorKind; detail: string };
+
 export type ConnectionTestResult =
-  | { ok: true; calendars: readonly CalDavCalendar[] }
+  /** `enabled` — синхронизация была выключена и включена этой проверкой. */
+  | { ok: true; calendars: readonly CalDavCalendar[]; enabled: boolean }
   | { ok: false; kind: SyncErrorKind; detail: string };
 
 export interface CacheFileStore {
@@ -160,6 +169,8 @@ interface SyncStateData {
   /** Метки удаления, по которым события уже удалены с сервера. */
   tombstonesDone: ItemId[];
   lastSyncAt: string | null;
+  /** Последняя адресная отправка (для состояния в настройках). */
+  lastPushAt: string | null;
   /**
    * Календари (calendar_id кэша), уже попадавшие в кэш с этого устройства. Новый календарь
    * один раз включается в «Показываемые календари» вкладки «Календарь».
@@ -168,7 +179,7 @@ interface SyncStateData {
 }
 
 function emptyState(account: string): SyncStateData {
-  return { version: 1, account, items: {}, tombstonesDone: [], lastSyncAt: null, knownCalendars: [] };
+  return { version: 1, account, items: {}, tombstonesDone: [], lastSyncAt: null, lastPushAt: null, knownCalendars: [] };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -192,6 +203,7 @@ function parseState(raw: unknown, account: string): SyncStateData {
     items,
     tombstonesDone: strings(raw.tombstonesDone),
     lastSyncAt: typeof raw.lastSyncAt === 'string' ? raw.lastSyncAt : null,
+    lastPushAt: typeof raw.lastPushAt === 'string' ? raw.lastPushAt : null,
     knownCalendars: strings(raw.knownCalendars),
   };
 }
@@ -281,6 +293,19 @@ interface RunContext {
   stats: SyncStats;
   /** Запуск вручную (команда, кнопка): уведомления показываются повторно. */
   manual: boolean;
+  /**
+   * Адресная отправка: календари не выбираются целиком, неизменённые (по хешу) элементы
+   * пропускаются без запросов, новые записываются сразу (If-None-Match).
+   */
+  targeted: boolean;
+  /** Записи, не принятые сервером (не конфликт). */
+  failed: number;
+}
+
+interface FullRequest {
+  manual: boolean;
+  promise: Promise<SyncOutcome>;
+  resolve(outcome: SyncOutcome): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -288,9 +313,14 @@ interface RunContext {
 // ---------------------------------------------------------------------------
 
 export class CalendarSyncEngine {
-  private running: Promise<SyncOutcome> | null = null;
-  private rerun = false;
-  private rerunManual = false;
+  /** Очередь проходов: полный проход и адресные отправки выполняются по одному. */
+  private draining = false;
+  /** Запрошенный, ещё не начатый полный проход (запрос во время прохода — ещё один проход). */
+  private fullRequest: FullRequest | null = null;
+  private readonly pushQueue = new Set<ItemId>();
+  private pushWaiters: Array<(outcome: PushOutcome) => void> = [];
+  /** Уведомление о недоступности сети при отправке уже показано (до успешной отправки). */
+  private pushNetworkNotified = false;
   private discovery: { account: string; value: CalDavDiscovery; at: number } | null = null;
   /** id меток, удаление событий по которым подтвердил пользователь. */
   private approvedDeletions = new Set<ItemId>();
@@ -309,7 +339,8 @@ export class CalendarSyncEngine {
     if (!this.status) {
       const raw = this.deps.state.load();
       const lastSyncAt = isRecord(raw) && typeof raw.lastSyncAt === 'string' ? raw.lastSyncAt : null;
-      this.status = { running: false, lastSyncAt, lastAttemptAt: null, error: null, pendingDeletions: 0 };
+      const lastPushAt = isRecord(raw) && typeof raw.lastPushAt === 'string' ? raw.lastPushAt : null;
+      this.status = { running: false, lastSyncAt, lastAttemptAt: null, error: null, pendingDeletions: 0, lastPushAt };
     }
     return this.status;
   }
@@ -328,7 +359,13 @@ export class CalendarSyncEngine {
   }
 
   isRunning(): boolean {
-    return this.running !== null;
+    return this.draining;
+  }
+
+  /** Синхронизация включена и заданы учётные данные. */
+  isConfigured(): boolean {
+    const settings = this.deps.settings.get().calendarSync;
+    return settings.enabled && this.clientFor(settings) !== null;
   }
 
   /** Сколько событий ждут подтверждения удаления (ТЗ §5.4.3). */
@@ -344,29 +381,74 @@ export class CalendarSyncEngine {
   }
 
   /**
-   * Один проход синхронизации. Параллельные вызовы объединяются: во время прохода
-   * запрос запоминается и выполняется ещё один проход.
+   * Полный проход синхронизации. Вызовы до начала прохода объединяются; вызов во время
+   * прохода не теряется — после текущего выполняется ещё один проход.
    */
   syncNow(options: { manual?: boolean } = {}): Promise<SyncOutcome> {
-    if (this.running) {
-      this.rerun = true;
-      this.rerunManual = this.rerunManual || !!options.manual;
-      return this.running;
+    let request = this.fullRequest;
+    if (!request) {
+      let resolve: (outcome: SyncOutcome) => void = () => {};
+      const promise = new Promise<SyncOutcome>((done) => {
+        resolve = done;
+      });
+      request = { manual: false, promise, resolve };
+      this.fullRequest = request;
     }
-    const run = async (): Promise<SyncOutcome> => {
-      let outcome = await this.runOnce(!!options.manual);
-      while (this.rerun) {
-        const manual = this.rerunManual;
-        this.rerun = false;
-        this.rerunManual = false;
-        outcome = await this.runOnce(manual);
+    request.manual = request.manual || !!options.manual;
+    this.kick();
+    return request.promise;
+  }
+
+  /**
+   * Адресная отправка изменённых элементов (события, задачи, удаление по меткам): только
+   * PUT/DELETE по локальному состоянию, без выборки календарей. Выполняется раньше
+   * ожидающего полного прохода.
+   */
+  pushItems(ids: Iterable<ItemId>): Promise<PushOutcome> {
+    for (const id of ids) this.pushQueue.add(id);
+    const promise = new Promise<PushOutcome>((resolve) => this.pushWaiters.push(resolve));
+    this.kick();
+    return promise;
+  }
+
+  private kick(): void {
+    if (this.draining) return;
+    this.draining = true;
+    // Запуск — в микрозадаче: синхронные вызовы подряд попадают в один проход.
+    void Promise.resolve().then(() => this.drain());
+  }
+
+  private async drain(): Promise<void> {
+    try {
+      for (;;) {
+        if (this.pushQueue.size > 0) {
+          const ids = [...this.pushQueue];
+          this.pushQueue.clear();
+          const waiters = this.pushWaiters.splice(0);
+          const outcome = await this.guard(() => this.pushOnce(ids));
+          for (const resolve of waiters) resolve(outcome);
+        } else if (this.fullRequest) {
+          const request = this.fullRequest;
+          this.fullRequest = null;
+          request.resolve(await this.guard(() => this.runOnce(request.manual)));
+        } else {
+          for (const resolve of this.pushWaiters.splice(0)) resolve({ status: 'skipped', reason: 'empty' });
+          return;
+        }
       }
-      return outcome;
-    };
-    this.running = run().finally(() => {
-      this.running = null;
-    });
-    return this.running;
+    } finally {
+      this.draining = false;
+    }
+  }
+
+  private async guard<T extends SyncOutcome | PushOutcome>(run: () => Promise<T>): Promise<T | { status: 'error'; kind: 'server'; detail: string }> {
+    try {
+      return await run();
+    } catch (error) {
+      this.log('Calendar sync failed', error);
+      this.setStatus({ running: false });
+      return { status: 'error', kind: 'server', detail: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   /** Обнаружение заново (кнопка «Проверить подключение»). */
@@ -374,13 +456,28 @@ export class CalendarSyncEngine {
     const settings = this.deps.settings.get().calendarSync;
     const client = this.clientFor(settings);
     if (!client) return { ok: false, kind: 'not-configured', detail: 'credentials missing' };
+    let discovery: CalDavDiscovery;
     try {
-      const discovery = await this.discover(client, accountKey(settings), true);
-      return { ok: true, calendars: discovery.calendars };
+      discovery = await this.discover(client, accountKey(settings), true);
     } catch (error) {
       if (error instanceof SyncAbort) return { ok: false, kind: error.kind, detail: error.detail };
       return { ok: false, kind: 'server', detail: String(error) };
     }
+    // Вход удался — синхронизация включается сама: без этого события не уходят в календарь.
+    const enabled = !this.deps.settings.get().calendarSync.enabled;
+    if (enabled) {
+      try {
+        await this.deps.settings.update((draft) => {
+          draft.calendarSync.enabled = true;
+        });
+      } catch (error) {
+        this.log('Cannot enable calendar sync', error);
+        return { ok: true, calendars: discovery.calendars, enabled: false };
+      }
+      this.deps.notifier.show(t(this.icloud() ? 'caldav.notices.enabled' : 'caldav.notices.enabledCaldav'));
+      void this.syncNow();
+    }
+    return { ok: true, calendars: discovery.calendars, enabled };
   }
 
   /** Создать календарь «Планировщик» и выбрать его для записи. */
@@ -434,6 +531,8 @@ export class CalendarSyncEngine {
       state,
       stats: { created: 0, updated: 0, pulled: 0, deleted: 0, movedToDeleted: 0 },
       manual,
+      targeted: false,
+      failed: 0,
     };
 
     let outcome: SyncOutcome;
@@ -463,6 +562,140 @@ export class CalendarSyncEngine {
       this.deps.state.save(state);
     }
     return this.finish(outcome, manual);
+  }
+
+  // -------------------------------------------------------------------------
+  // Адресная отправка
+  // -------------------------------------------------------------------------
+
+  private async pushOnce(ids: ItemId[]): Promise<PushOutcome> {
+    const settings = this.deps.settings.get().calendarSync;
+    if (!settings.enabled) return { status: 'skipped', reason: 'disabled' };
+    // До готовности индекса изменения отправит стартовый полный проход.
+    if (!this.deps.index.isReady()) return { status: 'skipped', reason: 'not-ready' };
+    const client = this.clientFor(settings);
+    if (!client) return this.finishPush({ status: 'error', kind: 'not-configured', detail: 'credentials missing' });
+
+    const account = accountKey(settings);
+    const state = parseState(this.deps.state.load(), account);
+    const now = this.deps.clock.now();
+    const zone = this.deps.clock.timeZone();
+    const ctx: RunContext = {
+      client,
+      now,
+      zone,
+      range: cacheRange(now, zone),
+      timeRange: { start: now, end: now },
+      calendars: new Map(),
+      listings: new Map(),
+      state,
+      stats: { created: 0, updated: 0, pulled: 0, deleted: 0, movedToDeleted: 0 },
+      manual: false,
+      targeted: true,
+      failed: 0,
+    };
+
+    let outcome: PushOutcome;
+    try {
+      // Список календарей — из кэша сессии (без срока годности), иначе обнаружение.
+      let discovery = this.discovery?.account === account ? this.discovery.value : await this.discover(client, account, false);
+      let writeCalendar = await this.resolveWriteCalendar(client, discovery, settings);
+      if (settings.writeCalendarHref && (!writeCalendar || resourceKey(writeCalendar.href) !== resourceKey(settings.writeCalendarHref))) {
+        discovery = await this.discover(client, account, true);
+        writeCalendar = await this.resolveWriteCalendar(client, discovery, settings);
+      }
+      for (const calendar of discovery.calendars) ctx.calendars.set(resourceKey(calendar.href), calendar);
+
+      const tombstoned = await this.pushDeletions(ctx, ids);
+      const events = new Map(this.deps.index.getEvents().map((event) => [event.id, event]));
+      const tasks = new Map(this.deps.index.getTasks().map((task) => [task.id, task]));
+      const taskOptions = {
+        completedTasksToCalendar: settings.completedTasksToCalendar,
+        reminderTimeForDateOnly: this.deps.settings.get().reminderTimeForDateOnly,
+        deviceZone: zone,
+      };
+      for (const id of ids) {
+        if (tombstoned.has(id)) continue;
+        const event = events.get(id);
+        if (event) {
+          if (event.deletedInCalendar) continue;
+          const calendar = this.targetCalendar(ctx, event, writeCalendar);
+          if (!calendar) continue;
+          const body = await this.deps.repository.readBody(event.path);
+          if (body.ok) await this.syncEvent(ctx, event, eventFieldsOf(event, body.value), calendar);
+          continue;
+        }
+        const task = tasks.get(id);
+        if (task && !writeCalendar) continue;
+        const known = state.items[id];
+        const synced = known && known.kind === 'task' ? known : null;
+        const desired = task && writeCalendar && settings.tasksToCalendar ? taskToIcs(task, taskOptions) : null;
+        if (task && writeCalendar && desired) await this.syncTask(ctx, task, desired, synced, writeCalendar);
+        // Задача удалена, выполнена или без срока — убрать её событие (только синхронизированное отсюда).
+        else if (synced && (await this.remove(ctx, synced.href))) delete state.items[id];
+      }
+      outcome = { status: 'ok', pushed: ctx.stats.created + ctx.stats.updated + ctx.stats.deleted, failed: ctx.failed };
+    } catch (error) {
+      if (!(error instanceof SyncAbort)) throw error;
+      if (error.kind === 'auth') this.discovery = null;
+      outcome = { status: 'error', kind: error.kind, detail: error.detail };
+    } finally {
+      if (ctx.stats.created + ctx.stats.updated + ctx.stats.deleted > 0) state.lastPushAt = now.toISOString();
+      this.deps.state.save(state);
+    }
+    return this.finishPush(outcome);
+  }
+
+  /**
+   * Удаление по меткам для отправляемых id. Удаляется только то, что синхронизировано с этого
+   * устройства (адрес известен); остальное и превышение порога `MASS_DELETE_THRESHOLD` —
+   * полному проходу (с подтверждением). Возвращает id всех меток событий.
+   */
+  private async pushDeletions(ctx: RunContext, ids: readonly ItemId[]): Promise<Set<ItemId>> {
+    const listed = await this.deps.tombstones.list();
+    const all = new Set<ItemId>();
+    if (!listed.ok) return all;
+    for (const record of listed.value) if (record.kind === 'event') all.add(record.id);
+    const state = ctx.state;
+    const done = new Set(state.tombstonesDone);
+    const requested = ids.filter((id) => all.has(id) && !done.has(id) && state.items[id] !== undefined);
+    if (requested.length === 0) return all;
+    const unapproved = [...all].filter((id) => !done.has(id) && state.items[id] !== undefined && !this.approvedDeletions.has(id));
+    if (unapproved.length > MASS_DELETE_THRESHOLD) return all;
+    for (const id of requested) {
+      const href = state.items[id]?.href;
+      if (!href || !(await this.remove(ctx, href))) continue;
+      delete state.items[id];
+      state.tombstonesDone.push(id);
+      this.approvedDeletions.delete(id);
+    }
+    return all;
+  }
+
+  private finishPush(outcome: PushOutcome): PushOutcome {
+    if (outcome.status === 'ok') {
+      this.pushNetworkNotified = false;
+      this.authNotified = false;
+      const patch: Partial<CalendarSyncStatus> = {};
+      if (outcome.pushed > 0) patch.lastPushAt = this.deps.clock.now().toISOString();
+      const error = this.getStatus().error;
+      // Отправка удалась — ошибки входа и сети больше не актуальны.
+      if (error && (error.kind === 'auth' || error.kind === 'network' || error.kind === 'not-configured')) patch.error = null;
+      if (Object.keys(patch).length > 0) this.setStatus(patch);
+      return outcome;
+    }
+    if (outcome.status !== 'error') return outcome;
+    this.setStatus({ error: { kind: outcome.kind, detail: outcome.detail } });
+    if (outcome.kind === 'auth') {
+      if (!this.authNotified) this.deps.notifier.show(t(this.icloud() ? 'caldav.notices.auth' : 'caldav.notices.authCaldav'));
+      this.authNotified = true;
+    } else if (outcome.kind === 'network') {
+      if (!this.pushNetworkNotified) this.deps.notifier.show(t('caldav.notices.pushNetwork'));
+      this.pushNetworkNotified = true;
+    } else if (outcome.kind !== 'not-configured') {
+      this.log(`Calendar push: ${outcome.kind}`, outcome.detail);
+    }
+    return outcome;
   }
 
   private finish(outcome: SyncOutcome, manual: boolean): SyncOutcome {
@@ -623,6 +856,8 @@ export class CalendarSyncEngine {
   }
 
   private async listing(ctx: RunContext, calendarHref: string): Promise<Map<string, CalDavEventResource> | null> {
+    // Адресная отправка не выбирает календари: ресурс читается GET по адресу.
+    if (ctx.targeted) return null;
     const key = resourceKey(calendarHref);
     if (ctx.listings.has(key)) return ctx.listings.get(key) ?? null;
     const result = check(await ctx.client.listEvents(calendarHref, ctx.timeRange));
@@ -641,6 +876,8 @@ export class CalendarSyncEngine {
 
   /** Ресурс по адресу: из выборки, иначе GET (если он должен существовать или выборка неполная). */
   private async lookup(ctx: RunContext, href: string, expected: boolean): Promise<ServerLookup> {
+    // Адресная отправка: нового элемента на сервере нет (иначе PUT получит 412 и перечитает).
+    if (ctx.targeted && !expected) return { state: 'missing', confirmed: false };
     const listing = await this.listing(ctx, parentOf(href));
     const found = listing?.get(resourceKey(href));
     if (found) return { state: 'found', resource: found };
@@ -661,7 +898,10 @@ export class CalendarSyncEngine {
   ): Promise<{ ok: true; etag: string } | { ok: false; conflict: boolean }> {
     const result = check(await ctx.client.putEvent(href, ics, options));
     if (!result.ok) {
-      if (result.error.code !== 'conflict') this.log(`Cannot write ${href}`, result.error.message);
+      if (result.error.code !== 'conflict') {
+        ctx.failed++;
+        this.log(`Cannot write ${href}`, result.error.message);
+      }
       return { ok: false, conflict: result.error.code === 'conflict' };
     }
     let resource: CalDavEventResource = { href: result.value.href, ics };
@@ -794,6 +1034,8 @@ export class CalendarSyncEngine {
     const synced = known && known.kind === 'event' ? known : null;
     const sameCalendar = synced !== null && resourceKey(parentOf(synced.href)) === resourceKey(calendar.href);
     const href = synced && sameCalendar ? synced.href : itemHref(calendar.href, id);
+    // Адресная отправка: заметка не менялась с последней синхронизации — запросов нет.
+    if (ctx.targeted && synced && sameCalendar && synced.hash === hash) return;
 
     if (synced && !sameCalendar) {
       // Календарь заметки сменился: записать в новый, затем удалить из прежнего.
@@ -935,6 +1177,7 @@ export class CalendarSyncEngine {
     const hash = hashOf(['task', desired]);
     const sameCalendar = synced !== null && resourceKey(parentOf(synced.href)) === resourceKey(writeCalendar.href);
     const href = synced && sameCalendar ? synced.href : itemHref(writeCalendar.href, task.id);
+    if (ctx.targeted && synced && sameCalendar && synced.hash === hash) return;
     const server = await this.lookup(ctx, href, synced !== null && sameCalendar);
     if (server.state === 'unknown') return;
     let resource = server.state === 'found' ? server.resource : null;
@@ -1085,27 +1328,36 @@ function describeRepeat(repeat: RepeatRule): string | null {
 // ---------------------------------------------------------------------------
 
 export interface CalendarSyncSchedulerDeps {
-  engine: Pick<CalendarSyncEngine, 'syncNow'>;
+  engine: Pick<CalendarSyncEngine, 'syncNow' | 'pushItems'>;
   isEnabled(): boolean;
   intervalMs(): number;
   now(): number;
   setTimeout(callback: () => void, ms: number): number;
   clearTimeout(id: number): void;
-  /** Задержка после изменения данных (по умолчанию 10 с). */
+  /** Задержка полного прохода после изменения данных (по умолчанию 10 с). */
   debounceMs?: number;
+  /** Задержка адресной отправки изменённых элементов (по умолчанию 1 с). */
+  pushDelayMs?: number;
 }
 
 export const SYNC_DEBOUNCE_MS = 10_000;
+export const PUSH_DELAY_MS = 1_000;
 
-/** Запуск синхронизации: через 10 с после изменений, по интервалу и вручную. */
+/**
+ * Запуск синхронизации. Изменённые элементы отправляются адресно через ~1 с (на iPhone
+ * Obsidian уходит в фон почти сразу, и таймеры замирают); полный проход — через 10 с после
+ * изменений, по интервалу и вручную. `flush` отправляет ожидающее немедленно (уход в фон).
+ */
 export class CalendarSyncScheduler {
   private timer: number | null = null;
+  private pushTimer: number | null = null;
+  private readonly pendingIds = new Set<ItemId>();
   private lastRunAt = 0;
   private disposed = false;
 
   constructor(private readonly deps: CalendarSyncSchedulerDeps) {}
 
-  /** Изменились данные — синхронизировать после паузы (повторные изменения откладывают запуск). */
+  /** Изменились данные — полный проход после паузы (повторные изменения откладывают запуск). */
   schedule(): void {
     if (this.disposed || !this.deps.isEnabled()) return;
     this.cancel();
@@ -1115,7 +1367,28 @@ export class CalendarSyncScheduler {
     }, this.deps.debounceMs ?? SYNC_DEBOUNCE_MS);
   }
 
-  /** Проверка интервала (вызывается периодически). */
+  /** Изменились элементы — адресная отправка через `pushDelayMs` от первого изменения. */
+  push(ids: Iterable<ItemId>): void {
+    if (this.disposed || !this.deps.isEnabled()) return;
+    for (const id of ids) this.pendingIds.add(id);
+    if (this.pendingIds.size === 0 || this.pushTimer !== null) return;
+    this.pushTimer = this.deps.setTimeout(() => {
+      this.pushTimer = null;
+      void this.flush();
+    }, this.deps.pushDelayMs ?? PUSH_DELAY_MS);
+  }
+
+  /** Отправить ожидающие изменения сейчас (уход приложения в фон). */
+  flush(): Promise<PushOutcome> | null {
+    this.cancelPush();
+    if (this.disposed || this.pendingIds.size === 0) return null;
+    const ids = [...this.pendingIds];
+    this.pendingIds.clear();
+    if (!this.deps.isEnabled()) return null;
+    return this.deps.engine.pushItems(ids);
+  }
+
+  /** Проверка интервала (вызывается периодически и при возврате приложения). */
   tick(): void {
     if (this.disposed || !this.deps.isEnabled()) return;
     if (this.deps.now() - this.lastRunAt >= this.deps.intervalMs()) void this.run();
@@ -1131,12 +1404,21 @@ export class CalendarSyncScheduler {
   dispose(): void {
     this.disposed = true;
     this.cancel();
+    this.cancelPush();
+    this.pendingIds.clear();
   }
 
   private cancel(): void {
     if (this.timer !== null) {
       this.deps.clearTimeout(this.timer);
       this.timer = null;
+    }
+  }
+
+  private cancelPush(): void {
+    if (this.pushTimer !== null) {
+      this.deps.clearTimeout(this.pushTimer);
+      this.pushTimer = null;
     }
   }
 }
