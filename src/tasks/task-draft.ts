@@ -31,6 +31,7 @@ import { QUADRANT_KEYS, REMIND_OFFSETS, REPEAT_RULES } from '../model/types';
 import { addDays, formatFloating, isValidDate, isValidTime } from '../model/dates';
 import { TASK_DEFAULTS } from '../model/defaults';
 import { normalizeDraftSchedule, planDraftUpdate, type TaskRuleOutcome } from '../model/task-rules';
+import { isValidDuration } from '../model/duration';
 
 /** Время, которое подставляет «Добавить время». */
 export const DEFAULT_TASK_TIME: LocalTimeString = '09:00';
@@ -55,6 +56,8 @@ export interface TaskDraftState {
   repeat: RepeatRule;
   remind: RemindOffset;
   priority: Priority;
+  /** Длительность, мин; `null` — не задана. Без времени не показывается, но сохраняется. */
+  duration: number | null;
   /** Значения задачи при открытии формы (только редактирование). */
   initial: TaskDraft | null;
 }
@@ -83,12 +86,16 @@ export function createDraftState(context: CreateDraftContext = {}): TaskDraftSta
     repeat: TASK_DEFAULTS.repeat,
     remind: TASK_DEFAULTS.remind,
     priority: TASK_DEFAULTS.priority,
+    duration: null,
     initial: null,
   };
 }
 
 /** Черновик редактирования. `body: null` — тело ещё не загружено. */
-export function draftFromTask(task: Pick<Task, 'id' | 'title' | 'quadrant' | 'due' | 'repeat' | 'remind' | 'priority'>, body: string | null): TaskDraftState {
+export function draftFromTask(
+  task: Pick<Task, 'id' | 'title' | 'quadrant' | 'due' | 'repeat' | 'remind' | 'priority'> & Partial<Pick<Task, 'duration'>>,
+  body: string | null,
+): TaskDraftState {
   // Задача без срока с повтором (ручная правка свойств) нормализуется так же, как при сохранении.
   const initial: TaskDraft = normalizeDraftSchedule({
     title: task.title,
@@ -98,6 +105,7 @@ export function draftFromTask(task: Pick<Task, 'id' | 'title' | 'quadrant' | 'du
     repeat: task.repeat,
     remind: task.remind,
     priority: task.priority,
+    duration: isValidDuration(task.duration) ? task.duration : null,
   });
   return {
     mode: 'edit',
@@ -111,6 +119,7 @@ export function draftFromTask(task: Pick<Task, 'id' | 'title' | 'quadrant' | 'du
     repeat: initial.repeat,
     remind: initial.remind,
     priority: initial.priority,
+    duration: initial.duration,
     initial,
   };
 }
@@ -194,6 +203,17 @@ export function setRemind(state: TaskDraftState, remind: RemindOffset): TaskDraf
   return { ...state, remind };
 }
 
+/** Длительность из вариантов формы; невалидное значение игнорируется, `null` — снять выбор. */
+export function setDuration(state: TaskDraftState, duration: number | null): TaskDraftState {
+  if (duration !== null && !isValidDuration(duration)) return state;
+  return state.duration === duration ? state : { ...state, duration };
+}
+
+/** Нажатие на вариант длительности: выбранный вариант снимается повторным нажатием. */
+export function toggleDuration(state: TaskDraftState, duration: number): TaskDraftState {
+  return setDuration(state, state.duration === duration ? null : duration);
+}
+
 // ---------------------------------------------------------------------------
 // Доступность, проверка, результат
 // ---------------------------------------------------------------------------
@@ -202,11 +222,13 @@ export interface FieldAvailability {
   time: boolean;
   repeat: boolean;
   remind: boolean;
+  /** Длительность — только у срока со временем. */
+  duration: boolean;
 }
 
 export function fieldAvailability(state: TaskDraftState): FieldAvailability {
   const hasDate = state.date !== null;
-  return { time: hasDate, repeat: hasDate, remind: hasDate };
+  return { time: hasDate, repeat: hasDate, remind: hasDate, duration: hasDate && state.time !== null };
 }
 
 export type DraftFieldError = 'required' | 'invalid';
@@ -241,6 +263,7 @@ export function toTaskDraft(state: TaskDraftState): TaskDraft {
     repeat: state.repeat,
     remind: state.remind,
     priority: state.priority,
+    duration: state.duration,
   });
 }
 
@@ -262,6 +285,7 @@ export function toTaskPatch(state: TaskDraftState): TaskPatch {
   if (!sameDue(next.due, initial.due)) patch.due = next.due;
   if (next.repeat !== initial.repeat) patch.repeat = next.repeat;
   if (next.remind !== initial.remind) patch.remind = next.remind;
+  if (next.duration !== initial.duration) patch.duration = next.duration;
   return patch;
 }
 

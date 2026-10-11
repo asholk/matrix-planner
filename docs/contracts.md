@@ -35,7 +35,7 @@
 
 | Тип | Ключевые нормализованные поля |
 | --- | --- |
-| `Task` | `quadrant`, `due`, `repeat`, `repeatAnchor` (якорь или дата `due`), `remind`, `priority`, `done` (для повторяющейся всегда `false`), `completed`, `completions`, `created`, `archived` |
+| `Task` | `quadrant`, `due`, `repeat`, `repeatAnchor` (якорь или дата `due`), `remind`, `priority`, `duration` (минуты 5–1440 или `null`; общая для серии; в YAML пишется только заданная, без неё задача со временем занимает 30 мин на шкале и в «Календаре» iOS), `done` (для повторяющейся всегда `false`), `completed`, `completions`, `created`, `archived` |
 | `PlannerEvent` | `start`, `end` (для `allDay` — исключительная дата), `allDay`, `tz`, `repeat`, `color`, `icon`, `calendarId` (`null` — «Планировщик»), `url`, `deletedInCalendar` |
 | `QuickNote` | `date` |
 | `InvalidPlannerNote` | `declaredType`, `frontmatter`, `issues` — заметка с `type`, но без обязательных свойств |

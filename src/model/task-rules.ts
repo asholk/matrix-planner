@@ -19,6 +19,7 @@ import type {
 } from './types';
 import { addDays, formatFloating, maxDate, parseFloating } from './dates';
 import { isOccurrence, isRecurring, nextPendingOccurrence } from './recurrence';
+import { isValidDuration } from './duration';
 
 /** Поля задачи, которые читают правила. */
 export type TaskRuleInput = Pick<TaskProperties, 'due' | 'repeat' | 'repeat_anchor' | 'done' | 'completed' | 'completions'>;
@@ -202,6 +203,7 @@ export function newTaskProperties(
     repeat_anchor: d.due && d.repeat !== 'none' ? d.due.date : null,
     remind: d.remind,
     priority: d.priority,
+    duration: isValidDuration(d.duration) ? d.duration : null,
     done: false,
     completed: null,
     completions: [],
@@ -219,7 +221,7 @@ function withClockTime(now: FloatingDateTime): FloatingDateTime {
  * без повтора — `null`. `completions` сохраняются как история.
  */
 export function planDraftUpdate(
-  task: TaskRuleInput & Pick<TaskProperties, 'quadrant' | 'remind' | 'priority'>,
+  task: TaskRuleInput & Pick<TaskProperties, 'quadrant' | 'remind' | 'priority'> & Partial<Pick<TaskProperties, 'duration'>>,
   patch: TaskPatch,
 ): TaskRuleOutcome {
   const currentDue = parseFloating(task.due);
@@ -232,6 +234,11 @@ export function planDraftUpdate(
 
   if (patch.quadrant !== undefined && patch.quadrant !== task.quadrant) out.quadrant = patch.quadrant;
   if (patch.priority !== undefined && patch.priority !== task.priority) out.priority = patch.priority;
+  // Длительность — общая для серии; задаётся и без времени (сохраняется до появления времени).
+  if (patch.duration !== undefined) {
+    const duration = isValidDuration(patch.duration) ? patch.duration : null;
+    if (duration !== (task.duration ?? null)) out.duration = duration;
+  }
 
   let anchor: LocalDateString | null;
   if (next.repeat === 'none' || !next.due) anchor = null;

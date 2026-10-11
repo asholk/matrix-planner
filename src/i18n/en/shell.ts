@@ -5,6 +5,8 @@ export const enShell = {
   tabBar: 'Planner sections',
   tabUnavailable: 'This section is not available yet',
   tabFailed: 'Could not show this section',
+  /** Кнопка главного меню Obsidian на панели вкладок. */
+  menu: 'Menu',
   sidebar: {
     left: 'Left sidebar',
     right: 'Right sidebar',
@@ -18,11 +20,6 @@ export const enShell = {
     unavailable: 'Not available yet',
   },
   settings: {
-    all: {
-      name: 'All plugin settings',
-      desc: 'The Matrix planner section in Obsidian settings',
-      button: 'Open',
-    },
     unavailable: 'Couldn’t open settings. Open them from the Obsidian menu',
   },
   sheet: {

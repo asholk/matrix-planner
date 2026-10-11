@@ -924,6 +924,26 @@ export interface CachedMetadata {
   frontmatter?: Record<string, unknown>;
   frontmatterPosition?: Pos;
   tags?: Array<{ tag: string }>;
+  /** Пункты списков; у задач Markdown — `task` (`' '` — не выполнен). */
+  listItems?: Array<{ task?: string; position: Pos; parent: number }>;
+}
+
+/** Пункты задач Markdown в тексте (упрощённо, без блоков кода — как listItems Obsidian). */
+function computeListItems(text: string): Array<{ task?: string; position: Pos; parent: number }> {
+  const items: Array<{ task?: string; position: Pos; parent: number }> = [];
+  let inCode = false;
+  text.split(/\r?\n/).forEach((line, index) => {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inCode = !inCode;
+      return;
+    }
+    if (inCode) return;
+    const m = /^\s*(?:[-*+]|\d+[.)])\s+(?:\[(.)\](?:\s|$))?/.exec(line);
+    if (!m) return;
+    const position: Pos = { start: { line: index, col: 0, offset: 0 }, end: { line: index, col: line.length, offset: 0 } };
+    items.push(m[1] !== undefined ? { task: m[1], position, parent: -1 } : { position, parent: -1 });
+  });
+  return items;
 }
 
 export class MetadataCache extends Events {
@@ -1004,6 +1024,8 @@ export class MetadataCache extends Events {
       },
     };
     if (split.frontmatter) metadata.frontmatter = split.frontmatter;
+    const listItems = computeListItems(split.body);
+    if (listItems.length) metadata.listItems = listItems;
     return metadata;
   }
 
@@ -1279,6 +1301,10 @@ export class Workspace extends Events {
 
   getRightLeaf(_split: boolean): WorkspaceLeaf | null {
     return this.getLeaf(true);
+  }
+
+  getMostRecentLeaf(): WorkspaceLeaf | null {
+    return this.activeLeaf;
   }
 
   async revealLeaf(leaf: WorkspaceLeaf): Promise<void> {

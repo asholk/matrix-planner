@@ -59,6 +59,7 @@ function task(over: Partial<TaskDayItem> = {}): TaskDayItem {
     taskId: 'T1',
     quadrant: 'do',
     priority: 'normal',
+    duration: null,
     instanceDate: date,
     projected: false,
     recurring: false,
@@ -334,6 +335,17 @@ describe('подпись строки списка дня (референс Lock
       { text: 'Планировщик', icon: 'calendar' },
     ]);
     setLanguageOverride(null);
+  });
+
+  it('задача с длительностью: время диапазоном перед квадрантом', () => {
+    const row = buildRow(task({ startMinute: 18 * 60, endMinute: 19 * 60 + 30, duration: 90 }), STRINGS);
+    expect(row.timeLabel).toBe('18:00');
+    expect(row.rangeLabel).toBe('18:00–19:30');
+    expect(metaParts(row, ctx)).toEqual([
+      { text: '18:00–19:30', icon: 'clock' },
+      { text: 'Важно и срочно', icon: 'flame' },
+      { text: 'Планировщик', icon: 'calendar' },
+    ]);
   });
 
   it('событие: значок календаря и время · название календаря', () => {

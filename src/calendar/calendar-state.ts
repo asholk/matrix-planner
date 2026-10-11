@@ -263,7 +263,7 @@ export interface DayListRow {
   action: CalendarItemAction;
   /** Время начала слева (элементы по времени). */
   timeLabel: string | null;
-  /** «9:00–10:00» для событий со временем. */
+  /** «9:00–10:00» для событий со временем и задач с длительностью. */
   rangeLabel: string | null;
   allDay: boolean;
   /**
@@ -303,7 +303,8 @@ export interface DayListModel {
 
 export function buildRow(item: DayItem, strings: CalendarLabelStrings): DayListRow {
   const timed = !item.allDay && item.startMinute !== null && item.source !== 'note';
-  const showRange = timed && item.source !== 'task' && item.endMinute !== null;
+  // Задача — диапазоном «18:00–19:30» только с заданной длительностью.
+  const showRange = timed && item.endMinute !== null && (item.source !== 'task' || item.duration !== null);
   return {
     key: item.key,
     item,

@@ -7,6 +7,7 @@ import type { IcsAlarm, IcsDateTime, IcsEvent } from './ics-types';
 import { presetToRrule, rruleToPreset, toTimeZone, utcDateTime } from './rrule';
 import { ITEM_URL_PREFIX, linkedItemIdOf } from '../calendar/cache-schema';
 import { addDays, addMinutes, parseFloating, timeToMinutes } from '../model/dates';
+import { DEFAULT_TASK_DURATION, isValidDuration } from '../model/duration';
 import type {
   EventPatch,
   FloatingDateTime,
@@ -18,8 +19,11 @@ import type {
   Task,
 } from '../model/types';
 
-/** Длительность события задачи со временем и выполненной задачи (ТЗ §5.4.1), мин. */
-export const TASK_EVENT_MINUTES = 30;
+/**
+ * Длительность события задачи со временем без свойства `duration` и выполненной задачи
+ * (ТЗ §5.4.1), мин. Задача с `duration` занимает в календаре свою длительность.
+ */
+export const TASK_EVENT_MINUTES = DEFAULT_TASK_DURATION;
 export const COMPLETED_TASK_EVENT_MINUTES = 15;
 export const TASK_OPEN_PREFIX = '○ ';
 export const TASK_DONE_PREFIX = '✓ ';
@@ -220,6 +224,11 @@ export function taskAlarm(remind: RemindOffset, allDay: boolean, reminderTime: L
   return { triggerMinutesBefore: before, action: 'DISPLAY', description: title };
 }
 
+/** Длительность события задачи со временем: `duration` или 30 мин. */
+export function taskEventMinutes(task: Pick<Task, 'duration'>): number {
+  return isValidDuration(task.duration) ? task.duration : TASK_EVENT_MINUTES;
+}
+
 /**
  * Задача → событие без DTSTAMP/LAST-MODIFIED (их добавляет вызывающий), чтобы хеш был стабильным.
  * `null` — задача не попадает в календарь.
@@ -248,7 +257,7 @@ export function taskToIcs(task: Task, options: TaskIcsOptions): IcsEvent | null 
   } else if (task.due.time !== null) {
     event.allDay = false;
     event.start = zoned(task.due, options.deviceZone);
-    event.end = zoned(addMinutes(task.due, TASK_EVENT_MINUTES), options.deviceZone);
+    event.end = zoned(addMinutes(task.due, taskEventMinutes(task)), options.deviceZone);
   }
   if (task.repeat !== 'none') {
     const rrule = presetToRrule(task.repeat, task.repeatAnchor ?? task.due.date);

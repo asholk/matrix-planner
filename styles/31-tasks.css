@@ -566,6 +566,28 @@
   height: 0.9em;
 }
 
+/* Чек-лист «2/5» (доработка 008): все пункты выполнены — зелёный приглушённый. */
+.mp-task-checklist {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mp-task-checklist-icon {
+  display: inline-flex;
+}
+
+.mp-task-checklist-icon .svg-icon {
+  width: 0.9em;
+  height: 0.9em;
+}
+
+.mp-task-checklist.is-complete {
+  color: var(--color-green);
+  opacity: 0.75;
+}
+
 /* Выполненные: зачёркнутое название на нейтральном фоне (кадр 08). */
 .mp-task-card.is-done {
   background: var(--background-modifier-hover);

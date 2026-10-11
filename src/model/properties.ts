@@ -43,6 +43,7 @@ import {
 import { canonicalId, isUlid } from './ids';
 import { addDays, addMinutes, compareFloating, formatFloating, isValidTimeZone, parseFloating } from './dates';
 import { buildMatrixConfig, defaultQuadrant, EVENT_DEFAULTS, TASK_DEFAULTS } from './defaults';
+import { parseDurationValue } from './duration';
 
 // ---------------------------------------------------------------------------
 // Известные свойства
@@ -58,6 +59,7 @@ export const TASK_KEYS = [
   'repeat_anchor',
   'remind',
   'priority',
+  'duration',
   'done',
   'completed',
   'completions',
@@ -187,6 +189,15 @@ class Reader {
     return id;
   }
 
+  /** Длительность задачи, мин: целое 5–1440; невалидное — проблема и `null`. */
+  duration(key: string): number | null {
+    const value = this.fm[key];
+    const parsed = parseDurationValue(value);
+    if (parsed === undefined) return null;
+    if (parsed === null) this.issue(key, typeof value === 'number' || typeof value === 'string' ? 'invalid-value' : 'invalid-type', value);
+    return parsed;
+  }
+
   /** Список дат: уникальные, по возрастанию; невалидные элементы отбрасываются с проблемой. */
   dateList(key: string): string[] {
     const value = this.fm[key];
@@ -271,6 +282,7 @@ export function parseTask(input: ParseNoteInput): Task | InvalidPlannerNote {
   const anchor = r.date('repeat_anchor');
   const remind = r.enumValue('remind', REMIND_OFFSETS, TASK_DEFAULTS.remind);
   const priority = r.enumValue('priority', PRIORITIES, TASK_DEFAULTS.priority);
+  const duration = r.duration('duration');
   const done = r.bool('done', false);
   const completedValue = r.floating('completed');
   const completions = r.dateList('completions');
@@ -285,6 +297,7 @@ export function parseTask(input: ParseNoteInput): Task | InvalidPlannerNote {
     repeat_anchor: anchor,
     remind,
     priority,
+    duration,
     done,
     completed: completedValue ? formatFloating(completedValue) : null,
     completions,
@@ -306,6 +319,7 @@ export function parseTask(input: ParseNoteInput): Task | InvalidPlannerNote {
     repeatAnchor: anchor ?? due?.date ?? null,
     remind,
     priority,
+    duration,
     done: repeat === 'none' ? done : false,
     completed: props.completed,
     completions,
@@ -568,9 +582,14 @@ function ordered<T extends object>(props: T, keys: readonly (keyof T)[]): Frontm
   return out;
 }
 
-/** Свойства новой задачи в порядке ТЗ. */
+/** Свойства задачи, которые не пишутся в заметку со значением `null` (необязательные). */
+const OMIT_WHEN_NULL: ReadonlySet<string> = new Set(['duration']);
+
+/** Свойства новой задачи в порядке ТЗ; пустая длительность не пишется. */
 export function taskToFrontmatter(props: TaskProperties): FrontmatterRecord {
-  return ordered(props, TASK_KEYS);
+  const out = ordered(props, TASK_KEYS);
+  for (const key of OMIT_WHEN_NULL) if (out[key] === null) delete out[key];
+  return out;
 }
 
 export function eventToFrontmatter(props: EventProperties): FrontmatterRecord {
@@ -591,11 +610,16 @@ export function matrixToFrontmatter(quadrants: readonly QuadrantConfig[]): Front
 
 /**
  * Точечно применяет изменения к frontmatter (например, внутри `processFrontMatter`).
- * Ключи со значением `undefined` пропускаются; остальные свойства, включая неизвестные, не меняются.
+ * Ключи со значением `undefined` пропускаются; необязательные свойства со значением `null`
+ * (`duration`) удаляются; остальные свойства, включая неизвестные, не меняются.
  */
 export function applyFrontmatterPatch<P extends object>(frontmatter: FrontmatterRecord, patch: Partial<P>): void {
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) continue;
+    if (value === null && OMIT_WHEN_NULL.has(key)) {
+      delete frontmatter[key];
+      continue;
+    }
     frontmatter[key] = Array.isArray(value) ? [...(value as unknown[])] : value;
   }
 }

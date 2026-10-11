@@ -62,6 +62,128 @@
   display: none;
 }
 
+/* Чек-лист (доработка 008): задачи Markdown в теле заметки. */
+.mp-task-form-checklist {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: var(--size-4-2);
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.mp-task-form-checklist.is-disabled {
+  opacity: 0.5;
+}
+
+.mp-task-form-checklist-header {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  min-height: var(--mp-touch);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+}
+
+.mp-task-form-checklist-icon,
+.mp-task-form-checklist-add-icon {
+  display: inline-flex;
+  color: var(--text-faint);
+}
+
+.mp-task-form-checklist-icon .svg-icon,
+.mp-task-form-checklist-add-icon .svg-icon {
+  width: var(--icon-s);
+  height: var(--icon-s);
+}
+
+.mp-task-form-checklist-title {
+  flex: 1;
+}
+
+/* Значок «+» по оси кружков пунктов. */
+.mp-task-form-checklist-add-icon {
+  justify-content: center;
+  flex: none;
+  width: var(--mp-touch);
+  margin-left: calc(var(--size-4-2) * -1);
+}
+
+.mp-task-form-checklist-progress {
+  font-variant-numeric: tabular-nums;
+}
+
+.mp-task-form-checklist-progress.is-complete {
+  color: var(--color-green);
+}
+
+.mp-task-form-checklist-item,
+.mp-task-form-checklist-add {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  min-height: var(--mp-touch);
+}
+
+.mp-task-form-checklist-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--mp-touch);
+  height: var(--mp-touch);
+  margin-left: calc(var(--size-4-2) * -1);
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-task-form-checklist-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3em;
+  height: 1.3em;
+  border: 2px solid var(--text-faint);
+  border-radius: var(--mp-radius-pill);
+  color: transparent;
+  transition: background-color var(--mp-transition), color var(--mp-transition);
+}
+
+.mp-task-form-checklist-mark .svg-icon {
+  width: 0.8em;
+  height: 0.8em;
+  stroke-width: 3;
+}
+
+.mp-task-form-checklist-item.is-checked .mp-task-form-checklist-mark {
+  border-color: var(--interactive-accent);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.mp-task-form .mp-task-form-checklist-text,
+.mp-task-form .mp-task-form-checklist-add-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-normal);
+}
+
+.mp-task-form-checklist-item.is-checked .mp-task-form-checklist-text {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.mp-task-form-checklist-remove {
+  flex: none;
+  color: var(--text-faint);
+}
+
 /* Строка поля: значок, подпись, значение справа. */
 .mp-form-row {
   display: flex;
@@ -166,6 +288,22 @@
 .mp-form-select-icon .svg-icon {
   width: 0.9em;
   height: 0.9em;
+}
+
+/* «Длительность»: варианты-чипы под строкой (переносятся на узком экране). */
+.mp-task-form-durations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+  padding: 0 0 var(--size-4-3) calc(1.15em + var(--size-4-3));
+}
+
+.mp-task-form-duration:not(.is-active) {
+  background: var(--background-primary);
+}
+
+.mp-task-form-durations + .mp-form-row {
+  border-top: 1px solid var(--background-modifier-border);
 }
 
 .mp-task-form-hint {

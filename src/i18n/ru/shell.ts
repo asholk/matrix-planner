@@ -5,6 +5,8 @@ export const ruShell = {
   tabBar: 'Разделы планировщика',
   tabUnavailable: 'Раздел пока недоступен',
   tabFailed: 'Не удалось показать раздел',
+  /** Кнопка главного меню Obsidian на панели вкладок. */
+  menu: 'Меню',
   sidebar: {
     left: 'Левая боковая панель',
     right: 'Правая боковая панель',
@@ -18,11 +20,6 @@ export const ruShell = {
     unavailable: 'Пока недоступно',
   },
   settings: {
-    all: {
-      name: 'Все настройки плагина',
-      desc: 'Раздел Matrix planner в настройках Obsidian',
-      button: 'Открыть',
-    },
     unavailable: 'Не удалось открыть настройки. Откройте их через меню Obsidian',
   },
   sheet: {

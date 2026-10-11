@@ -414,9 +414,26 @@ export function formatDateLabel(date: LocalDateString, today: LocalDateString, s
 
 export interface DueLabelOptions {
   hour12?: boolean;
+  /** Длительность задачи, мин: время показывается диапазоном «18:00–19:30». */
+  duration?: number | null;
 }
 
-/** Подпись срока задачи: «Сегодня 17:00», «Завтра 12:30», «16 окт. 15:00», «Вчера». */
+/**
+ * Время срока: начало или диапазон «18:00–19:30» при длительности (конец — по модулю суток).
+ */
+export function formatDueTimeLabel(
+  time: LocalTimeString,
+  duration: number | null | undefined,
+  hour12: boolean,
+  strings: Pick<DateLabelStrings, 'am' | 'pm'>,
+): string {
+  const start = formatTimeLabel(time, hour12, strings);
+  if (typeof duration !== 'number' || !Number.isInteger(duration) || duration <= 0) return start;
+  const end = minutesToTime((timeToMinutes(time) + duration) % 1440);
+  return `${start}–${formatTimeLabel(end, hour12, strings)}`;
+}
+
+/** Подпись срока задачи: «Сегодня 17:00», «Сегодня 18:00–19:30», «16 окт. 15:00», «Вчера». */
 export function formatDueLabel(
   due: FloatingDateTime,
   today: LocalDateString,
@@ -425,5 +442,5 @@ export function formatDueLabel(
 ): string {
   const date = formatDateLabel(due.date, today, strings);
   if (due.time === null) return date;
-  return fill(strings.dateTime, { date, time: formatTimeLabel(due.time, options.hour12 ?? false, strings) });
+  return fill(strings.dateTime, { date, time: formatDueTimeLabel(due.time, options.duration, options.hour12 ?? false, strings) });
 }

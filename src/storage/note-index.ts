@@ -24,6 +24,7 @@ import type {
   VaultPath,
 } from '../model/types';
 import { canonicalId } from '../model/ids';
+import { checklistFromListItems, type ChecklistProgress } from '../model/checklist';
 import { isUnder, titleFromPath } from './paths';
 
 /** Таймеры (в тестах можно подменить). */
@@ -57,6 +58,8 @@ interface Entry {
   frontmatter: FrontmatterRecord | null;
   /** Снимок для отсечения пустых обновлений. */
   signature: string;
+  /** Прогресс чек-листа из `listItems` (для повторного разбора при переименовании). */
+  checklist: ChecklistProgress | null;
 }
 
 interface Waiter {
@@ -267,7 +270,7 @@ export class MetadataNoteIndex implements NoteIndex {
   private onChanged(file: TFile, cache: CachedMetadata | null): void {
     if (!this.inScope(file.path)) return;
     const frontmatter = cache?.frontmatter ?? null;
-    this.applyFile(file, frontmatter, true);
+    this.applyFile(file, frontmatter, true, checklistFromListItems(cache?.listItems));
   }
 
   private onResolved(): void {
@@ -285,23 +288,25 @@ export class MetadataNoteIndex implements NoteIndex {
       const previous = this.entries.get(oldPath);
       const wasMatrix = oldPath === this.deps.getPaths().matrix;
       const oldFrontmatter = previous?.frontmatter ?? (wasMatrix ? this.matrixFrontmatter : null);
+      const oldChecklist = previous?.checklist ?? null;
       if (previous) this.removePath(oldPath, true);
       if (wasMatrix) this.setMatrix(false, null, true);
       if (this.inScope(file.path)) {
         // Кэш может переехать на новый путь позже события — берём старые свойства и перепроверяем.
-        const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter ?? oldFrontmatter;
-        this.applyFile(file, frontmatter, true);
+        const cache = this.app.metadataCache.getFileCache(file);
+        const frontmatter = cache?.frontmatter ?? oldFrontmatter;
+        this.applyFile(file, frontmatter, true, cache ? checklistFromListItems(cache.listItems) : oldChecklist);
         queueMicrotask(() => this.recheck(file));
       }
       return;
     }
     if (file instanceof TFolder) {
       const prefix = `${oldPath}/`;
-      const saved = new Map<string, FrontmatterRecord | null>();
+      const saved = new Map<string, { frontmatter: FrontmatterRecord | null; checklist: ChecklistProgress | null }>();
       const removed: VaultPath[] = [];
       for (const [path, entry] of [...this.entries]) {
         if (!path.startsWith(prefix)) continue;
-        saved.set(`${file.path}/${path.slice(prefix.length)}`, entry.frontmatter);
+        saved.set(`${file.path}/${path.slice(prefix.length)}`, { frontmatter: entry.frontmatter, checklist: entry.checklist });
         removed.push(path);
       }
       const removedIds = removed.map((p) => this.entries.get(p)?.note).filter((n): n is PlannerItem => !!n && isPlannerItem(n)).map((n) => n.id);
@@ -314,8 +319,10 @@ export class MetadataNoteIndex implements NoteIndex {
         this.collectFiles(file, files);
         for (const child of files) {
           if (!this.inScope(child.path)) continue;
-          const frontmatter = this.app.metadataCache.getFileCache(child)?.frontmatter ?? saved.get(child.path) ?? null;
-          this.applyFile(child, frontmatter, true);
+          const cache = this.app.metadataCache.getFileCache(child);
+          const old = saved.get(child.path);
+          const frontmatter = cache?.frontmatter ?? old?.frontmatter ?? null;
+          this.applyFile(child, frontmatter, true, cache ? checklistFromListItems(cache.listItems) : (old?.checklist ?? null));
           queueMicrotask(() => this.recheck(child));
         }
       }
@@ -377,7 +384,8 @@ export class MetadataNoteIndex implements NoteIndex {
       this.collectFiles(root, files);
       for (const file of files) {
         if (!this.inScope(file.path)) continue;
-        this.applyFile(file, this.app.metadataCache.getFileCache(file)?.frontmatter ?? null, false);
+        const cache = this.app.metadataCache.getFileCache(file);
+        this.applyFile(file, cache?.frontmatter ?? null, false, checklistFromListItems(cache?.listItems));
       }
     }
     this.emit({ kind: 'reset', paths: [...this.entries.keys()].sort(comparePaths), ids: [...this.idToPaths.keys()] });
@@ -394,12 +402,13 @@ export class MetadataNoteIndex implements NoteIndex {
   /** Повторный разбор после переименования, когда кэш уже переехал. */
   private recheck(file: TFile): void {
     if (!this.started || this.app.vault.getFileByPath(file.path) !== file || !this.inScope(file.path)) return;
-    const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    if (frontmatter) this.applyFile(file, frontmatter, true);
+    const cache = this.app.metadataCache.getFileCache(file);
+    const frontmatter = cache?.frontmatter;
+    if (frontmatter) this.applyFile(file, frontmatter, true, checklistFromListItems(cache.listItems));
   }
 
-  /** Разбирает файл и обновляет индекс. `emit` — сообщать подписчикам. */
-  private applyFile(file: TFile, frontmatter: FrontmatterRecord | null, emit: boolean): void {
+  /** Разбирает файл и обновляет индекс. `emit` — сообщать подписчикам; `checklist` — из `listItems`. */
+  private applyFile(file: TFile, frontmatter: FrontmatterRecord | null, emit: boolean, checklist: ChecklistProgress | null): void {
     const paths = this.deps.getPaths();
     if (file.path === paths.matrix) {
       this.setMatrix(true, frontmatter, emit);
@@ -420,19 +429,22 @@ export class MetadataNoteIndex implements NoteIndex {
       note = null;
     }
 
+    // Прогресс чек-листа — только у задач (тело не читается, берётся из кэша метаданных).
+    if (note && note.kind === 'task') note = { ...note, checklist };
+
     const previous = this.entries.get(file.path);
     if (!note) {
       if (previous) this.removePath(file.path, emit);
       return;
     }
-    const signature = `${file.stat.mtime}|${file.path}|${safeStringify(frontmatter)}`;
+    const signature = `${file.stat.mtime}|${file.path}|${safeStringify(frontmatter)}|${checklist ? `${checklist.done}/${checklist.total}` : ''}`;
     if (previous && previous.signature === signature) {
       this.resolveWaiters(file.path);
       return;
     }
     const previousId = previous && isPlannerItem(previous.note) ? previous.note.id : null;
     if (previousId !== null) this.unlinkId(previousId, file.path);
-    this.entries.set(file.path, { note, frontmatter, signature });
+    this.entries.set(file.path, { note, frontmatter, signature, checklist });
     if (isPlannerItem(note)) this.linkId(note.id, file.path);
     this.lists = null;
     if (emit) {

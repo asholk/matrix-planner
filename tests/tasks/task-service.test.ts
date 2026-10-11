@@ -249,6 +249,7 @@ const draft: TaskDraft = {
   repeat: 'weekly',
   remind: 'at',
   priority: 'high',
+  duration: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -420,6 +421,25 @@ describe('TaskService.update', () => {
     expectOk(await service.update(ID, { due: null }));
     expect(store.fm(PATH)).toMatchObject({ due: null, repeat: 'none', remind: 'none', repeat_anchor: null });
     expect(store.fm(PATH).custom_field).toBe('оставить');
+  });
+
+  it('длительность: записывается, общая для серии; null удаляет свойство; неверная — invalid', async () => {
+    const { store, service } = setup();
+    store.put(PATH, taskFm({ due: '2026-10-10T18:00', repeat: 'weekly', repeat_anchor: '2026-10-10' }));
+    expect('duration' in store.fm(PATH)).toBe(false);
+    expectOk(await service.update(ID, { duration: 90 }));
+    expect(store.fm(PATH)).toMatchObject({ duration: 90, repeat: 'weekly', repeat_anchor: '2026-10-10', due: '2026-10-10T18:00' });
+    expectOk(await service.update(ID, { duration: null }));
+    expect('duration' in store.fm(PATH)).toBe(false);
+    expectError(await service.update(ID, { duration: 3 }), 'invalid');
+  });
+
+  it('новая задача без длительности не получает свойство duration; с длительностью — получает', async () => {
+    const { store, service } = setup();
+    expectOk(await service.create(draft));
+    expect('duration' in store.fm(PATH)).toBe(false);
+    expectOk(await service.create({ ...draft, title: 'Танцы', duration: 90 }));
+    expect(store.fm(`${TASKS}/Танцы.md`).duration).toBe(90);
   });
 
   it('отклоняет неверный квадрант', async () => {

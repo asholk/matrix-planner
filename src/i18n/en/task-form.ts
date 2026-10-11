@@ -13,6 +13,14 @@ export const enTaskForm = {
     remind: 'Reminder',
     priority: 'High priority',
     quadrant: 'Quadrant',
+    duration: 'Duration',
+  },
+  /** Duration options: `{n}` is the number. */
+  duration: {
+    none: 'Not set',
+    minutes: '{n} min',
+    hours: '{n} h',
+    decimal: '.',
   },
   addDate: 'Add date',
   addTime: 'Add time',
@@ -31,6 +39,16 @@ export const enTaskForm = {
   deleted: 'Task moved to trash',
   deletedUndo: 'Task deleted',
   undo: 'Undo',
+  /** Checklist made of Markdown tasks in the note body (update 008). */
+  checklist: {
+    title: 'Checklist',
+    add: 'Add item',
+    remove: 'Delete item',
+    removeItem: 'Delete item "{text}"',
+    check: 'Complete item "{text}"',
+    progress: '{done} of {total} items done',
+    empty: 'Untitled item',
+  },
   /** Caption of the selected quadrant next to "Quadrant" (frames 04, 05). */
   quadrantHint: {
     do: 'Urgent and important',

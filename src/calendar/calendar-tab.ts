@@ -273,7 +273,7 @@ export class CalendarTab implements TabController {
     if (this.deps.syncStatus) {
       const line = new SyncStatusLine({
         source: this.deps.syncStatus,
-        openSettings: () => this.host.switchTab('settings'),
+        openSettings: () => this.host.actions.openSettings(),
         haptic: (kind) => this.haptic(kind),
       });
       line.mount(root.createDiv());
@@ -614,7 +614,7 @@ export class CalendarTab implements TabController {
         if (row.calendarId) return calendars.get(row.calendarId) ?? null;
         return row.source === 'task' || row.source === 'event' ? planner : null;
       },
-      connectCalendar: () => this.host.switchTab('settings'),
+      connectCalendar: () => this.host.actions.openSettings(),
       showAllSources: () => this.showAllSources(),
       menuHaptic: () => this.haptic('tap'),
       handlers: {

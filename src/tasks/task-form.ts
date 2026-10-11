@@ -11,6 +11,7 @@ import type { CoreServices, SheetHandle, TaskFormRequest } from '../app/contract
 import type { PlannerError, PlannerErrorCode, QuadrantConfig, QuadrantKey, RemindOffset, RepeatRule, Task } from '../model/types';
 import { QUADRANT_KEYS } from '../model/types';
 import { localDateOf } from '../model/dates';
+import { DURATION_PRESETS, formatDuration } from '../model/duration';
 import { registerDictionary, t } from '../i18n';
 import { ruTaskForm } from '../i18n/ru/task-form';
 import { enTaskForm } from '../i18n/en/task-form';
@@ -18,6 +19,7 @@ import { shortDateLabel } from '../ui/controls/date-picker';
 import { renderDeleteButton } from '../ui/controls/delete-button';
 import type { HapticKind } from '../ui/haptics';
 import { deleteWithUndo, sharedPendingDeletes } from '../app/pending-deletes';
+import { renderChecklistEditor, type ChecklistEditor } from './task-checklist';
 import {
   REMIND_OPTIONS,
   REPEAT_OPTIONS,
@@ -29,6 +31,7 @@ import {
   isPatchEmpty,
   setBody,
   setDate,
+  setDuration,
   setLoadedBody,
   setPriority,
   setQuadrant,
@@ -38,6 +41,7 @@ import {
   setTitle,
   toTaskDraft,
   toTaskPatch,
+  toggleDuration,
   type TaskDraftState,
 } from './task-draft';
 
@@ -92,6 +96,15 @@ export function remindLabel(offset: RemindOffset): string {
   return t(`model.remind.${offset}`);
 }
 
+/** «15 мин», «1 ч», «1,5 ч» / «15 min», «1 h», «1.5 h». */
+export function durationLabel(minutes: number): string {
+  return formatDuration(minutes, {
+    minutes: t('taskForm.duration.minutes'),
+    hours: t('taskForm.duration.hours'),
+    decimal: t('taskForm.duration.decimal'),
+  });
+}
+
 /**
  * Форма изменена (доработка 006, §6): правка — есть изменённые поля, создание — черновик
  * отличается от открытого (`baseline`); пробелы в названии и заметках не считаются.
@@ -107,6 +120,7 @@ export function isTaskDraftDirty(state: TaskDraftState, baseline: TaskDraftState
     next.priority !== base.priority ||
     next.repeat !== base.repeat ||
     next.remind !== base.remind ||
+    next.duration !== base.duration ||
     JSON.stringify(next.due) !== JSON.stringify(base.due)
   );
 }
@@ -155,6 +169,7 @@ class TaskFormView {
   private titleInput: HTMLInputElement | null = null;
   private bodyInput: HTMLTextAreaElement | null = null;
   private bodyStatusEl: HTMLElement | null = null;
+  private checklist: ChecklistEditor | null = null;
   private scheduleEl: HTMLElement | null = null;
   private quadrantEl: HTMLElement | null = null;
   private calendarOpen = false;
@@ -317,6 +332,7 @@ class TaskFormView {
     if (loaded && input.value !== this.state.body) input.value = this.state.body;
     this.bodyStatusEl?.setText(status ?? (loaded ? '' : t('taskForm.loadingBody')));
     this.bodyStatusEl?.toggleClass('is-hidden', !(status ?? !loaded));
+    this.checklist?.refresh();
   }
 
   // --- Название и заметки ---
@@ -347,9 +363,22 @@ class TaskFormView {
       attr: { placeholder: t('taskForm.fields.body'), 'aria-label': t('taskForm.fields.body'), rows: '2' },
     });
     body.value = this.state.body;
-    body.addEventListener('input', () => this.update((s) => setBody(s, body.value)));
+    body.addEventListener('input', () => {
+      this.update((s) => setBody(s, body.value));
+      this.checklist?.refresh();
+    });
     this.bodyInput = body;
     this.bodyStatusEl = card.createDiv({ cls: 'mp-task-form-status', attr: { 'aria-live': 'polite' } });
+    // Чек-лист (доработка 008): правит то же тело, поле «Заметки» обновляется.
+    this.checklist = renderChecklistEditor(card, {
+      getBody: () => this.state.body,
+      isEnabled: () => this.state.bodyLoaded,
+      onChange: (next) => {
+        this.update((s) => setBody(s, next));
+        if (this.bodyInput && this.bodyInput.value !== this.state.body) this.bodyInput.value = this.state.body;
+      },
+      haptic: (kind) => this.haptic(kind),
+    });
     this.syncBody(null);
   }
 
@@ -365,6 +394,7 @@ class TaskFormView {
     this.renderDateRow(card);
     if (this.calendarOpen) this.renderCalendar(card);
     if (available.time) this.renderTimeRow(card);
+    if (available.duration) this.renderDurationRow(card);
     if (available.repeat) {
       this.renderSelectRow(card, 'repeat', t('taskForm.fields.repeat'), repeatLabel(state.repeat), (menu) => {
         for (const rule of REPEAT_OPTIONS) {
@@ -490,6 +520,32 @@ class TaskFormView {
       this.update((s) => setTime(s, input.value === '' ? null : input.value), input.value === '' ? 'schedule' : 'none');
     });
     this.clearButton(value, t('taskForm.clearTime'), () => this.update((s) => setTime(s, null), 'schedule'));
+  }
+
+  /** «Длительность»: варианты-чипы; повторное нажатие или «Не задано» снимает выбор. */
+  private renderDurationRow(card: HTMLElement): void {
+    const { labelId } = this.row(card, 'timer', t('taskForm.fields.duration'));
+    const current = this.state.duration;
+    const chips = card.createDiv({
+      cls: 'mp-task-form-durations',
+      attr: { role: 'radiogroup', 'aria-labelledby': labelId },
+    });
+    const chip = (value: number | null, label: string): void => {
+      const selected = value === current;
+      const button = chips.createEl('button', {
+        cls: 'mp-chip mp-task-form-duration',
+        text: label,
+        attr: { type: 'button', role: 'radio', 'aria-checked': String(selected), 'data-duration': value === null ? '' : String(value) },
+      });
+      button.toggleClass('is-active', selected);
+      button.addEventListener('click', () =>
+        this.select(() => this.update((s) => (value === null ? setDuration(s, null) : toggleDuration(s, value)), 'schedule')),
+      );
+    };
+    for (const minutes of DURATION_PRESETS) chip(minutes, durationLabel(minutes));
+    // Значение, заданное вручную в свойствах, показывается отдельным выбранным вариантом.
+    if (current !== null && !DURATION_PRESETS.includes(current)) chip(current, durationLabel(current));
+    chip(null, t('taskForm.duration.none'));
   }
 
   private renderSelectRow(card: HTMLElement, icon: string, label: string, current: string, fill: (menu: Menu) => void): void {

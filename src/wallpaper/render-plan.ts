@@ -8,7 +8,7 @@ import {
   daysInMonth,
   formatDateParts,
   formatDueLabel,
-  formatTimeLabel,
+  formatDueTimeLabel,
   isValidDate,
   parseDateParts,
   type DateLabelStrings,
@@ -98,9 +98,10 @@ export function formatWallpaperDue(
   relativeTo: LocalDateString,
   labels: DateLabelStrings,
   hour12: boolean,
+  duration: number | null = null,
 ): string {
-  if (due.date === relativeTo && due.time !== null) return formatTimeLabel(due.time, hour12, labels);
-  return formatDueLabel(due, relativeTo, labels, { hour12 });
+  if (due.date === relativeTo && due.time !== null) return formatDueTimeLabel(due.time, duration, hour12, labels);
+  return formatDueLabel(due, relativeTo, labels, { hour12, duration });
 }
 
 /**

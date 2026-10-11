@@ -42,6 +42,7 @@ export const enTasks = {
     completedAt: '{date}, {time}',
     label: 'Task "{title}"',
     quadrant: 'quadrant "{quadrant}"',
+    checklist: '{done} of {total} items done',
   },
   menu: {
     openNote: 'Open note',

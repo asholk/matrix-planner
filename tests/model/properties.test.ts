@@ -165,6 +165,7 @@ describe('serialization and helpers', () => {
       repeat_anchor: null,
       remind: 'at',
       priority: 'high',
+      duration: null,
       done: false,
       completed: null,
       completions: [],

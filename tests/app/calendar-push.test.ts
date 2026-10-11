@@ -100,7 +100,7 @@ describe('сборка: адресная отправка в «Календар�
   });
 
   it('уход приложения в фон — задача со сроком отправляется сразу', async () => {
-    const created = await handle.taskActions.create({ title: 'Купить молоко', body: '', quadrant: 'do', due: { date: '2026-10-17', time: null }, repeat: 'none', remind: 'none', priority: 'normal' });
+    const created = await handle.taskActions.create({ title: 'Купить молоко', body: '', quadrant: 'do', due: { date: '2026-10-17', time: null }, repeat: 'none', remind: 'none', priority: 'normal', duration: null });
     if (!created.ok || !created.value) throw new Error('задача не создана');
     const id = created.value.id;
     doc.hide();
@@ -108,7 +108,7 @@ describe('сборка: адресная отправка в «Календар�
   });
 
   it('закрытие страницы (pagehide) — ожидающее отправляется сразу', async () => {
-    const created = await handle.taskActions.create({ title: 'Позвонить', body: '', quadrant: 'do', due: { date: '2026-10-18', time: null }, repeat: 'none', remind: 'none', priority: 'normal' });
+    const created = await handle.taskActions.create({ title: 'Позвонить', body: '', quadrant: 'do', due: { date: '2026-10-18', time: null }, repeat: 'none', remind: 'none', priority: 'normal', duration: null });
     if (!created.ok || !created.value) throw new Error('задача не создана');
     dispatchWindowEvent('pagehide');
     expect(pushed.flat()).toContain(created.value.id);

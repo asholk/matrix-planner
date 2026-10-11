@@ -159,7 +159,7 @@ function dayAgenda(ctx: Ctx, date: LocalDateString) {
 }
 
 function taskDraft(title: string, extra: Partial<TaskDraft> = {}): TaskDraft {
-  return { title, body: '', quadrant: 'do', due: null, repeat: 'none', remind: 'none', priority: 'normal', ...extra };
+  return { title, body: '', quadrant: 'do', due: null, repeat: 'none', remind: 'none', priority: 'normal', duration: null, ...extra };
 }
 
 describe('приёмка без компаньона (ТЗ §10)', () => {

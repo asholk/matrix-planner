@@ -53,10 +53,10 @@ import { VaultIntegrityService } from '../integrity/integrity-service';
 import { createAttentionPanel, createWorkspaceOpeners } from '../integrity/attention-panel';
 import { createVaultMigrationDeps, needsMigration, runMigrations } from '../integrity/migrations';
 import { PlannerView, VIEW_TYPE_PLANNER, type PlannerShellOptions } from '../ui/planner-view';
+import { watchNavbarForPlanner } from '../ui/obsidian-navbar';
 import { FormSheetPresenter } from '../ui/controls/form-sheet';
 import { createDatePicker } from '../ui/controls/date-picker';
 import { createAddMenuOpener } from '../ui/add-menu';
-import { createSettingsViewTab } from '../ui/settings-tab-view';
 import { createBrowserGeolocation, createLocalWeatherCache, createRequestUrlHttp, WeatherService } from '../weather/weather-service';
 import { openStatsSheet } from '../stats/stats-sheet';
 import { showActionNotice } from '../caldav/sync-feedback';
@@ -451,6 +451,9 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
       }
       view.showTab(tab, options ?? {});
     },
+    openSettings: () => {
+      if (!openPluginSettings(app, plugin.manifest.id)) notifier.show(t('shell.settings.unavailable'));
+    },
     isAvailable: (feature) => feature === 'task',
   };
 
@@ -487,7 +490,7 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
 
   const tasksTab = createTasksTab({ index, tasks, settings, clock, format, notifier, weather, openStats, haptics, pendingDeletes });
 
-  // Общие зависимости вкладки настроек Obsidian и вкладки «Настройки» вида.
+  // Зависимости вкладки настроек Obsidian.
   const settingsDeps: SettingsTabDeps = {
     store: settings,
     clock,
@@ -500,23 +503,15 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
     weather,
     ...(extension?.settings ?? {}),
   };
-  const settingsTab = createSettingsViewTab({
-    settings: settingsDeps,
-    openPluginSettings: () => {
-      if (!openPluginSettings(app, plugin.manifest.id)) notifier.show(t('shell.settings.unavailable'));
-    },
-  });
-
   const viewOptions = (): PlannerShellOptions => ({
-    tabs: { ...(extension?.tabs ?? {}), tasks: tasksTab, settings: settingsTab },
+    tabs: { ...(extension?.tabs ?? {}), tasks: tasksTab },
     banner: extension?.banner ?? null,
     actions,
     platform,
     haptics,
     initialTab: settings.get().ui.lastTab,
     onTabChange: (tab: PlannerTabId) => {
-      // «Настройки» не запоминаются: при следующем открытии — рабочая вкладка.
-      if (tab === 'settings' || settings.get().ui.lastTab === tab) return;
+      if (settings.get().ui.lastTab === tab) return;
       settings
         .update((draft) => {
           draft.ui.lastTab = tab;
@@ -525,6 +520,8 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
     },
   });
   plugin.registerView(VIEW_TYPE_PLANNER, (leaf) => new PlannerView(leaf, viewOptions()));
+  // Телефон: пока активен Планировщик, его панель вкладок стоит внизу вместо панели навигации Obsidian.
+  if (platform.isPhone) plugin.register(watchNavbarForPlanner(app, VIEW_TYPE_PLANNER));
 
   plugin.addRibbonIcon('layout-grid', t('app.ribbon.open'), () => {
     void actions.showTab('tasks');

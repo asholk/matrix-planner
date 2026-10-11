@@ -19,6 +19,7 @@ import {
   type TasksListGrouping,
   type VaultPath,
 } from '../model/types';
+import type { ChecklistProgress } from '../model/checklist';
 import { DEFAULT_QUADRANT_STYLE } from '../model/defaults';
 import { parseFloating } from '../model/dates';
 import { completionEntries, groupTasksByDate, groupTasksByQuadrant, isTaskOverdue } from '../model/task-selectors';
@@ -56,8 +57,11 @@ export type TasksMode = 'active' | 'done';
 
 /** Форматирование подписей (тексты — у вызывающего). */
 export interface TaskLabelFormat {
-  /** Относительный срок: «Сегодня 17:00», «16 окт. 15:00» (`formatDueLabel`). */
-  due(due: FloatingDateTime, today: LocalDateString): string;
+  /**
+   * Относительный срок: «Сегодня 17:00», «16 окт. 15:00» (`formatDueLabel`);
+   * с длительностью — «Сегодня 18:00–19:30».
+   */
+  due(due: FloatingDateTime, today: LocalDateString, duration?: number | null): string;
   /** Дата выполнения: «10 окт. 2026 г., 13:31»; `time === null` — только дата. */
   completed(date: LocalDateString, time: LocalTimeString | null): string;
 }
@@ -82,6 +86,8 @@ export interface TaskCardModel {
    * показанное повторение (срок) для `complete`; `null` — неповторяющаяся.
    */
   instanceDate: LocalDateString | null;
+  /** Прогресс чек-листа задачи (доработка 008); `null`/нет поля — без чек-листа. */
+  checklist?: ChecklistProgress | null;
 }
 
 export interface QuadrantSection {
@@ -146,12 +152,13 @@ export function activeCard(task: Task, now: FloatingDateTime, format: TaskLabelF
     quadrant: task.quadrant,
     highPriority: task.priority === 'high',
     recurring: task.repeat !== 'none',
-    dueLabel: task.due ? format.due(task.due, now.date) : null,
+    dueLabel: task.due ? format.due(task.due, now.date, task.duration) : null,
     overdue: isTaskOverdue(task, now),
     done: false,
     completedLabel: null,
     // Выполняем именно показанное повторение, даже если срок успеет сдвинуться.
     instanceDate: task.repeat !== 'none' ? (task.due?.date ?? null) : null,
+    checklist: task.checklist ?? null,
   };
 }
 
@@ -170,6 +177,7 @@ export function doneCard(task: Task, entry: CompletionEntry, format: TaskLabelFo
     done: true,
     completedLabel: format.completed(entry.date, completedAt?.time ?? null),
     instanceDate: entry.instanceDate,
+    checklist: task.checklist ?? null,
   };
 }
 
@@ -360,6 +368,8 @@ export interface CardLabelStrings {
   noDue: string;
   notDone: string;
   done: string;
+  /** «Выполнено пунктов: 2 из 5» (необязательно). */
+  checklist?(done: number, total: number): string;
 }
 
 /** «Задача „Стоматолог“, Завтра 9:00, квадрант „Важно и срочно“, не выполнена». */
@@ -374,6 +384,7 @@ export function cardAriaLabel(card: TaskCardModel, quadrantTitle: string, string
   parts.push(strings.quadrant(quadrantTitle));
   if (card.highPriority) parts.push(strings.highPriority);
   if (card.recurring) parts.push(strings.repeat);
+  if (card.checklist && strings.checklist) parts.push(strings.checklist(card.checklist.done, card.checklist.total));
   parts.push(card.done ? strings.done : strings.notDone);
   return parts.join(', ');
 }

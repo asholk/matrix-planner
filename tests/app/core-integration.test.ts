@@ -47,7 +47,7 @@ async function waitUntil(predicate: () => boolean, attempts = 50): Promise<void>
 }
 
 function draft(title: string, extra: Partial<TaskDraft> = {}): TaskDraft {
-  return { title, body: '', quadrant: 'do', due: null, repeat: 'none', remind: 'none', priority: 'normal', ...extra };
+  return { title, body: '', quadrant: 'do', due: null, repeat: 'none', remind: 'none', priority: 'normal', duration: null, ...extra };
 }
 
 function taskById(ctx: Ctx, id: string): Task | undefined {

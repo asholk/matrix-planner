@@ -394,7 +394,7 @@ export class TasksTab implements TabController {
     const strings = createDateLabelStrings((key) => t(key));
     const hour12 = this.deps.format.get().hour12;
     const format: TaskLabelFormat = {
-      due: (due, today) => formatDueLabel(due, today, strings, { hour12 }),
+      due: (due, today, duration) => formatDueLabel(due, today, strings, { hour12, duration }),
       completed: (date, time) => formatCompletedLabel(date, time, strings, hour12),
     };
     return { format, strings };

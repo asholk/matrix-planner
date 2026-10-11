@@ -51,6 +51,7 @@ function task(id: string, date: string, done = false): Task {
     repeatAnchor: date,
     remind: 'none',
     priority: 'normal',
+    duration: null,
     done,
     completed: null,
     completions: [],
@@ -142,6 +143,17 @@ describe('timeline-layout', () => {
     const blocks = layoutTimeline([timedItem('a', 600, 600), timedItem('b', 600, 660), timedItem('c', 605, 620)]);
     expect(blocks.every((b) => b.columns === 3)).toBe(true);
     expect(blocks.find((b) => b.item.key === 'a')).toMatchObject({ startMinute: 600, endMinute: 615 });
+  });
+
+  it('задача с длительностью занимает на шкале свой интервал и перекрывается с событием', () => {
+    const items = build({
+      range: { from: '2026-10-12', to: '2026-10-12' },
+      tasks: [{ ...task('t', '2026-10-12'), due: { date: '2026-10-12', time: '18:00' }, duration: 90 }],
+      events: [event('e', '2026-10-12T19:00', '2026-10-12T20:00')],
+    }).get('2026-10-12')!.timed;
+    const blocks = layoutTimeline(items);
+    const taskBlock = blocks.find((b) => b.item.source === 'task')!;
+    expect(taskBlock).toMatchObject({ startMinute: 1080, endMinute: 1170, columns: 2 });
   });
 
   it('элемент в конце суток не выходит за 1440, элементы без времени пропускаются', () => {

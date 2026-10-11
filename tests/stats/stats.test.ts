@@ -27,6 +27,7 @@ function task(overrides: Partial<Task> & { id: string }): Task {
     repeatAnchor: null,
     remind: 'none',
     priority: 'normal',
+    duration: null,
     done: false,
     completed: null,
     completions: [],

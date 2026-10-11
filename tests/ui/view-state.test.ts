@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  PLANNER_TAB_ORDER,
+  isPlannerTabId,
   SIDEBAR_EDGE_PX,
   adjacentTab,
   isSidebarEdgeTouch,
@@ -34,10 +36,12 @@ describe('view-state: вкладки', () => {
     expect(fresh('lockscreen', ['tasks', 'calendar']).activeTab).toBe('tasks');
   });
 
-  it('«Настройки» — четвёртая вкладка панели и не встают в две колонки', () => {
-    const state = createViewState({ available: ['settings', 'lockscreen', 'calendar', 'tasks'], initialTab: 'settings' });
-    expect(state.available).toEqual(['tasks', 'calendar', 'lockscreen', 'settings']);
-    expect(visibleTabs({ ...state, split: true })).toEqual(['settings']);
+  it('вкладки панели — «Задачи», «Календарь», «Блокировка»; «Настройки» вкладкой не являются (008)', () => {
+    const state = createViewState({ available: ['lockscreen', 'calendar', 'tasks'], initialTab: 'lockscreen' });
+    expect(PLANNER_TAB_ORDER).toEqual(['tasks', 'calendar', 'lockscreen']);
+    expect(state.available).toEqual(['tasks', 'calendar', 'lockscreen']);
+    expect(isPlannerTabId('settings')).toBe(false);
+    expect(visibleTabs({ ...state, split: true })).toEqual(['lockscreen']);
   });
 
   it('список доступных упорядочен по панели', () => {

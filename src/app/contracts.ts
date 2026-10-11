@@ -570,6 +570,8 @@ export interface PlannerActions {
   openItem(id: ItemId): Promise<void>;
   /** Открыть «Задачи»/«Календарь»/«Блокировка» в существующем виде. */
   showTab(tab: PlannerTabId, options?: { date?: LocalDateString }): Promise<void>;
+  /** Открыть раздел плагина в настройках Obsidian (доработка 008: вкладки «Настройки» в виде нет). */
+  openSettings(): void;
   /** Какие формы подключены. */
   isAvailable(feature: 'task' | 'event' | 'note' | 'wallpaper'): boolean;
 }

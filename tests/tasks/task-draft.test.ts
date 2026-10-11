@@ -15,6 +15,7 @@ import {
   previewPropertiesChange,
   setBody,
   setDate,
+  setDuration,
   setLoadedBody,
   setPriority,
   setQuadrant,
@@ -24,6 +25,7 @@ import {
   setTitle,
   toTaskDraft,
   toTaskPatch,
+  toggleDuration,
   validateDraft,
   type TaskDraftState,
 } from '../../src/tasks/task-draft';
@@ -40,6 +42,7 @@ function props(overrides: Partial<TaskProperties> = {}): TaskProperties {
     repeat_anchor: '2026-10-05',
     remind: 'at',
     priority: 'normal',
+    duration: null,
     done: false,
     completed: null,
     completions: ['2026-10-05'],
@@ -65,6 +68,7 @@ function task(p: TaskProperties = props()): Task {
     repeatAnchor: p.repeat_anchor ?? due?.date ?? null,
     remind: p.remind,
     priority: p.priority,
+    duration: p.duration,
     done: p.done,
     completed: p.completed,
     completions: p.completions,
@@ -137,7 +141,7 @@ describe('task-draft: квадрант и день по умолчанию', () 
 describe('task-draft: дата и зависимые поля', () => {
   it('без даты время, повтор и напоминание недоступны и не меняются', () => {
     const state = createDraftState();
-    expect(fieldAvailability(state)).toEqual({ time: false, repeat: false, remind: false });
+    expect(fieldAvailability(state)).toEqual({ time: false, repeat: false, remind: false, duration: false });
     expect(setTime(state, '10:00')).toBe(state);
     expect(addTime(state)).toBe(state);
     expect(setRepeat(state, 'daily')).toBe(state);
@@ -146,7 +150,7 @@ describe('task-draft: дата и зависимые поля', () => {
 
   it('после выбора даты поля доступны; первая дата включает «В момент события»', () => {
     const state = setDate(createDraftState(), '2026-10-11');
-    expect(fieldAvailability(state)).toEqual({ time: true, repeat: true, remind: true });
+    expect(fieldAvailability(state)).toEqual({ time: true, repeat: true, remind: true, duration: false });
     expect(state.remind).toBe('at');
   });
 
@@ -280,6 +284,7 @@ describe('task-draft: сохранение', () => {
       repeat: 'none',
       remind: 'at',
       priority: 'normal',
+      duration: null,
     });
   });
 
@@ -340,5 +345,39 @@ describe('task-draft: сохранение', () => {
     controller.update((s) => setTitle(s, 'А'));
     controller.update((s) => s);
     expect(seen).toEqual(['А']);
+  });
+});
+
+describe('task-draft: длительность', () => {
+  it('доступна только у срока со временем; без времени значение сохраняется', () => {
+    let state = setDate(named(), '2026-10-11');
+    expect(fieldAvailability(state).duration).toBe(false);
+    state = setTime(state, '18:00');
+    expect(fieldAvailability(state).duration).toBe(true);
+    state = toggleDuration(state, 90);
+    expect(state.duration).toBe(90);
+    state = setTime(state, null);
+    expect(fieldAvailability(state).duration).toBe(false);
+    expect(toTaskDraft(state).duration).toBe(90);
+  });
+
+  it('повторное нажатие на выбранный вариант снимает выбор; невалидное значение игнорируется', () => {
+    const state = toggleDuration(named(), 45);
+    expect(toggleDuration(state, 45).duration).toBeNull();
+    expect(toggleDuration(state, 60).duration).toBe(60);
+    expect(setDuration(state, 3)).toBe(state);
+    expect(setDuration(state, 2000)).toBe(state);
+    expect(setDuration(state, null).duration).toBeNull();
+  });
+
+  it('правка длительности попадает в патч и в свойства', () => {
+    const base = draftFromTask(task(props({ duration: 30 })), '');
+    expect(base.duration).toBe(30);
+    expect(toTaskPatch(base)).toEqual({});
+    const state = setDuration(base, 90);
+    expect(toTaskPatch(state)).toEqual({ duration: 90 });
+    expect(previewPropertiesChange(state, props({ duration: 30 }))).toEqual({ kind: 'change', patch: { duration: 90 } });
+    const cleared = setDuration(base, null);
+    expect(previewPropertiesChange(cleared, props({ duration: 30 }))).toEqual({ kind: 'change', patch: { duration: null } });
   });
 });

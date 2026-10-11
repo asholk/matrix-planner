@@ -30,6 +30,7 @@ function task(id: string): TaskDayItem {
     taskId: id,
     quadrant: 'do',
     priority: 'normal',
+    duration: null,
     instanceDate: TODAY,
     projected: false,
     recurring: false,

@@ -47,6 +47,7 @@ import type {
 import { QUADRANT_KEYS } from '../model/types';
 import type { CalendarCacheReader, Clock, DayItemsBuilder, DayItemsOptions, DayItemsProvider, NoteIndex, SettingsStore } from '../app/contracts';
 import { addDays, datesInRange, floatingFromDate, isValidTimeZone, timeToMinutes } from '../model/dates';
+import { DEFAULT_TASK_DURATION, effectiveDuration, isValidDuration } from '../model/duration';
 import { DEFAULT_QUADRANT_STYLE } from '../model/defaults';
 import { canonicalId } from '../model/ids';
 import { occurrencesInRange } from '../model/recurrence';
@@ -75,8 +76,8 @@ export const NOTE_DOT_COLOR = '#8E8E93';
 /** Цвет события из неизвестного календаря. */
 export const EXTERNAL_FALLBACK_COLOR = '#8E8E93';
 
-/** Длительность задачи со временем на временной шкале (как в «Календаре» iOS). */
-export const TASK_DURATION_MINUTES = 30;
+/** Длительность задачи со временем без свойства `duration` (как в «Календаре» iOS). */
+export const TASK_DURATION_MINUTES = DEFAULT_TASK_DURATION;
 
 /** Максимум цветных точек под днём. */
 export const MAX_DAY_DOTS = 3;
@@ -168,6 +169,7 @@ function inRange(date: LocalDateString, range: DateRange): boolean {
 function taskItem(task: Task, instanceDate: LocalDateString, input: DayItemsInput, flags: { projected: boolean; completed: boolean }): TaskDayItem {
   const time = task.due?.time ?? null;
   const startMinute = time === null ? null : timeToMinutes(time);
+  const duration = isValidDuration(task.duration) ? task.duration : null;
   return {
     key: `task:${task.id}:${instanceDate}@${instanceDate}`,
     source: 'task',
@@ -175,7 +177,7 @@ function taskItem(task: Task, instanceDate: LocalDateString, input: DayItemsInpu
     title: task.title,
     allDay: startMinute === null,
     startMinute,
-    endMinute: startMinute === null ? null : Math.min(1440, startMinute + TASK_DURATION_MINUTES),
+    endMinute: startMinute === null ? null : Math.min(1440, startMinute + effectiveDuration(duration)),
     continuesFromPrevious: false,
     continuesToNext: false,
     color: quadrantColor(input.matrix, task.quadrant),
@@ -183,6 +185,7 @@ function taskItem(task: Task, instanceDate: LocalDateString, input: DayItemsInpu
     taskId: task.id,
     quadrant: task.quadrant,
     priority: task.priority,
+    duration,
     instanceDate,
     projected: flags.projected,
     recurring: task.repeat !== 'none',

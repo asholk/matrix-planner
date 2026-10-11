@@ -108,6 +108,7 @@ function taskProps(input: TaskInput): TaskProperties {
     repeat_anchor: input.repeat_anchor ?? null,
     remind: input.remind ?? 'none',
     priority: input.priority ?? 'normal',
+    duration: null,
     done: input.done ?? false,
     completed: input.completed ?? null,
     completions: input.completions ?? [],

@@ -217,7 +217,7 @@ export function bindItemActions(
 }
 
 /**
- * Подпись под названием (кадры 09, референс LockDay): задача — «[значок] квадрант · [календарь] Планировщик»,
+ * Подпись под названием (кадры 09, референс LockDay): задача — «[часы] 18:00–19:30 (с длительностью) · [значок] квадрант · [календарь] Планировщик»,
  * событие — «[календарь] 9:00–10:00 · Календарь».
  */
 export function metaParts(row: DayListRow, ctx: Pick<DayListContext, 'quadrantTitle' | 'quadrantIcon' | 'calendarTitle'>): Array<{ text: string; icon: string | null }> {
@@ -225,6 +225,8 @@ export function metaParts(row: DayListRow, ctx: Pick<DayListContext, 'quadrantTi
   if (row.source === 'note') return parts;
   const calendar = ctx.calendarTitle(row);
   if (row.quadrant) {
+    // Задача с длительностью — «18:00–19:30» перед квадрантом.
+    if (row.rangeLabel) parts.push({ text: row.rangeLabel, icon: 'clock' });
     parts.push({ text: ctx.quadrantTitle(row.quadrant), icon: ctx.quadrantIcon?.(row.quadrant) ?? null });
     if (calendar) parts.push({ text: calendar, icon: 'calendar' });
   } else {

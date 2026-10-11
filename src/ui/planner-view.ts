@@ -1,6 +1,6 @@
 /**
  * Вид «Планировщик» (S1.T4, ТЗ §4.1): единственный `ItemView` с нижней панелью
- * вкладок «Задачи / Календарь / Блокировка / Настройки», местом для баннера над панелью
+ * вкладок «Задачи / Календарь / Блокировка» и кнопкой «Меню» (меню Obsidian, доработка 008), местом для баннера над панелью
  * и плавающей «+» над баннером справа. Вкладки и баннер подключаются фабриками
  * из `PlannerViewOptions`; состояние — чистый модуль `view-state`.
  *
@@ -48,6 +48,7 @@ import type { PlannerViewState } from './view-state';
 import { isSidebarEdgeTouch } from './view-state';
 import type { HapticKind } from './haptics';
 import { OBSIDIAN_BOTTOM_BAR_SELECTORS, findBottomBars, measureBottomOverlap } from './dock-insets';
+import { openObsidianMenu } from './obsidian-navbar';
 
 registerDictionary('ru', 'shell', ruShell);
 registerDictionary('en', 'shell', enShell);
@@ -58,7 +59,6 @@ const TAB_ICONS: Record<PlannerTabId, string> = {
   tasks: 'layout-grid',
   calendar: 'calendar-days',
   lockscreen: 'lock',
-  settings: 'settings',
 };
 
 /** Расширение опций вида (локально, без изменения контракта). */
@@ -237,12 +237,32 @@ export class PlannerView extends ItemView {
     const bannerSlot = dock.createDiv({ cls: 'mp-banner-slot' });
     this.mountBanner(bannerSlot);
 
-    const tabBar = dock.createDiv({
-      cls: 'mp-tabbar',
+    const tabBar = dock.createDiv({ cls: 'mp-tabbar' });
+    const tabList = tabBar.createDiv({
+      cls: 'mp-tablist',
       attr: { role: 'tablist', 'aria-label': t('shell.tabBar'), 'aria-orientation': 'horizontal' },
     });
-    for (const id of PLANNER_TAB_ORDER) this.buildTab(id, tabBar, body);
-    tabBar.addEventListener('keydown', (evt) => this.onTabKey(evt));
+    for (const id of PLANNER_TAB_ORDER) this.buildTab(id, tabList, body);
+    tabList.addEventListener('keydown', (evt) => this.onTabKey(evt));
+    if (this.platform.isMobile) this.buildMenuButton(tabBar);
+  }
+
+  /**
+   * Четвёртая кнопка панели (доработка 008): главное меню Obsidian. На телефоне панель навигации
+   * Obsidian скрыта, пока открыт Планировщик (`obsidian-navbar`), — её меню открывается отсюда.
+   */
+  private buildMenuButton(tabBar: HTMLElement): void {
+    const label = t('shell.menu');
+    const button = tabBar.createEl('button', {
+      cls: 'mp-tab mp-tab-menu',
+      attr: { type: 'button', 'aria-label': label, 'aria-haspopup': 'menu' },
+    });
+    setIcon(button.createSpan({ cls: 'mp-tab-icon', attr: { 'aria-hidden': 'true' } }), 'menu');
+    button.createSpan({ cls: 'mp-tab-label', text: label });
+    button.addEventListener('click', (evt) => {
+      this.haptic('tap');
+      if (!openObsidianMenu(this.app, evt)) console.warn('[matrix-planner] Obsidian menu is unavailable');
+    });
   }
 
   private buildTab(id: PlannerTabId, tabBar: HTMLElement, body: HTMLElement): void {

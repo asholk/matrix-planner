@@ -327,7 +327,7 @@ export class PlannerWallpaperService implements WallpaperService {
     return createWallpaperStrings({
       translate: t,
       translatePlural: (key, count) => tPlural(key, count),
-      formatDue: (due, relativeTo) => formatWallpaperDue(due, relativeTo, labels, hour12),
+      formatDue: (due, relativeTo, duration) => formatWallpaperDue(due, relativeTo, labels, hour12, duration ?? null),
     });
   }
 

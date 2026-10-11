@@ -265,13 +265,13 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
   const saveFeedback = createSaveFeedback({
     isConfigured: () => syncEngine.isConfigured(),
     notify: showActionNotice,
-    openSettings: () => void actions.showTab('settings'),
+    openSettings: () => actions.openSettings(),
   });
   const plannerActions: Pick<PlannerActions, 'openEventForm' | 'openTaskForm' | 'openNoteForm' | 'openItem' | 'isAvailable'> = {
     openEventForm: (request) => {
       openEventForm(services, request, {
         onSaved: () => saveFeedback.afterSave('event'),
-        calendarSync: { isConfigured: () => syncEngine.isConfigured(), openSettings: () => void actions.showTab('settings') },
+        calendarSync: { isConfigured: () => syncEngine.isConfigured(), openSettings: () => actions.openSettings() },
       });
     },
     openTaskForm: (request) => {

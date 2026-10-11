@@ -44,6 +44,7 @@ export const ruTasks = {
     completedAt: '{date}, {time}',
     label: 'Задача «{title}»',
     quadrant: 'квадрант «{quadrant}»',
+    checklist: 'Выполнено пунктов: {done} из {total}',
   },
   menu: {
     openNote: 'Открыть заметку',

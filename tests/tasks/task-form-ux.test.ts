@@ -5,7 +5,7 @@ import type { SheetHandle, SheetOptions, TaskService } from '../../src/app/contr
 import type { Task } from '../../src/model/types';
 import { defaultMatrixConfig } from '../../src/model/defaults';
 import { createDefaultSettings } from '../../src/settings/defaults';
-import { isTaskDraftDirty, openTaskForm, shouldAutofocusTitle, type TaskFormDeps } from '../../src/tasks/task-form';
+import { durationLabel, isTaskDraftDirty, openTaskForm, shouldAutofocusTitle, type TaskFormDeps } from '../../src/tasks/task-form';
 import { createDraftState, draftFromTask, setPriority, setQuadrant, setTitle } from '../../src/tasks/task-draft';
 import { ObservableDeferredDeletes } from '../../src/app/pending-deletes';
 import type { HapticKind } from '../../src/ui/haptics';
@@ -254,5 +254,45 @@ describe('форма задачи: вибрация (006, §10)', () => {
     input.dispatch('input');
     await expect(Promise.resolve(h.options().onSubmit?.())).resolves.toBe(false);
     expect(h.haptics.at(-1)).toBe('error');
+  });
+});
+
+describe('форма задачи: длительность (008)', () => {
+  function chips(h: Harness): MockElement[] {
+    return h.content.findAllByClass('mp-task-form-duration');
+  }
+
+  it('подписи вариантов: ru и en', () => {
+    expect([15, 30, 45, 60, 90, 120].map(durationLabel)).toEqual(['15 мин', '30 мин', '45 мин', '1 ч', '1,5 ч', '2 ч']);
+    setLanguageOverride('en');
+    expect([15, 60, 90].map(durationLabel)).toEqual(['15 min', '1 h', '1.5 h']);
+  });
+
+  it('без времени строки нет; со временем — чипы, выбор с откликом select, повторное нажатие снимает выбор', async () => {
+    const h = harness();
+    openTaskForm(h.deps, { mode: 'create', date: '2026-10-12' });
+    expect(chips(h)).toEqual([]);
+    const addTime = h.content.findAllByClass('mp-form-pill-add').find((el) => el.getText() === 'Добавить время');
+    addTime!.click();
+    expect(chips(h).map((el) => el.getText())).toEqual(['15 мин', '30 мин', '45 мин', '1 ч', '1,5 ч', '2 ч', 'Не задано']);
+    expect(chips(h).at(-1)!.classes.has('is-active')).toBe(true);
+
+    h.haptics.length = 0;
+    chips(h).find((el) => el.getText() === '1,5 ч')!.click();
+    expect(h.haptics).toEqual(['select']);
+    const active = chips(h).filter((el) => el.classes.has('is-active'));
+    expect(active.map((el) => el.getText())).toEqual(['1,5 ч']);
+    expect(active[0]?.getAttribute('aria-checked')).toBe('true');
+
+    chips(h).find((el) => el.getText() === '1,5 ч')!.click();
+    expect(chips(h).filter((el) => el.classes.has('is-active')).map((el) => el.getText())).toEqual(['Не задано']);
+
+    chips(h).find((el) => el.getText() === '1 ч')!.click();
+    const input = titleInput(h);
+    input.value = 'Танцы';
+    input.dispatch('input');
+    expect(h.options().isDirty?.()).toBe(true);
+    await h.options().onSubmit?.();
+    expect(h.tasks.create).toHaveBeenCalledWith(expect.objectContaining({ due: { date: '2026-10-12', time: '09:00' }, duration: 60 }));
   });
 });

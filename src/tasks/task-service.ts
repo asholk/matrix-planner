@@ -31,6 +31,7 @@ import {
 } from '../model/types';
 import { floatingFromDate, isValidDate, isValidTime, localDateOf } from '../model/dates';
 import { applyFrontmatterPatch, parseTask, taskToFrontmatter } from '../model/properties';
+import { isValidDuration } from '../model/duration';
 import {
   newTaskProperties,
   planComplete,
@@ -67,7 +68,7 @@ export interface TaskServiceDeps {
 const DEFAULT_WAIT_MS = 2000;
 
 /** Поля черновика, которые хранятся в свойствах (название — имя файла, тело — текст). */
-const PROPERTY_FIELDS = ['quadrant', 'due', 'repeat', 'remind', 'priority'] as const satisfies readonly (keyof TaskDraft)[];
+const PROPERTY_FIELDS = ['quadrant', 'due', 'repeat', 'remind', 'priority', 'duration'] as const satisfies readonly (keyof TaskDraft)[];
 
 /** Почему правило не применено, кроме причин из `task-rules`. */
 type ApplyOutcome = TaskRuleOutcome | { kind: 'mismatch' };
@@ -132,6 +133,7 @@ export function invalidDraftField(patch: TaskPatch, requireTitle: boolean): keyo
   if (patch.repeat !== undefined && !isOneOf(REPEAT_RULES, patch.repeat)) return 'repeat';
   if (patch.remind !== undefined && !isOneOf(REMIND_OFFSETS, patch.remind)) return 'remind';
   if (patch.priority !== undefined && !isOneOf(PRIORITIES, patch.priority)) return 'priority';
+  if (patch.duration !== undefined && patch.duration !== null && !isValidDuration(patch.duration)) return 'duration';
   return null;
 }
 

@@ -234,6 +234,8 @@ export interface TaskProperties {
   repeat_anchor: LocalDateString | null;
   remind: RemindOffset;
   priority: Priority;
+  /** Длительность задачи со временем, мин (5–1440); `null` — не задана (свойство не пишется). Общая для серии. */
+  duration: number | null;
   done: boolean;
   /** Дата-время выполнения неповторяющейся задачи. */
   completed: LocalDateTimeString | null;
@@ -251,6 +253,8 @@ export interface Task extends PlannerNoteBase<'task', TaskProperties> {
   repeatAnchor: LocalDateString | null;
   remind: RemindOffset;
   priority: Priority;
+  /** Длительность, мин; `null` — не задана (на шкале и в календаре — 30 мин). */
+  duration: number | null;
   /** Неповторяющаяся: `done`. Повторяющаяся: всегда `false` (серия не завершается выполнением). */
   done: boolean;
   completed: LocalDateTimeString | null;
@@ -258,6 +262,11 @@ export interface Task extends PlannerNoteBase<'task', TaskProperties> {
   created: LocalDateTimeString | null;
   /** Задача лежит в папке архива. */
   archived: boolean;
+  /**
+   * Прогресс чек-листа (задачи Markdown в теле) по `listItems` кэша метаданных;
+   * `null`/нет поля — пунктов нет. Заполняет индекс (доработка 008).
+   */
+  checklist?: { done: number; total: number } | null;
 }
 
 /** Значения формы задачи (создание/редактирование). */
@@ -270,6 +279,8 @@ export interface TaskDraft {
   repeat: RepeatRule;
   remind: RemindOffset;
   priority: Priority;
+  /** Длительность, мин; `null` — не задана. Сохраняется и для задачи без времени. */
+  duration: number | null;
 }
 
 /** Частичное изменение задачи. `body: undefined` — тело не трогать. */
@@ -567,7 +578,7 @@ export interface WeatherSettings {
   units: WeatherUnits;
 }
 
-export type PlannerTabId = 'tasks' | 'calendar' | 'lockscreen' | 'settings';
+export type PlannerTabId = 'tasks' | 'calendar' | 'lockscreen';
 export type TasksLayout = 'grid' | 'list';
 export type TasksListGrouping = 'quadrant' | 'date';
 export type CalendarMode = 'list' | 'timeline' | 'month';
@@ -752,6 +763,8 @@ export interface TaskDayItem extends DayItemBase {
   taskId: ItemId;
   quadrant: QuadrantKey;
   priority: Priority;
+  /** Заданная длительность задачи, мин; `null` — не задана (блок по умолчанию, подпись без диапазона). */
+  duration: number | null;
   /** Дата повторения (для выполнения из календаря); для обычной — дата `due`. */
   instanceDate: LocalDateString;
   /** Вычисленное будущее повторение, а не текущий `due`. */
@@ -919,7 +932,7 @@ export interface WallpaperStrings {
   monthNames: readonly string[]; // 12 элементов
   emptyQuadrant: string;
   /** Относительная подпись срока задачи («Сегодня 17:00»). */
-  formatDue(due: FloatingDateTime, relativeTo: LocalDateString): string;
+  formatDue(due: FloatingDateTime, relativeTo: LocalDateString, duration?: number | null): string;
   /** «Прогресс года: 78 %» и т. п. */
   yearProgress(percent: number): string;
   moreItems(count: number): string;

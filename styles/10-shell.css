@@ -27,7 +27,7 @@
 }
 
 /* Телефон: заголовок вида Obsidian скрыт, содержимое начинается сразу (кадры 01, 09).
-   Меню Obsidian остаётся на его плавающей панели навигации. */
+   Меню Obsidian — кнопка «Меню» на панели вкладок (доработка 008). */
 body.is-phone .workspace-leaf-content[data-type='matrix-planner'] > .view-header {
   display: none;
 }
@@ -193,6 +193,14 @@ body.is-phone .mp-view {
   background: transparent;
 }
 
+/* Пока активен Планировщик, панель навигации Obsidian на телефоне скрыта: панель вкладок плагина
+   стоит внизу, меню Obsidian — её кнопка «Меню» (доработка 008). Не `display: none` — иначе
+   Obsidian не открывает меню. */
+body.mp-hides-mobile-navbar .mobile-navbar {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 /* Панель вкладок — белая «таблетка» с тенью (кадры 01, 09, 19). */
 .mp-tabbar {
   display: flex;
@@ -202,6 +210,10 @@ body.is-phone .mp-view {
   border-radius: var(--mp-radius-pill);
   background: var(--mp-card-bg);
   box-shadow: var(--mp-shadow-float);
+}
+
+.mp-tablist {
+  display: contents;
 }
 
 .mp-tab {
@@ -269,66 +281,6 @@ body:not(.is-mobile) .mp-tab {
 
 body:not(.is-mobile) .mp-tab-label {
   font-size: var(--font-ui-small);
-}
-
-/* Вкладка «Настройки» вида (кадр 19): крупный заголовок, разделы — белые карточки. */
-.mp-settings-view {
-  display: flex;
-  flex-direction: column;
-  gap: var(--mp-gap);
-}
-
-.mp-settings-view-title {
-  margin: 0;
-  font-size: max(var(--h1-size), 1.85em);
-  font-weight: var(--font-bold);
-  line-height: var(--line-height-tight);
-}
-
-.mp-settings-view-sections {
-  display: flex;
-  flex-direction: column;
-  gap: var(--mp-gap);
-}
-
-.mp-settings-view-card,
-.mp-settings-view-sections > .mp-settings-section:not(:empty) {
-  padding: var(--size-2-2) var(--size-4-4);
-  border-radius: var(--mp-radius-panel);
-  background: var(--mp-card-bg);
-  box-shadow: var(--mp-shadow-card);
-}
-
-.mp-settings-view-sections > .mp-settings-section:empty {
-  display: none;
-}
-
-.mp-settings-view .setting-item {
-  padding: var(--size-4-3) 0;
-}
-
-.mp-settings-view .setting-item:first-child {
-  border-top: none;
-}
-
-/* Заголовок раздела — подпись прописными буквами, как в референсе. */
-.mp-settings-view .setting-item-heading .setting-item-name {
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-  font-weight: var(--font-semibold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-/* На телефоне элементы управления переносятся под подпись, чтобы не сжимать текст. */
-.mp-view.is-phone .mp-settings-view .setting-item:not(.setting-item-heading) {
-  flex-wrap: wrap;
-  gap: var(--size-4-2);
-}
-
-.mp-view.is-phone .mp-settings-view .setting-item-control {
-  flex: 1 1 auto;
-  justify-content: flex-end;
 }
 
 @media print {

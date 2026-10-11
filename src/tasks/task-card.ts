@@ -7,6 +7,7 @@
 
 import { setIcon } from 'obsidian';
 import { t } from '../i18n';
+import { formatChecklistProgress, isChecklistComplete, type ChecklistProgress } from '../model/checklist';
 import { isMenuKey } from '../ui/controls/context-menu';
 import { cardAriaLabel, type CardLabelStrings, type TaskCardModel } from './tasks-presenter';
 
@@ -44,7 +45,17 @@ function labelStrings(): CardLabelStrings {
     noDue: t('tasks.card.noDue'),
     notDone: t('tasks.card.notDone'),
     done: t('tasks.card.done'),
+    checklist: (done, total) => t('tasks.card.checklist', { done: String(done), total: String(total) }),
   };
+}
+
+/** Бейдж чек-листа «2/5» со значком `list-checks`; все пункты выполнены — `is-complete`. */
+export function renderChecklistBadge(parent: HTMLElement, progress: ChecklistProgress): HTMLElement {
+  const badge = parent.createSpan({ cls: 'mp-task-checklist' });
+  badge.toggleClass('is-complete', isChecklistComplete(progress));
+  setIcon(badge.createSpan({ cls: 'mp-task-checklist-icon' }), 'list-checks');
+  badge.createSpan({ cls: 'mp-task-checklist-count', text: formatChecklistProgress(progress) });
+  return badge;
 }
 
 export function renderTaskCard(
@@ -91,10 +102,12 @@ export function renderTaskCard(
   titleRow.createSpan({ cls: 'mp-task-title' }).createSpan({ cls: 'mp-task-title-text', text: card.title });
 
   const meta = card.done ? card.completedLabel : card.dueLabel;
-  if (meta || card.recurring) {
+  const checklist = card.checklist ?? null;
+  if (meta || card.recurring || checklist) {
     const metaRow = main.createDiv({ cls: 'mp-task-meta', attr: { 'aria-hidden': 'true' } });
     if (meta) metaRow.createSpan({ cls: 'mp-task-due', text: meta });
     if (card.recurring) setIcon(metaRow.createSpan({ cls: 'mp-task-repeat' }), 'repeat');
+    if (checklist) renderChecklistBadge(metaRow, checklist);
   }
   main.addEventListener('click', () => {
     if (handlers.consumeClick()) return;

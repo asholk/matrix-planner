@@ -41,6 +41,7 @@ function task(overrides: Partial<TaskProperties> = {}): TaskProperties {
     repeat_anchor: null,
     remind: 'none',
     priority: 'normal',
+    duration: null,
     done: false,
     completed: null,
     completions: [],
@@ -155,7 +156,7 @@ describe('reschedule and quadrant', () => {
 describe('task form', () => {
   it('creates properties with anchor for recurring task', () => {
     const props = newTaskProperties(
-      { quadrant: 'plan', due: { date: '2026-10-31', time: '09:00' }, repeat: 'monthly', remind: '15m', priority: 'high' },
+      { quadrant: 'plan', due: { date: '2026-10-31', time: '09:00' }, repeat: 'monthly', remind: '15m', priority: 'high', duration: null },
       { id: 'ID', now: NOW },
     );
     expect(props).toMatchObject({
@@ -173,7 +174,7 @@ describe('task form', () => {
 
   it('drops repeat and reminder without due', () => {
     const props = newTaskProperties(
-      { quadrant: 'do', due: null, repeat: 'daily', remind: 'at', priority: 'normal' },
+      { quadrant: 'do', due: null, repeat: 'daily', remind: 'at', priority: 'normal', duration: null },
       { id: 'ID', now: NOW },
     );
     expect(props).toMatchObject({ due: null, repeat: 'none', remind: 'none', repeat_anchor: null });

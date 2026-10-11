@@ -8,7 +8,6 @@ export const enCommon = {
     tasks: 'Tasks',
     calendar: 'Calendar',
     lockscreen: 'Lock screen',
-    settings: 'Settings',
   },
   quadrants: {
     do: 'Important and urgent',

@@ -58,6 +58,7 @@ function makeTask(id: string, quadrant: QuadrantKey, dueRaw: string | null, done
       repeat_anchor: null,
       remind: 'none',
       priority: 'normal',
+      duration: null,
       done,
       completed: null,
       completions: [],
@@ -71,6 +72,7 @@ function makeTask(id: string, quadrant: QuadrantKey, dueRaw: string | null, done
     repeatAnchor: due ? due.date : null,
     remind: 'none',
     priority: 'normal',
+    duration: null,
     done,
     completed: null,
     completions: [],
@@ -151,6 +153,11 @@ describe('formatWallpaperDue', () => {
   it('shows only time for a task on the wallpaper date', () => {
     expect(formatWallpaperDue({ date: '2026-10-10', time: '17:00' }, '2026-10-10', labels, false)).toBe('17:00');
     expect(formatWallpaperDue({ date: '2026-10-10', time: '17:00' }, '2026-10-10', labels, true)).toBe('5:00 PM');
+  });
+
+  it('с длительностью — диапазон времени (008)', () => {
+    expect(formatWallpaperDue({ date: '2026-10-10', time: '18:00' }, '2026-10-10', labels, false, 90)).toBe('18:00–19:30');
+    expect(formatWallpaperDue({ date: '2026-10-11', time: '18:00' }, '2026-10-10', labels, false, 30)).toBe('Завтра 18:00–18:30');
   });
 
   it('labels relative to each wallpaper date', () => {

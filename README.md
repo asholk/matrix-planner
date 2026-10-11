@@ -63,7 +63,7 @@
 
 | Тип | Основные свойства |
 | --- | --- |
-| Задача (`type: task`) | `id`, `quadrant` (`do`, `plan`, `urgent`, `someday`), `due` (`2026-10-11` или `2026-10-11T09:00`), `repeat`, `repeat_anchor`, `remind`, `priority`, `done`, `completed`, `completions`, `created` |
+| Задача (`type: task`) | `id`, `quadrant` (`do`, `plan`, `urgent`, `someday`), `due` (`2026-10-11` или `2026-10-11T09:00`), `repeat`, `repeat_anchor`, `remind`, `priority`, `duration` (необязательно, минуты 5–1440), `done`, `completed`, `completions`, `created` |
 | Событие (`type: event`) | `id`, `start`, `end`, `all_day`, `tz`, `repeat`, `color`, `icon`, `calendar_id`, `url` |
 | Быстрая заметка (`type: note`) | `id`, `date` |
 

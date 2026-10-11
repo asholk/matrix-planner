@@ -102,7 +102,7 @@ function eventDraft(title: string, date: string, extra: Partial<EventDraft> = {}
 }
 
 function taskDraft(title: string, extra: Partial<TaskDraft> = {}): TaskDraft {
-  return { title, body: '', quadrant: 'do', due: null, repeat: 'none', remind: 'none', priority: 'normal', ...extra };
+  return { title, body: '', quadrant: 'do', due: null, repeat: 'none', remind: 'none', priority: 'normal', duration: null, ...extra };
 }
 
 async function createEvent(ctx: Ctx, title: string, date: string): Promise<PlannerEvent> {

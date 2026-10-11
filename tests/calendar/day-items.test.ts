@@ -40,6 +40,7 @@ function task(over: Partial<Task> & Pick<Task, 'id'>): Task {
     repeatAnchor: null,
     remind: 'none',
     priority: 'normal',
+    duration: null,
     done: false,
     completed: null,
     completions: [],
@@ -176,6 +177,26 @@ describe('buildDayItems: задачи', () => {
     expect(current).toMatchObject({ source: 'task', projected: false, recurring: true, instanceDate: '2026-10-12', startMinute: 450, endMinute: 480 });
     const next = days.get('2026-10-13')!.timed[0];
     expect(next).toMatchObject({ projected: true, instanceDate: '2026-10-13' });
+  });
+
+  it('длительность задачи задаёт конец блока; без неё — 30 мин; не дальше конца суток', () => {
+    const days = buildDayItems(
+      input({
+        tasks: [
+          task({ id: 'd', due: { date: '2026-10-12', time: '18:00' }, duration: 90 }),
+          task({ id: 'n', due: { date: '2026-10-12', time: '09:00' } }),
+          task({ id: 'late', due: { date: '2026-10-12', time: '23:00' }, duration: 120 }),
+          task({ id: 'serie', repeat: 'daily', repeatAnchor: '2026-10-12', due: { date: '2026-10-12', time: '07:00' }, duration: 45 }),
+        ],
+      }),
+    );
+    const timed = days.get('2026-10-12')!.timed;
+    const byId = (id: string) => timed.find((item) => item.source === 'task' && item.taskId === id)!;
+    expect(byId('d')).toMatchObject({ startMinute: 1080, endMinute: 1170, duration: 90 });
+    expect(byId('n')).toMatchObject({ startMinute: 540, endMinute: 570, duration: null });
+    expect(byId('late')).toMatchObject({ startMinute: 1380, endMinute: 1440 });
+    // Длительность общая для серии: будущее повторение — тот же блок.
+    expect(days.get('2026-10-13')!.timed[0]).toMatchObject({ projected: true, startMinute: 420, endMinute: 465 });
   });
 
   it('выполненные повторения из completions показываются как выполненные; без includeCompleted — скрыты', () => {

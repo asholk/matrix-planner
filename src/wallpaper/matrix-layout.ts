@@ -5,6 +5,7 @@
 
 import type { DayAgenda, DayItem, FontSpec, LocalDateString, QuadrantKey, Task } from '../model/types';
 import { addDays, startOfWeek, weekday } from '../model/dates';
+import { formatChecklistProgress } from '../model/checklist';
 import { textWidth, truncateText, wrapText } from './text-layout';
 import type { Box, LayoutContext, TemplateLayout } from './types';
 
@@ -235,7 +236,7 @@ function drawQuadrant(ctx: LayoutContext, key: QuadrantKey, box: Box): void {
     let titleRight = right;
     if (task.due) {
       const dueFont = ctx.font(11, 600);
-      const dueText = input.expired && strings.formatDueDate ? strings.formatDueDate(task.due) : strings.formatDue(task.due, input.date);
+      const dueText = input.expired && strings.formatDueDate ? strings.formatDueDate(task.due) : strings.formatDue(task.due, input.date, task.duration);
       const dueWidth = emitText(ctx, dueText, right, cy, {
         font: dueFont,
         color: accent,
@@ -244,11 +245,22 @@ function drawQuadrant(ctx: LayoutContext, key: QuadrantKey, box: Box): void {
       });
       if (dueWidth > 0) titleRight = right - dueWidth - 6 * u;
     }
-    emitText(ctx, task.title, titleLeft, cy, {
+    // Чек-лист (доработка 008): «2/5» мелким шрифтом сразу после названия.
+    const progress = task.checklist ? formatChecklistProgress(task.checklist) : '';
+    const progressFont = ctx.font(10, 500);
+    const progressGap = 4 * u;
+    const progressWidth = progress ? textWidth(progress, progressFont, ctx.measurer) : 0;
+    const available = Math.max(0, titleRight - titleLeft);
+    // Подпись прогресса помещается, только если для названия остаётся хотя бы половина строки.
+    const showProgress = progressWidth > 0 && progressWidth + progressGap <= available / 2;
+    const titleWidth = emitText(ctx, task.title, titleLeft, cy, {
       font: ctx.font(12.5, 500),
       color: palette.text,
-      maxWidth: Math.max(0, titleRight - titleLeft),
+      maxWidth: showProgress ? available - progressWidth - progressGap : available,
     });
+    if (showProgress) {
+      emitText(ctx, progress, titleLeft + titleWidth + progressGap, cy, { font: progressFont, color: palette.secondary });
+    }
   });
   const rest = tasks.length - shown.length;
   if (rest > 0) ctx.overflow[key] = rest;
