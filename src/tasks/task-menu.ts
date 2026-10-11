@@ -10,6 +10,7 @@ import type { ItemId, LocalDateString, MatrixConfig, OpResult, QuadrantKey, Vaul
 import { interpolate, registerDictionary, t } from '../i18n';
 import { ruTasks } from '../i18n/ru/tasks';
 import { enTasks } from '../i18n/en/tasks';
+import type { HapticKind } from '../ui/haptics';
 import { buildTaskMenu, type TaskMenuAction } from './tasks-presenter';
 
 registerDictionary('ru', 'tasks', ruTasks);
@@ -30,7 +31,26 @@ export interface TaskMenuDeps {
   openNote(path: VaultPath): void;
   /** Выполнить операцию: ошибка — уведомление, успех с изменением — `successMessage`. */
   run(op: () => Promise<OpResult<unknown>>, successMessage?: string): void;
+  /**
+   * Перенос в квадрант и на завтра с «Вернуть» в уведомлении (вкладка «Задачи», доработка 006).
+   * Без него — `run` с обычным уведомлением.
+   */
+  runUndoable?(action: UndoableMenuAction): void;
+  /** Тактильный отклик на выбор пункта. */
+  haptic?(kind: HapticKind): void;
 }
+
+/** Пункты меню, которые можно отменить «Вернуть». */
+export type UndoableMenuAction = { kind: 'move'; quadrant: QuadrantKey; message: string } | { kind: 'postpone' };
+
+/** Отклик на пункт меню. */
+const MENU_HAPTICS: Record<TaskMenuAction['kind'], HapticKind> = {
+  'open-note': 'tap',
+  move: 'drop',
+  postpone: 'drop',
+  uncomplete: 'undo',
+  delete: 'delete',
+};
 
 /** Добавляет пункты задачи в меню. */
 export function addTaskMenuItems(menu: Menu, target: TaskMenuTarget, deps: TaskMenuDeps): void {
@@ -49,17 +69,21 @@ export function addTaskMenuItems(menu: Menu, target: TaskMenuTarget, deps: TaskM
 
 export function runTaskMenuAction(target: TaskMenuTarget, action: TaskMenuAction, deps: TaskMenuDeps): void {
   const { tasks } = deps;
+  deps.haptic?.(MENU_HAPTICS[action.kind]);
   switch (action.kind) {
     case 'open-note':
       deps.openNote(target.path);
       return;
     case 'move': {
       const title = deps.matrix().byKey[action.quadrant]?.title ?? action.quadrant;
-      deps.run(() => tasks.moveToQuadrant(target.taskId, action.quadrant), t('tasks.notices.moved', { quadrant: title }));
+      const message = t('tasks.notices.moved', { quadrant: title });
+      if (deps.runUndoable) deps.runUndoable({ kind: 'move', quadrant: action.quadrant, message });
+      else deps.run(() => tasks.moveToQuadrant(target.taskId, action.quadrant), message);
       return;
     }
     case 'postpone':
-      deps.run(() => tasks.postponeToTomorrow(target.taskId));
+      if (deps.runUndoable) deps.runUndoable({ kind: 'postpone' });
+      else deps.run(() => tasks.postponeToTomorrow(target.taskId));
       return;
     case 'uncomplete':
       deps.run(() => tasks.uncomplete(target.taskId, target.instanceDate ?? undefined));

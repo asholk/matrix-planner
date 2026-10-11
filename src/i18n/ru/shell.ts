@@ -5,6 +5,10 @@ export const ruShell = {
   tabBar: 'Разделы планировщика',
   tabUnavailable: 'Раздел пока недоступен',
   tabFailed: 'Не удалось показать раздел',
+  sidebar: {
+    left: 'Левая боковая панель',
+    right: 'Правая боковая панель',
+  },
   add: {
     button: 'Добавить',
     title: 'Добавить',

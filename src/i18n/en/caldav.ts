@@ -29,6 +29,16 @@ export const enCaldav = {
       other: 'Deleting {count} events from the calendar needs confirmation in the iOS Calendar settings',
     },
   },
+  statusLine: {
+    sending: 'Sending…',
+    offline: 'Not sent: no connection',
+    auth: 'Couldn’t sign in to iCloud',
+    authCaldav: 'Couldn’t sign in to the calendar server',
+    sent: 'Sent to iOS Calendar',
+    sentCaldav: 'Sent to calendar',
+    retry: 'Retry',
+    settings: 'Settings',
+  },
   settings: {
     heading: 'iOS Calendar',
     intro:

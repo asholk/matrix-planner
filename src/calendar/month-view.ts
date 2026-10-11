@@ -27,8 +27,8 @@ export interface MonthViewOptions {
   maxBars: number;
   title: string;
   focusSelected: boolean;
-  /** Короткая вибрация при долгом нажатии (Android). */
-  vibrate?: boolean;
+  /** Тактильный отклик при открытии меню долгим нажатием. */
+  menuHaptic?: () => void;
 }
 
 export function renderMonthView(parent: HTMLElement, layout: MonthLayout, handlers: MonthViewHandlers, options: MonthViewOptions): HTMLElement {
@@ -107,7 +107,7 @@ export function renderMonthView(parent: HTMLElement, layout: MonthLayout, handle
       el.toggleClass('is-completed', completed);
       if (item.source === 'task') setIcon(el.createSpan({ cls: 'mp-cal-month-bar-mark', attr: { 'aria-hidden': 'true' } }), completed ? 'check' : 'circle');
       el.createSpan({ cls: 'mp-cal-month-bar-title', text: item.title });
-      bindItemActions(el, item, { handlers: itemHandlers, vibrate: options.vibrate });
+      bindItemActions(el, item, { handlers: itemHandlers, menuHaptic: options.menuHaptic });
     }
   }
 

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  SIDEBAR_EDGE_PX,
   adjacentTab,
+  isSidebarEdgeTouch,
   createViewState,
   getAddContext,
   navigationKeyFor,
@@ -189,5 +191,22 @@ describe('view-state: сохранение', () => {
     const restored = restoreViewState(state, { tab: 'settings', dates: { calendar: 'bad', foo: '2026-01-01' } });
     expect(restored.activeTab).toBe('tasks');
     expect(getAddContext(restored, 'calendar').date).toBeNull();
+  });
+});
+
+describe('свайпы шторок Obsidian (доработка 006)', () => {
+  it('у самого края экрана (≤ 16 px) свайп остаётся Obsidian', () => {
+    expect(SIDEBAR_EDGE_PX).toBe(16);
+    expect(isSidebarEdgeTouch(0, 393)).toBe(true);
+    expect(isSidebarEdgeTouch(16, 393)).toBe(true);
+    expect(isSidebarEdgeTouch(380, 393)).toBe(true);
+  });
+
+  it('внутри вида — наш жест', () => {
+    expect(isSidebarEdgeTouch(17, 393)).toBe(false);
+    expect(isSidebarEdgeTouch(200, 393)).toBe(false);
+    expect(isSidebarEdgeTouch(376, 393)).toBe(false);
+    expect(isSidebarEdgeTouch(Number.NaN, 393)).toBe(false);
+    expect(isSidebarEdgeTouch(5, 0)).toBe(false);
   });
 });

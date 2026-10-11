@@ -7,6 +7,12 @@
  * нажатие пальцем поднимает карточку для переноса между квадрантами, над «+» появляется зона
  * удаления (удаление откладывается на 5 с, в уведомлении — «Вернуть»). Меню — только ПКМ,
  * клавиатура и скрытая кнопка «Действия» для диктора. Пустой квадрант — «⊕ Нажмите, чтобы добавить».
+ *
+ * Доработка 006: долгое нажатие и отпускание без сдвига — меню задачи (iPhone); перетаскивание
+ * устойчиво к прокрутке и перерисовке (touchmove отменяется, вкладка не перерисовывается во время
+ * жеста); свайпы в режиме «Список» (вправо — выполнить, влево — на завтра, длинный влево — удалить);
+ * «Вернуть» после выполнения, переноса в квадрант и на завтра; «Перенести всё на сегодня» для
+ * просроченных; тактильный отклик на каждое действие (`haptics`).
  */
 
 import { Menu, setIcon } from 'obsidian';
@@ -15,6 +21,7 @@ import type {
   FormatPreferencesProvider,
   NoteIndex,
   Notifier,
+  PendingDeletes,
   PlannerViewHost,
   SettingsStore,
   TabController,
@@ -26,6 +33,7 @@ import type {
   LocalDateString,
   LocalTimeString,
   OpResult,
+  PlannerError,
   QuadrantKey,
   TasksLayout,
   TasksListGrouping,
@@ -78,9 +86,13 @@ import {
   type GestureEffect,
   type Rect,
 } from './task-drag';
-import { DeferredDeletes, UNDO_DELETE_MS } from './deferred-delete';
-import { addTaskMenuItems } from './task-menu';
-import { MENU_DEBOUNCE_MS, isTouchContextMenu, showMenuAt, toPointerKind } from '../ui/controls/context-menu';
+import { UNDO_DELETE_MS } from './deferred-delete';
+import { sharedPendingDeletes } from '../app/pending-deletes';
+import { addTaskMenuItems, type UndoableMenuAction } from './task-menu';
+import { SwipeGesture, type SwipeAction, type SwipeEffect } from './task-swipe';
+import { rescheduleAll, undoComplete, undoMove, undoReschedule, undoRescheduleAll, type BulkItem } from './task-undo';
+import { MENU_DEBOUNCE_MS, isTouchContextMenu, showMenuAt, swallowNextTouchEnd, toPointerKind } from '../ui/controls/context-menu';
+import type { HapticKind } from '../ui/haptics';
 
 registerDictionary('ru', 'tasks', ruTasks);
 registerDictionary('en', 'tasks', enTasks);
@@ -96,6 +108,13 @@ export const COMPLETE_ANIMATION_MS = 600;
 const DELETE_ZONE = { width: 300, height: 52, gap: 12 };
 /** Проверка устаревания (срок наступил, полночь, погода), пока вкладка показана, мс. */
 export const TASKS_REFRESH_INTERVAL_MS = 60_000;
+/** Сколько показывается уведомление с «Вернуть», мс. */
+export const UNDO_NOTICE_MS = UNDO_DELETE_MS;
+/** Карточка уезжает за край после свайпа, мс. */
+const SWIPE_OUT_MS = 180;
+
+/** Результат операции: изменено, без изменений, ошибка. */
+type OpOutcome = 'changed' | 'same' | 'failed';
 
 export interface TasksTabDeps {
   index: NoteIndex;
@@ -108,11 +127,25 @@ export interface TasksTabDeps {
   weather?: WeatherProvider;
   /** Открыть «Статистику» (таблетка серии); без него таблетки нет. */
   openStats?: () => void;
+  /** Тактильный отклик (доработка 006); без него — тихо. */
+  haptics?: { play(kind: HapticKind): void };
+  /**
+   * Общая очередь отложенных удалений (форма задачи, перетаскивание, свайп): задачи в ней скрыты
+   * на время «Вернуть». Без неё — общий экземпляр `sharedPendingDeletes()`.
+   */
+  pendingDeletes?: PendingDeletes;
 }
 
 /** Фабрика вкладки для `PlannerViewOptions.tabs.tasks`. */
 export function createTasksTab(deps: TasksTabDeps): TabFactory {
   return (host) => new TasksTab(host, deps);
+}
+
+interface ActiveSwipe {
+  card: TaskCardModel;
+  cardEl: HTMLElement;
+  track: HTMLElement;
+  width: number;
 }
 
 interface ActiveDrag {
@@ -157,10 +190,16 @@ export class TasksTab implements TabController {
   private readonly busy = new Set<string>();
 
   private readonly gesture = new CardGesture(TASK_DRAG_GESTURE_OPTIONS);
+  private readonly swipe = new SwipeGesture();
+  private activeSwipe: ActiveSwipe | null = null;
+  /** После свайпа `click` (до этого времени, мс) не открывает форму и не выполняет задачу. */
+  private swipeClickUntil = 0;
+  /** Идёт «Перенести всё на сегодня». */
+  private bulkBusy = false;
   /** Палец (перо) нажат на карточке: системное `contextmenu` не открывает меню. */
   private touchDown = false;
   /** Задачи, брошенные в зону удаления: скрыты, в корзину уходят через 5 с без «Вернуть». */
-  private readonly pendingDeletes = new DeferredDeletes();
+  private readonly pendingDeletes: PendingDeletes;
   private gestureCard: { card: TaskCardModel; cardEl: HTMLElement } | null = null;
   private gestureCleanup: (() => void) | null = null;
   private longPressTimer: number | null = null;
@@ -176,7 +215,9 @@ export class TasksTab implements TabController {
   constructor(
     private readonly host: PlannerViewHost,
     private readonly deps: TasksTabDeps,
-  ) {}
+  ) {
+    this.pendingDeletes = deps.pendingDeletes ?? sharedPendingDeletes();
+  }
 
   // --- Жизненный цикл ---
 
@@ -200,9 +241,12 @@ export class TasksTab implements TabController {
 
     this.controlsEl = root.createDiv({ cls: 'mp-tasks-controls', attr: { role: 'toolbar', 'aria-label': t('tasks.controls.label') } });
     this.contentEl = root.createDiv({ cls: 'mp-tasks-content' });
+    this.guardTouchScroll(root);
 
     this.subscriptions.push(this.deps.index.onChange(() => this.scheduleRender()));
     this.subscriptions.push(this.deps.settings.onChange(() => this.scheduleRender()));
+    // Удаление из формы (или «Вернуть») — карточка сразу пропадает / возвращается.
+    this.subscriptions.push(this.pendingDeletes.onChange(() => this.scheduleRender()));
     if (this.deps.weather) this.subscriptions.push(this.deps.weather.onChange(() => this.renderWeather()));
     this.watchVisibility();
 
@@ -219,8 +263,8 @@ export class TasksTab implements TabController {
 
   unmount(): void {
     this.cancelGesture();
-    // Закрытие вида не отменяет удаление: выполняем отложенные сразу.
-    this.pendingDeletes.flush();
+    // Отложенные удаления общие (и из формы): закрытие вида их не отменяет и не ускоряет —
+    // они выполняются по своим таймерам, при выгрузке плагина — сразу.
     this.stopRefresh();
     this.visibilityCleanup?.();
     this.visibilityCleanup = null;
@@ -310,9 +354,14 @@ export class TasksTab implements TabController {
 
   // --- Отрисовка ---
 
+  /** Идёт жест (палец на карточке, перетаскивание, свайп): DOM карточек не трогаем. */
+  private gestureBusy(): boolean {
+    return this.drag !== null || this.gestureCard !== null || this.activeSwipe !== null;
+  }
+
   private scheduleRender(): void {
     if (!this.rootEl) return;
-    if (this.drag) {
+    if (this.gestureBusy()) {
       this.renderPending = true;
       return;
     }
@@ -326,7 +375,6 @@ export class TasksTab implements TabController {
   /** Задачи индекса без ожидающих удаления. */
   private visibleTasks(): ReturnType<NoteIndex['getTasks']> {
     const tasks = this.deps.index.getTasks();
-    if (this.pendingDeletes.size === 0) return tasks;
     return tasks.filter((task) => !this.pendingDeletes.has(task.id));
   }
 
@@ -354,7 +402,7 @@ export class TasksTab implements TabController {
 
   private render(): void {
     if (!this.rootEl || !this.contentEl) return;
-    if (this.drag) {
+    if (this.gestureBusy()) {
       this.renderPending = true;
       return;
     }
@@ -449,6 +497,7 @@ export class TasksTab implements TabController {
     // Число выполненных — только в подписи для диктора (в референсе таблетка без числа).
     doneChip.createSpan({ cls: 'mp-tasks-done-label', text: t('tasks.controls.done') });
     doneChip.addEventListener('click', () => {
+      this.haptic('select');
       this.mode = this.mode === 'done' ? 'active' : 'done';
       this.render();
       this.controlsEl?.querySelector<HTMLElement>('.mp-tasks-done-filter')?.focus();
@@ -469,7 +518,10 @@ export class TasksTab implements TabController {
           attr: { type: 'button', 'aria-pressed': model.grouping === grouping ? 'true' : 'false' },
         });
         button.toggleClass('is-active', model.grouping === grouping);
-        button.addEventListener('click', () => this.setGrouping(grouping));
+        button.addEventListener('click', () => {
+          if (model.grouping !== grouping) this.haptic('select');
+          this.setGrouping(grouping);
+        });
       };
       chip('quadrant', t('tasks.controls.byQuadrant'));
       chip('date', t('tasks.controls.byDate'));
@@ -488,6 +540,7 @@ export class TasksTab implements TabController {
 
   private setLayout(layout: TasksLayout): void {
     if (this.layout() === layout) return;
+    this.haptic('select');
     void this.deps.settings.update((draft) => {
       draft.ui.tasksLayout = layout;
     });
@@ -570,9 +623,47 @@ export class TasksTab implements TabController {
       const header = el.createDiv({ cls: 'mp-list-section-header' });
       header.createEl('h3', { cls: 'mp-list-section-title', text: title });
       header.createSpan({ cls: 'mp-quadrant-count', text: String(section.cards.length), attr: { 'aria-hidden': 'true' } });
+      if (section.kind === 'overdue' && model.mode === 'active' && section.cards.length > 0) this.renderRescheduleAll(header, section, model.today);
       el.setAttr('aria-label', `${title}, ${tPlural('tasks.quadrant.count', section.cards.length)}`);
       const list = el.createDiv({ cls: 'mp-list-section-cards', attr: { role: 'list' } });
       for (const card of section.cards) this.renderCard(list, card, model, true);
+    }
+  }
+
+  /** «Перенести всё на сегодня» в разделе «Просрочено» (доработка 006, §7). */
+  private renderRescheduleAll(header: HTMLElement, section: DateSection, today: LocalDateString): void {
+    const label = t('tasks.overdue.rescheduleAll');
+    const button = header.createEl('button', { cls: 'mp-chip mp-tasks-reschedule-all', attr: { type: 'button' } });
+    setIcon(button.createSpan({ cls: 'mp-tasks-reschedule-all-icon', attr: { 'aria-hidden': 'true' } }), 'calendar-arrow-down');
+    button.createSpan({ cls: 'mp-tasks-reschedule-all-label', text: label });
+    button.disabled = this.bulkBusy;
+    const ids = [...new Set(section.cards.map((card) => card.taskId))];
+    button.addEventListener('click', () => {
+      this.haptic('drop');
+      void this.rescheduleAllToday(ids, today);
+    });
+  }
+
+  /** Перенести просроченные на сегодня (время сохраняется); одно уведомление «Перенесено N · Вернуть». */
+  private async rescheduleAllToday(ids: readonly string[], today: LocalDateString): Promise<void> {
+    if (this.bulkBusy) return;
+    const items: BulkItem[] = [];
+    for (const id of ids) {
+      const note = this.deps.index.getById(id);
+      if (note && note.kind === 'task') items.push({ id, due: note.due });
+    }
+    if (items.length === 0) return;
+    this.bulkBusy = true;
+    this.scheduleRender();
+    try {
+      const result = await rescheduleAll(this.deps.tasks, items, today);
+      if (result.error && !result.error.ok) this.reportError(result.error.error);
+      if (result.changed.length > 0) {
+        this.showUndo(t('tasks.notices.rescheduledAll', { count: result.changed.length }), undoRescheduleAll(this.deps.tasks, result.changed));
+      }
+    } finally {
+      this.bulkBusy = false;
+      this.scheduleRender();
     }
   }
 
@@ -611,7 +702,7 @@ export class TasksTab implements TabController {
 
   private renderCard(parent: HTMLElement, card: TaskCardModel, model: TasksViewModel, byDate: boolean): void {
     const quadrant = model.quadrants.find((section) => section.key === card.quadrant);
-    renderTaskCard(
+    const cardEl = renderTaskCard(
       parent,
       card,
       {
@@ -621,6 +712,12 @@ export class TasksTab implements TabController {
       },
       this.cardHandlers(),
     );
+    cardEl.toggleClass('is-swipeable', this.canSwipe(model));
+  }
+
+  /** Свайпы — в режиме «Список» у незавершённых задач; в сетке — перетаскивание. */
+  private canSwipe(model: TasksViewModel | null): boolean {
+    return Boolean(model && model.mode === 'active' && model.layout === 'list');
   }
 
   /** Перенос между квадрантами — только в активном режиме, где квадранты видны. */
@@ -652,6 +749,7 @@ export class TasksTab implements TabController {
   private cardHandlers(): TaskCardHandlers {
     return {
       onToggle: (card, cardEl) => this.toggleCard(card, cardEl),
+      // Отклик `tap` даёт сама форма задачи при открытии.
       onOpen: (card) => this.host.actions.openTaskForm({ mode: 'edit', id: card.taskId }),
       onMenu: (card, anchor) => this.openMenu(card, anchor),
       onContextMenu: (card, evt) => {
@@ -660,13 +758,17 @@ export class TasksTab implements TabController {
         this.openMenu(card, evt);
       },
       onPointerDown: (card, evt, cardEl) => this.onPointerDown(card, evt, cardEl),
-      consumeClick: () => this.gesture.consumesClick(),
+      consumeClick: () => {
+        const swiped = this.takeSwipeClick();
+        return this.gesture.consumesClick() || swiped;
+      },
     };
   }
 
   private addToQuadrant(quadrant: QuadrantKey, evt: MouseEvent): void {
     const context = { date: null, quadrant };
     this.host.setAddContext(context);
+    // Отклик `tap` дают сами форма задачи и лист «Добавить».
     if (this.host.actions.isAvailable('task')) this.host.actions.openTaskForm({ mode: 'create', quadrant, date: null });
     else this.host.actions.openAddMenu(context, evt);
     // Общая «+» снова без квадранта.
@@ -674,8 +776,11 @@ export class TasksTab implements TabController {
   }
 
   private toggleCard(card: TaskCardModel, cardEl: HTMLElement): void {
+    // Свайп, начатый с кружка, не выполняет задачу касанием.
+    if (this.takeSwipeClick()) return;
     if (this.busy.has(card.key)) return;
     if (card.done) {
+      this.haptic('undo');
       void this.runOp(card, () => this.deps.tasks.uncomplete(card.taskId, card.instanceDate ?? undefined));
       return;
     }
@@ -685,37 +790,106 @@ export class TasksTab implements TabController {
     if (height > 0) cardEl.style.setProperty('--mp-card-height', `${height}px`);
     cardEl.addClass('is-completing');
     cardEl.querySelector('.mp-task-check')?.setAttr('aria-pressed', 'true');
-    if (this.host.platform.isAndroid) {
-      try {
-        navigator.vibrate?.(15);
-      } catch {
-        // Вибрация необязательна.
-      }
-    }
+    this.haptic('success');
     window.setTimeout(() => {
       this.busy.delete(card.key);
-      void this.runOp(card, () => this.deps.tasks.complete(card.taskId, card.instanceDate ?? undefined)).then((ok) => {
-        if (!ok) cardEl.removeClass('is-completing');
+      void this.completeWithUndo(card).then((outcome) => {
+        if (outcome === 'failed') cardEl.removeClass('is-completing');
       });
     }, prefersReducedMotion() ? 0 : COMPLETE_ANIMATION_MS);
   }
 
-  /** Выполняет операцию, показывает ошибку. Возвращает успех. */
-  private async runOp(card: TaskCardModel | null, op: () => Promise<OpResult<unknown>>, successMessage?: string): Promise<boolean> {
+  /** Выполнить (показанное повторение) и предложить «Вернуть». */
+  private completeWithUndo(card: TaskCardModel): Promise<OpOutcome> {
+    const instance = card.instanceDate;
+    return this.runWithUndo(
+      card,
+      () => this.deps.tasks.complete(card.taskId, instance ?? undefined),
+      undoComplete(this.deps.tasks, card.taskId, instance),
+      t('tasks.notices.completed'),
+    );
+  }
+
+  /**
+   * Операция с «Вернуть» в уведомлении (доработка 006, §5): после выполнения, переноса в квадрант,
+   * на завтра. Уведомление — только если что-то изменилось.
+   */
+  private async runWithUndo(
+    card: TaskCardModel | null,
+    op: () => Promise<OpResult<unknown>>,
+    undo: () => Promise<OpResult<unknown>>,
+    message: string,
+  ): Promise<OpOutcome> {
+    const outcome = await this.runOp(card, op);
+    if (outcome === 'changed') this.showUndo(message, undo);
+    return outcome;
+  }
+
+  /** Уведомление «… · Вернуть»; без `showAction` — просто сообщение. */
+  private showUndo(message: string, undo: () => Promise<OpResult<unknown>>): void {
+    const run = (): void => {
+      this.haptic('undo');
+      void this.runOp(null, undo);
+    };
+    if (this.deps.notifier.showAction) this.deps.notifier.showAction(message, { label: t('tasks.notices.undo'), run }, UNDO_NOTICE_MS);
+    else this.deps.notifier.show(message);
+  }
+
+  /** Меню: перенос в квадрант и на завтра — с «Вернуть». */
+  private runUndoableMenuAction(card: TaskCardModel, action: UndoableMenuAction): void {
+    if (action.kind === 'move') {
+      void this.runWithUndo(
+        card,
+        () => this.deps.tasks.moveToQuadrant(card.taskId, action.quadrant),
+        undoMove(this.deps.tasks, card.taskId, card.quadrant),
+        action.message,
+      );
+      return;
+    }
+    void this.postponeWithUndo(card);
+  }
+
+  private postponeWithUndo(card: TaskCardModel): Promise<OpOutcome> {
+    const note = this.deps.index.getById(card.taskId);
+    const previousDue = note && note.kind === 'task' ? note.due : null;
+    return this.runWithUndo(
+      card,
+      () => this.deps.tasks.postponeToTomorrow(card.taskId),
+      undoReschedule(this.deps.tasks, card.taskId, previousDue),
+      t('tasks.notices.postponed'),
+    );
+  }
+
+  private haptic(kind: HapticKind): void {
+    try {
+      this.deps.haptics?.play(kind);
+    } catch {
+      // Отклик необязателен.
+    }
+  }
+
+  private reportError(error: PlannerError): void {
+    this.haptic('error');
+    this.deps.notifier.show(t(errorMessageKey(error)));
+    if (error.detail) console.warn('[matrix-planner] task operation failed', error);
+  }
+
+  /** Выполняет операцию, показывает ошибку (с откликом `error`). */
+  private async runOp(card: TaskCardModel | null, op: () => Promise<OpResult<unknown>>, successMessage?: string): Promise<OpOutcome> {
     if (card) this.busy.add(card.key);
     try {
       const result = await op();
       if (!result.ok) {
-        this.deps.notifier.show(t(errorMessageKey(result.error)));
-        if (result.error.detail) console.warn('[matrix-planner] task operation failed', result.error);
-        return false;
+        this.reportError(result.error);
+        return 'failed';
       }
       if (successMessage && result.changed) this.deps.notifier.show(successMessage);
-      return true;
+      return result.changed ? 'changed' : 'same';
     } catch (error) {
       console.error('[matrix-planner] task operation failed', error);
+      this.haptic('error');
       this.deps.notifier.show(t('common.errors.unknown'));
-      return false;
+      return 'failed';
     } finally {
       if (card) this.busy.delete(card.key);
     }
@@ -725,6 +899,7 @@ export class TasksTab implements TabController {
     const nowMs = Date.now();
     if (nowMs - this.lastMenuAt < MENU_DEBOUNCE_MS) return;
     this.lastMenuAt = nowMs;
+    this.haptic('tap');
 
     const menu = new Menu();
     addTaskMenuItems(menu, card, {
@@ -732,20 +907,38 @@ export class TasksTab implements TabController {
       matrix: () => this.deps.index.getMatrix(),
       openNote: (path) => void this.host.actions.openNote(path),
       run: (op, successMessage) => void this.runOp(card, op, successMessage),
+      runUndoable: (action) => this.runUndoableMenuAction(card, action),
+      haptic: (kind) => this.haptic(kind),
     });
     showMenuAt(menu, anchor);
   }
 
-  // --- Жесты: долгое нажатие и перетаскивание ---
+  // --- Жесты: долгое нажатие, перетаскивание, свайпы ---
+
+  /**
+   * iOS: прокрутку во время перетаскивания или свайпа можно остановить только отменой `touchmove`, а
+   * обработчик, добавленный уже после `touchstart`, WebKit может не успеть учесть. Поэтому на корне
+   * вкладки постоянно висит неблокирующий только по необходимости обработчик (`passive: false`).
+   */
+  private guardTouchScroll(root: HTMLElement): void {
+    const onTouchMove = (evt: TouchEvent): void => {
+      if ((this.drag || this.swipe.isSwiping()) && evt.cancelable) evt.preventDefault();
+    };
+    root.addEventListener('touchmove', onTouchMove, { passive: false });
+  }
 
   private onPointerDown(card: TaskCardModel, evt: PointerEvent, cardEl: HTMLElement): void {
-    if (this.drag || this.busy.has(card.key)) return;
-    // Перенос — только в активном режиме с квадрантами; иначе жест не нужен (меню — ПКМ и клавиатура).
-    if (!this.canDrag(this.model)) return;
+    if (this.drag || this.activeSwipe || this.busy.has(card.key)) return;
     const pointerType = toPointerKind(evt.pointerType);
+    const model = this.model;
+    const dragMode = this.canDrag(model);
+    // Мышь: только перенос (меню — ПКМ). Касание: перенос или меню долгим нажатием, свайпы в списке.
+    if (pointerType === 'mouse' && !dragMode) return;
     const target = evt.target as HTMLElement | null;
     const onControl = Boolean(target?.closest?.('.mp-task-check, .mp-task-more'));
+    const onMore = Boolean(target?.closest?.('.mp-task-more'));
     this.cancelGesture();
+    this.swipeClickUntil = 0;
     const effect = this.gesture.down({
       x: evt.clientX,
       y: evt.clientY,
@@ -753,20 +946,39 @@ export class TasksTab implements TabController {
       pointerType,
       button: evt.button,
       onControl,
+      longPress: dragMode ? 'drag' : 'menu',
     });
-    if (this.gesture.getPhase() === 'idle') return;
+    // Свайп можно начать и с кружка выполнения (тогда касание не выполняет задачу).
+    const swipeable = pointerType !== 'mouse' && !onMore && evt.button === 0 && this.canSwipe(model);
+    if (this.gesture.getPhase() === 'idle' && !swipeable) return;
+    if (swipeable) {
+      const width = cardEl.getBoundingClientRect().width;
+      this.swipe.down({ x: evt.clientX, y: evt.clientY, width, right: true, left: true });
+    }
     this.gestureCard = { card, cardEl };
     this.touchDown = pointerType !== 'mouse';
 
     const doc = cardEl.doc;
     const onMove = (e: PointerEvent): void => {
       if (e.pointerId !== evt.pointerId) return;
+      if (swipeable && this.handleSwipe(this.swipe.move(e.clientX, e.clientY))) {
+        e.preventDefault();
+        return;
+      }
       const result = this.gesture.move({ x: e.clientX, y: e.clientY, time: e.timeStamp });
       if (result.type === 'drag-move' || result.type === 'drag-start') e.preventDefault();
       this.applyEffect(result);
     };
     const onUp = (e: PointerEvent): void => {
       if (e.pointerId !== evt.pointerId) return;
+      const swipeEffect = swipeable ? this.swipe.up() : null;
+      if (this.swipeClickUntil === Number.POSITIVE_INFINITY) this.swipeClickUntil = Date.now() + 600;
+      if (swipeEffect && swipeEffect.type !== 'none') {
+        this.gesture.cancel();
+        this.finishGesture();
+        this.handleSwipe(swipeEffect);
+        return;
+      }
       this.applyEffect(this.gesture.up({ x: e.clientX, y: e.clientY, time: e.timeStamp }));
       this.finishGesture();
     };
@@ -779,11 +991,11 @@ export class TasksTab implements TabController {
     };
     // Во время перетаскивания страница не прокручивается (iOS требует отмены `touchmove`).
     const onTouchMove = (e: TouchEvent): void => {
-      if (this.drag && e.cancelable) e.preventDefault();
+      if ((this.drag || this.swipe.isSwiping()) && e.cancelable) e.preventDefault();
     };
     // Прокрутка до срабатывания долгого нажатия (на iOS — без `pointercancel`) отменяет жест.
     const onScroll = (): void => {
-      if (this.gesture.getPhase() === 'pressed') this.cancelGesture();
+      if (this.gesture.getPhase() === 'pressed' && !this.swipe.isSwiping()) this.cancelGesture();
     };
     doc.addEventListener('pointermove', onMove, { passive: false });
     doc.addEventListener('pointerup', onUp);
@@ -815,19 +1027,19 @@ export class TasksTab implements TabController {
         }, effect.delayMs);
         return;
       case 'long-press':
-        // На вкладке «Задачи» долгое нажатие — перетаскивание (`drag-start`), меню не открывается.
+        // Меню: долгое нажатие в списке по датам и «Выполнено»; на сетке — подняли и отпустили на месте.
         this.clearLongPress();
+        this.swipe.cancel();
+        this.endDrag(false);
+        if (!current) return;
+        if (this.touchDown) swallowNextTouchEnd(current.cardEl.doc);
+        this.openMenu(current.card, current.cardEl);
         return;
       case 'drag-start':
         this.clearLongPress();
+        this.swipe.cancel();
         if (!current) return;
-        if (effect.byLongPress && this.host.platform.isAndroid) {
-          try {
-            navigator.vibrate?.(10);
-          } catch {
-            // Вибрация необязательна.
-          }
-        }
+        if (effect.byLongPress) this.haptic('lift');
         this.beginDrag(current.card, current.cardEl, effect.x, effect.y);
         return;
       case 'drag-move':
@@ -842,6 +1054,118 @@ export class TasksTab implements TabController {
         return;
     }
   }
+
+  private takeSwipeClick(): boolean {
+    const swiped = Date.now() < this.swipeClickUntil;
+    this.swipeClickUntil = 0;
+    return swiped;
+  }
+
+  // --- Свайпы (режим «Список») ---
+
+  /** Обрабатывает эффект свайпа; `true` — жест принадлежит свайпу (не прокрутка и не перенос). */
+  private handleSwipe(effect: SwipeEffect): boolean {
+    const current = this.gestureCard ?? (this.activeSwipe ? { card: this.activeSwipe.card, cardEl: this.activeSwipe.cardEl } : null);
+    switch (effect.type) {
+      case 'none':
+        return this.swipe.isSwiping();
+      case 'start':
+        // Горизонтальный сдвиг: это свайп — долгое нажатие и перенос отменяются.
+        this.clearLongPress();
+        this.gesture.cancel();
+        // Click после свайпа (если браузер его пришлёт) приходит сразу за pointerup.
+        this.swipeClickUntil = Number.POSITIVE_INFINITY;
+        if (current) this.beginSwipe(current.card, current.cardEl);
+        return true;
+      case 'move':
+        this.moveSwipe(effect.offset, effect.action, effect.crossed);
+        return true;
+      case 'commit':
+        this.commitSwipe(effect.action, effect.offset);
+        return true;
+      case 'cancel':
+        if (effect.wasSwiping) this.resetSwipe(true);
+        return false;
+    }
+  }
+
+  private beginSwipe(card: TaskCardModel, cardEl: HTMLElement): void {
+    const parent = cardEl.parentElement;
+    if (!parent) return;
+    const track = parent.createDiv({ cls: 'mp-task-swipe-track', attr: { 'aria-hidden': 'true' } });
+    track.setCssStyles({
+      top: `${cardEl.offsetTop}px`,
+      left: `${cardEl.offsetLeft}px`,
+      width: `${cardEl.offsetWidth}px`,
+      height: `${cardEl.offsetHeight}px`,
+    });
+    const right = track.createDiv({ cls: 'mp-task-swipe-side mod-complete' });
+    setIcon(right.createSpan({ cls: 'mp-task-swipe-icon' }), 'check');
+    right.createSpan({ cls: 'mp-task-swipe-label', text: t('tasks.swipe.complete') });
+    const left = track.createDiv({ cls: 'mp-task-swipe-side mod-postpone' });
+    left.createSpan({ cls: 'mp-task-swipe-label mod-postpone', text: t('tasks.swipe.postpone') });
+    left.createSpan({ cls: 'mp-task-swipe-label mod-delete', text: t('tasks.swipe.delete') });
+    setIcon(left.createSpan({ cls: 'mp-task-swipe-icon mod-postpone' }), 'calendar-clock');
+    setIcon(left.createSpan({ cls: 'mp-task-swipe-icon mod-delete' }), 'trash-2');
+    parent.insertBefore(track, cardEl);
+    cardEl.addClass('is-swiping');
+    this.activeSwipe = { card, cardEl, track, width: cardEl.offsetWidth };
+  }
+
+  private moveSwipe(offset: number, action: SwipeAction | null, crossed: boolean): void {
+    const active = this.activeSwipe;
+    if (!active) return;
+    active.cardEl.setCssProps({ '--mp-swipe-x': `${offset}px` });
+    active.track.toggleClass('is-right', offset > 0);
+    active.track.toggleClass('is-left', offset < 0);
+    active.track.toggleClass('is-armed', action !== null);
+    active.track.setAttr('data-action', action ?? (offset < 0 ? 'postpone' : 'complete'));
+    if (crossed && action) this.haptic('threshold');
+  }
+
+  /** Отпустили за порогом: карточка уезжает, действие — с «Вернуть». */
+  private commitSwipe(action: SwipeAction, offset: number): void {
+    const active = this.activeSwipe;
+    if (!active) return;
+    const { card, cardEl } = active;
+    this.haptic(action === 'complete' ? 'success' : action === 'delete' ? 'delete' : 'drop');
+    cardEl.addClass('is-swipe-out');
+    cardEl.setCssProps({ '--mp-swipe-x': `${offset > 0 ? active.width : -active.width}px` });
+    window.setTimeout(() => {
+      if (action === 'delete') {
+        this.deleteWithUndo(card);
+        this.resetSwipe(false);
+        return;
+      }
+      // Пока идёт запись, вкладка не перерисовывается; после неё — сразу новое состояние,
+      // а если ничего не изменилось (или ошибка) — карточка плавно возвращается.
+      const run = action === 'complete' ? this.completeWithUndo(card) : this.postponeWithUndo(card);
+      void run.then((outcome) => this.resetSwipe(outcome !== 'changed'));
+    }, prefersReducedMotion() ? 0 : SWIPE_OUT_MS);
+  }
+
+  /** Убрать дорожку свайпа; `animate` — карточка плавно возвращается на место. */
+  private resetSwipe(animate: boolean): void {
+    const active = this.activeSwipe;
+    if (!active) return;
+    this.activeSwipe = null;
+    const { cardEl, track } = active;
+    if (animate) {
+      cardEl.addClass('is-swipe-back');
+      cardEl.setCssProps({ '--mp-swipe-x': '0px' });
+      window.setTimeout(() => {
+        track.remove();
+        cardEl.removeClass('is-swiping', 'is-swipe-back');
+      }, prefersReducedMotion() ? 0 : SWIPE_OUT_MS);
+    } else {
+      track.remove();
+      cardEl.removeClass('is-swiping', 'is-swipe-out', 'is-swipe-back');
+      cardEl.setCssProps({ '--mp-swipe-x': '0px' });
+    }
+    this.flushPendingRender();
+  }
+
+  // --- Перетаскивание ---
 
   private beginDrag(card: TaskCardModel, cardEl: HTMLElement, x: number, y: number): void {
     const root = this.rootEl;
@@ -910,6 +1234,7 @@ export class TasksTab implements TabController {
     if (drag.ghost) drag.ghost.style.transform = `translate(${x - drag.offsetX}px, ${y - drag.offsetY}px) scale(1.04)`;
     const next = updateDrag(drag.session, drag.zones, x, y, drag.deleteRect);
     if (next === drag.session) return;
+    if (next.overDelete && !drag.session.overDelete) this.haptic('threshold');
     drag.session = next;
     for (const [key, el] of drag.zoneEls) el.toggleClass('is-drop-target', isHighlightedZone(next, key));
     drag.deleteEl?.toggleClass('is-over', next.overDelete);
@@ -927,14 +1252,26 @@ export class TasksTab implements TabController {
     for (const el of drag.zoneEls.values()) el.removeClass('is-drop-target');
     const drop = commit ? resolveDrop(drag.session) : null;
     if (drop?.kind === 'move') {
-      void this.runOp(drag.card, () => this.deps.tasks.moveToQuadrant(drop.taskId, drop.quadrant));
+      this.haptic('drop');
+      const title = this.deps.index.getMatrix().byKey[drop.quadrant]?.title ?? drop.quadrant;
+      void this.runWithUndo(
+        drag.card,
+        () => this.deps.tasks.moveToQuadrant(drop.taskId, drop.quadrant),
+        undoMove(this.deps.tasks, drop.taskId, drag.session.from),
+        t('tasks.notices.moved', { quadrant: title }),
+      );
     } else if (drop?.kind === 'delete') {
+      this.haptic('delete');
       this.deleteWithUndo(drag.card);
     }
-    if (this.renderPending) {
-      this.renderPending = false;
-      this.scheduleRender();
-    }
+    this.flushPendingRender();
+  }
+
+  /** Отложенная во время жеста перерисовка — сразу, без промежуточного кадра. */
+  private flushPendingRender(): void {
+    if (!this.renderPending || this.gestureBusy()) return;
+    this.renderPending = false;
+    this.render();
   }
 
   /**
@@ -954,6 +1291,7 @@ export class TasksTab implements TabController {
     const message = t('tasks.notices.deletedUndo');
     const undo = (): void => {
       if (!this.pendingDeletes.undo(id)) return;
+      this.haptic('undo');
       this.scheduleRender();
     };
     if (this.deps.notifier.showAction) this.deps.notifier.showAction(message, { label: t('tasks.notices.undo'), run: undo }, UNDO_DELETE_MS);
@@ -973,10 +1311,14 @@ export class TasksTab implements TabController {
     this.gestureCleanup = null;
     this.gestureCard = null;
     this.touchDown = false;
+    this.flushPendingRender();
   }
 
   private cancelGesture(): void {
+    if (this.swipeClickUntil === Number.POSITIVE_INFINITY) this.swipeClickUntil = Date.now() + 600;
     this.applyEffect(this.gesture.cancel());
+    const swipe = this.swipe.cancel();
+    if (swipe.type === 'cancel' && swipe.wasSwiping) this.resetSwipe(true);
     this.endDrag(false);
     this.finishGesture();
   }

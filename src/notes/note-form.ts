@@ -9,11 +9,14 @@ import type { LocalDateString, NoteDraft, OpResult, PlannerError, QuickNote, Vau
 import { isValidDate, localDateOf } from '../model/dates';
 import { t } from '../i18n';
 import { shortDateLabel } from '../ui/controls/date-picker';
+import type { HapticKind } from '../ui/haptics';
+import { bindEnterToSubmit, shouldAutofocusTitle } from '../tasks/task-form';
 import { registerNoteDictionaries } from './note-service';
 
 registerNoteDictionaries();
 
-export type NoteFormDeps = Pick<CoreServices, 'index' | 'repository' | 'sheets' | 'datePicker' | 'clock' | 'format' | 'notifier'> & {
+export type NoteFormDeps = Pick<CoreServices, 'index' | 'repository' | 'sheets' | 'datePicker' | 'clock' | 'format' | 'notifier'> &
+  Partial<Pick<CoreServices, 'platform' | 'haptics'>> & {
   notes: NoteService;
   /** Открыть заметку в редакторе (`PlannerActions.openNote`). */
   openNote(path: VaultPath): Promise<void>;
@@ -23,7 +26,7 @@ export interface NoteFormOptions {
   onSaved?(path: VaultPath | null): void;
 }
 
-interface NoteFormState {
+export interface NoteFormState {
   title: string;
   body: string;
   bodyLoaded: boolean;
@@ -45,6 +48,12 @@ export function notePatch(state: NoteFormState, initial: NoteDraft): Partial<Not
   if (state.bodyLoaded && state.body !== initial.body) patch.body = state.body;
   if (state.date !== initial.date) patch.date = state.date;
   return patch;
+}
+
+/** Форма заметки изменена: правка — есть изменённые поля, создание — что-то введено или дата сменена. */
+export function isNoteFormDirty(state: NoteFormState, initial: NoteDraft | null, createDate: LocalDateString | null): boolean {
+  if (initial) return Object.keys(notePatch(state, initial)).length > 0;
+  return state.title.trim() !== '' || state.body.trim() !== '' || state.date !== createDate;
 }
 
 /**
@@ -81,6 +90,8 @@ export function openNoteForm(deps: NoteFormDeps, request: NoteFormRequest, optio
     state = { title: '', body: '', bodyLoaded: true, date: isValidDate(request.date) ? request.date : null };
   }
   const view = new NoteFormView(deps, state, note, options);
+  const haptic = (kind: HapticKind): void => deps.haptics?.play(kind);
+  haptic('tap');
   const handle = deps.sheets.open({
     title: t(note ? 'notes.titleEdit' : 'notes.titleCreate'),
     submitLabel: t('common.actions.done'),
@@ -88,6 +99,8 @@ export function openNoteForm(deps: NoteFormDeps, request: NoteFormRequest, optio
     render: (contentEl, sheet) => view.mount(contentEl, sheet),
     onSubmit: () => view.submit(),
     onClose: () => view.dispose(),
+    isDirty: () => view.isDirty(),
+    haptic,
   });
   if (note) view.loadBody(note);
   return handle;
@@ -104,6 +117,7 @@ class NoteFormView {
   private saved = false;
   private disposed = false;
   private readonly initial: NoteDraft | null;
+  private readonly createDate: LocalDateString | null;
   private readonly cleanups: Array<() => void> = [];
 
   constructor(
@@ -113,6 +127,16 @@ class NoteFormView {
     private readonly options: NoteFormOptions,
   ) {
     this.initial = note ? { title: note.title, body: '', date: note.date } : null;
+    this.createDate = state.date;
+  }
+
+  isDirty(): boolean {
+    if (this.saved) return false;
+    return isNoteFormDirty(this.state, this.initial, this.createDate);
+  }
+
+  private haptic(kind: HapticKind): void {
+    this.deps.haptics?.play(kind);
   }
 
   mount(contentEl: HTMLElement, sheet: SheetHandle): void {
@@ -121,7 +145,7 @@ class NoteFormView {
     const card = contentEl.createDiv({ cls: 'mp-form-card' });
     const title = card.createEl('input', {
       cls: 'mp-task-form-title',
-      attr: { type: 'text', placeholder: t('notes.fields.title'), 'aria-label': t('notes.fields.title'), 'aria-required': 'true', enterkeyhint: 'next' },
+      attr: { type: 'text', placeholder: t('notes.fields.title'), 'aria-label': t('notes.fields.title'), 'aria-required': 'true', enterkeyhint: 'done' },
     });
     title.value = this.state.title;
     title.addEventListener('input', () => {
@@ -129,11 +153,13 @@ class NoteFormView {
       this.state = { ...this.state, title: title.value };
       this.syncSubmit();
     });
-    title.addEventListener('keydown', (evt: KeyboardEvent) => {
-      if (evt.key === 'Enter' && !evt.isComposing && !evt.ctrlKey && !evt.metaKey) {
-        evt.preventDefault();
-        this.bodyInput?.focus();
+    // Enter — «Готово» (доработка 006, §9); к тексту — Tab.
+    bindEnterToSubmit(title, () => {
+      if (!this.canSubmit()) {
+        if (this.state.title.trim() === '') title.setAttr('aria-invalid', 'true');
+        return;
       }
+      this.sheet?.submit?.();
     });
     this.titleInput = title;
 
@@ -153,8 +179,10 @@ class NoteFormView {
     this.dateEl = contentEl.createDiv({ cls: 'mp-form-card' });
     this.renderDate();
     this.syncSubmit();
-    const focusTimer = window.setTimeout(() => this.titleInput?.focus(), 0);
-    this.cleanups.push(() => window.clearTimeout(focusTimer));
+    if (shouldAutofocusTitle(this.note ? 'edit' : 'create', this.deps.platform)) {
+      const focusTimer = window.setTimeout(() => this.titleInput?.focus(), 0);
+      this.cleanups.push(() => window.clearTimeout(focusTimer));
+    }
   }
 
   dispose(): void {
@@ -215,23 +243,28 @@ class NoteFormView {
         if (Object.keys(patch).length > 0) {
           const result = await this.deps.notes.update(this.note.id, patch);
           if (!result.ok) {
+            this.haptic('error');
             this.deps.notifier.show(noteErrorMessage(result.error));
             return false;
           }
         }
         this.saved = true;
+        this.haptic('success');
         this.options.onSaved?.(null);
         return true;
       }
       const result = await createAndOpenNote(this.deps, { title: this.state.title, body: this.state.body, date: this.state.date });
       if (!result.ok) {
+        this.haptic('error');
         this.deps.notifier.show(noteErrorMessage(result.error));
         return false;
       }
       this.saved = true;
+      this.haptic('success');
       this.options.onSaved?.(result.value);
       return true;
     } catch (error) {
+      this.haptic('error');
       this.deps.notifier.show(t('common.errors.unknown'));
       console.error('[matrix-planner] note save failed', error);
       return false;

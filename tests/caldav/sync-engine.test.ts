@@ -1050,3 +1050,23 @@ describe('caldav/CalendarSyncScheduler: адресная отправка', () =
     expect(pushes).toEqual([]);
   });
 });
+
+describe('caldav/sync-engine: статус адресной отправки (доработка 006, §7)', () => {
+  it('pushing — true на время отправки, затем false и новое lastPushAt', async () => {
+    const ctx = setup();
+    const seen: Array<{ pushing: boolean | undefined; lastPushAt: string | null }> = [];
+    ctx.engine.onStatusChange((status) => seen.push({ pushing: status.pushing, lastPushAt: status.lastPushAt }));
+    await ctx.engine.pushItems([EVENT_ID]);
+    expect(seen[0]?.pushing).toBe(true);
+    expect(ctx.engine.getStatus().pushing).toBe(false);
+    expect(ctx.engine.getStatus().lastPushAt).toBe(ctx.now.value.toISOString());
+  });
+
+  it('ошибка сети при отправке — pushing сбрасывается, error.kind = network', async () => {
+    const ctx = setup();
+    ctx.server.networkDown = true;
+    await ctx.engine.pushItems([EVENT_ID]);
+    expect(ctx.engine.getStatus().pushing).toBe(false);
+    expect(ctx.engine.getStatus().error?.kind).toBe('network');
+  });
+});

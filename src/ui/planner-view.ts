@@ -6,6 +6,11 @@
  *
  * Док (панель вкладок, баннер, «+») плавает над содержимым и поднимается над нижними
  * панелями Obsidian (плавающая навигация 1.11+ на телефоне), см. `dock-insets`.
+ *
+ * Доработка 006: на телефоне горизонтальные жесты внутри вида (свайп карточки, перенос в соседний
+ * квадрант) не открывают шторки Obsidian — касание помечается `data-ignore-swipe` (так Obsidian
+ * пропускает свой распознаватель свайпа на `.workspace`) и не всплывает выше корня вида. Свайп от
+ * самого края экрана (≤ 16 px) остаётся Obsidian. Шторки открываются кнопками в шапке вида.
  */
 
 import { ItemView, setIcon } from 'obsidian';
@@ -40,6 +45,8 @@ import {
   visibleTabs,
 } from './view-state';
 import type { PlannerViewState } from './view-state';
+import { isSidebarEdgeTouch } from './view-state';
+import type { HapticKind } from './haptics';
 import { OBSIDIAN_BOTTOM_BAR_SELECTORS, findBottomBars, measureBottomOverlap } from './dock-insets';
 
 registerDictionary('ru', 'shell', ruShell);
@@ -61,6 +68,15 @@ export interface PlannerShellOptions extends PlannerViewOptions {
    * `null` — выключено; по умолчанию 900 px (ТЗ §7.1).
    */
   splitMinWidth?: number | null;
+  /** Тактильный отклик (переключение вкладок, «+», кнопки шторок). */
+  haptics?: { play(kind: HapticKind): void };
+}
+
+/** Шторка Obsidian (левая/правая боковая панель; на телефоне — выезжающая). */
+interface SidebarSplit {
+  collapsed: boolean;
+  expand(): void;
+  collapse(): void;
 }
 
 interface TabSlot {
@@ -201,6 +217,9 @@ export class PlannerView extends ItemView {
     root.toggleClass('is-ios', this.platform.isIos);
     this.rootEl = root;
 
+    if (this.platform.isPhone) this.buildTopBar(root);
+    if (this.platform.isMobile) this.guardSidebarSwipes(root);
+
     const body = root.createDiv({ cls: 'mp-view-body' });
     this.bodyEl = body;
 
@@ -212,6 +231,7 @@ export class PlannerView extends ItemView {
       attr: { type: 'button', 'aria-label': t('shell.add.button'), title: t('shell.add.button'), 'aria-haspopup': 'dialog' },
     });
     setIcon(fab, 'plus');
+    // Отклик `tap` даёт сам лист «Добавить» (openAddMenu).
     fab.addEventListener('click', (evt) => this.actions.openAddMenu(this.getAddContext(), evt));
 
     const bannerSlot = dock.createDiv({ cls: 'mp-banner-slot' });
@@ -242,7 +262,9 @@ export class PlannerView extends ItemView {
       buttonEl.setAttr('title', t('shell.tabUnavailable'));
     }
     buttonEl.addEventListener('click', () => {
-      if (available) this.switchTab(id);
+      if (!available) return;
+      if (this.state.activeTab !== id) this.haptic('select');
+      this.switchTab(id);
     });
 
     const panelEl = body.createDiv({
@@ -258,6 +280,75 @@ export class PlannerView extends ItemView {
     panelEl.addEventListener('focusin', activate);
 
     this.slots.set(id, { id, buttonEl, panelEl, controller: null, mounted: false, shown: false });
+  }
+
+  /**
+   * Шапка вида на телефоне: кнопки шторок Obsidian (заголовок вида Obsidian с его кнопками скрыт,
+   * а свайпы внутри вида шторки не открывают).
+   */
+  private buildTopBar(root: HTMLElement): void {
+    root.addClass('has-topbar');
+    const bar = root.createDiv({ cls: 'mp-view-topbar' });
+    this.sidebarButton(bar, 'left');
+    bar.createDiv({ cls: 'mp-view-topbar-spacer' });
+    this.sidebarButton(bar, 'right');
+  }
+
+  private sidebarButton(parent: HTMLElement, side: 'left' | 'right'): void {
+    const label = t(side === 'left' ? 'shell.sidebar.left' : 'shell.sidebar.right');
+    const button = parent.createEl('button', {
+      cls: `mp-sidebar-toggle mod-${side}`,
+      attr: { type: 'button', 'aria-label': label, title: label },
+    });
+    setIcon(button, side === 'left' ? 'panel-left' : 'panel-right');
+    button.addEventListener('click', () => {
+      this.haptic('tap');
+      this.toggleSidebar(side);
+    });
+  }
+
+  /** Открыть шторку (повторное нажатие — закрыть). */
+  private toggleSidebar(side: 'left' | 'right'): void {
+    const workspace = this.app.workspace as unknown as { leftSplit?: SidebarSplit | null; rightSplit?: SidebarSplit | null };
+    const split = side === 'left' ? workspace.leftSplit : workspace.rightSplit;
+    if (!split) return;
+    try {
+      if (split.collapsed) split.expand();
+      else split.collapse();
+    } catch (error) {
+      console.error('[matrix-planner] cannot toggle sidebar', error);
+    }
+  }
+
+  /**
+   * Свайпы внутри вида не открывают шторки Obsidian. Распознаватель Obsidian слушает `touchstart`
+   * на `.workspace` (всплытие) и пропускает касания внутри элемента с `data-ignore-swipe`;
+   * дополнительно касание не всплывает выше корня вида. Касание у края экрана — Obsidian.
+   */
+  private guardSidebarSwipes(root: HTMLElement): void {
+    const win = root.win as Window | undefined;
+    const isEdge = (evt: TouchEvent): boolean => {
+      const touch = evt.touches[0];
+      return touch !== undefined && isSidebarEdgeTouch(touch.clientX, win?.innerWidth ?? 0);
+    };
+    const onCapture = (evt: TouchEvent): void => {
+      if (isEdge(evt)) root.removeAttribute('data-ignore-swipe');
+      else root.setAttribute('data-ignore-swipe', 'true');
+    };
+    const onBubble = (evt: TouchEvent): void => {
+      if (!isEdge(evt)) evt.stopPropagation();
+    };
+    root.setAttribute('data-ignore-swipe', 'true');
+    this.registerDomEvent(root, 'touchstart', onCapture, { capture: true, passive: true });
+    this.registerDomEvent(root, 'touchstart', onBubble, { passive: true });
+  }
+
+  private haptic(kind: HapticKind): void {
+    try {
+      this.options.haptics?.play(kind);
+    } catch {
+      // Отклик необязателен.
+    }
   }
 
   private mountBanner(slotEl: HTMLElement): void {
@@ -278,6 +369,7 @@ export class PlannerView extends ItemView {
     if (!direction) return;
     evt.preventDefault();
     const target = adjacentTab(this.state, this.state.activeTab, direction);
+    if (target !== this.state.activeTab) this.haptic('select');
     this.switchTab(target);
     this.slots.get(target)?.buttonEl.focus();
   }

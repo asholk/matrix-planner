@@ -11,8 +11,8 @@ export interface DeleteButtonOptions {
   label: string;
   /** Подпись для диктора: «Удалить задачу». */
   ariaLabel?: string;
-  /** Текст после первого нажатия. */
-  confirmLabel: string;
+  /** Текст после первого нажатия; без него удаление — с первого нажатия (отмена — «Вернуть»). */
+  confirmLabel?: string;
   /** Удаление; `true` — успешно (форма закрывается сама). */
   onDelete(): Promise<boolean>;
 }
@@ -37,13 +37,14 @@ export function renderDeleteButton(parent: HTMLElement, options: DeleteButtonOpt
   const setArmed = (value: boolean): void => {
     armed = value;
     button.toggleClass('is-armed', value);
-    text.setText(value ? options.confirmLabel : options.label);
-    button.setAttr('aria-label', value ? options.confirmLabel : (options.ariaLabel ?? options.label));
+    const confirm = options.confirmLabel ?? options.label;
+    text.setText(value ? confirm : options.label);
+    button.setAttr('aria-label', value ? confirm : (options.ariaLabel ?? options.label));
   };
 
   button.addEventListener('click', () => {
     if (deleting) return;
-    if (!armed) {
+    if (!armed && options.confirmLabel !== undefined) {
       setArmed(true);
       return;
     }

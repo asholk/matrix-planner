@@ -196,3 +196,19 @@ export function restoreViewState(state: PlannerViewState, raw: unknown): Planner
   }
   return next;
 }
+
+// ---------------------------------------------------------------------------
+// Свайпы шторок Obsidian (доработка 006, §3)
+// ---------------------------------------------------------------------------
+
+/** Ширина полосы у края экрана, где свайп остаётся Obsidian (открыть шторку), px. */
+export const SIDEBAR_EDGE_PX = 16;
+
+/**
+ * Касание у самого края экрана: такой свайп отдаём Obsidian (шторки). Остальные
+ * горизонтальные жесты внутри вида — наши (свайп карточки, перетаскивание).
+ */
+export function isSidebarEdgeTouch(x: number, viewportWidth: number, edge: number = SIDEBAR_EDGE_PX): boolean {
+  if (!Number.isFinite(x) || viewportWidth <= 0) return false;
+  return x <= edge || x >= viewportWidth - edge;
+}

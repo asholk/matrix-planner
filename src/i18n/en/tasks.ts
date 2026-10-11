@@ -50,10 +50,21 @@ export const enTasks = {
     delete: 'Delete',
     uncomplete: 'Restore',
   },
+  swipe: {
+    complete: 'Complete',
+    postpone: 'Tomorrow',
+    delete: 'Delete',
+  },
+  overdue: {
+    rescheduleAll: 'Move all to today',
+  },
   drag: {
     deleteZone: 'Drag here to delete',
   },
   notices: {
+    completed: 'Task completed',
+    postponed: 'Task moved to tomorrow',
+    rescheduledAll: 'Moved {count}',
     deleted: 'Task moved to trash',
     deletedUndo: 'Task deleted',
     undo: 'Undo',

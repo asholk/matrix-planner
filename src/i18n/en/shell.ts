@@ -5,6 +5,10 @@ export const enShell = {
   tabBar: 'Planner sections',
   tabUnavailable: 'This section is not available yet',
   tabFailed: 'Could not show this section',
+  sidebar: {
+    left: 'Left sidebar',
+    right: 'Right sidebar',
+  },
   add: {
     button: 'Add',
     title: 'Add',

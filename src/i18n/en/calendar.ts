@@ -44,6 +44,8 @@ export const enCalendar = {
     label: 'Items for {date}',
     connect: 'Connect',
     connectLabel: 'Open iOS Calendar settings',
+    filteredEmpty: 'No items match the selected filters',
+    showAll: 'Show all',
   },
   item: {
     task: 'Task “{title}”',
@@ -64,6 +66,7 @@ export const enCalendar = {
   timeline: {
     label: 'Day timeline',
     now: 'Now',
+    newEventHint: 'Press and hold an empty spot on the timeline to add an event',
   },
   month: {
     label: 'Month {value}',
@@ -80,5 +83,7 @@ export const enCalendar = {
     eventPostponed: 'Event moved to tomorrow',
     eventDeleted: 'Event deleted',
     noteDeleted: 'Note moved to trash',
+    taskCompleted: 'Task completed',
+    undo: 'Undo',
   },
 } satisfies Dictionary;

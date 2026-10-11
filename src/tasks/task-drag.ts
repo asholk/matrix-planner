@@ -3,7 +3,8 @@
  *
  * - Мышь: перетаскивание за любую часть карточки после сдвига на `dragThreshold`.
  * - Касание/перо: долгое нажатие (`longPressMs`) на карточку. Режим `longPress`:
- *   `'drag'` — карточка «поднимается» и перетаскивается (вкладка «Задачи»),
+ *   `'drag'` — карточка «поднимается» и перетаскивается (вкладка «Задачи»); если палец
+ *   отпущен без сдвига больше `moveTolerance` от точки подъёма — меню (доработка 006),
  *   `'menu'` — меню действий (строки «Календаря», запрос 004).
  *   Сдвиг пальца больше `moveTolerance` до срабатывания — прокрутка, жест отменяется.
  * Нажатие (tap) обрабатывается обычным `click`; после перетаскивания или меню
@@ -49,6 +50,8 @@ export interface PointerDown {
   button: number;
   /** Нажатие пришлось на элемент со своим действием (кружок, кнопка) — жест не начинается. */
   onControl: boolean;
+  /** Режим долгого нажатия для этого жеста (иначе — из опций). */
+  longPress?: 'menu' | 'drag';
 }
 
 export interface PointerPoint {
@@ -81,6 +84,10 @@ export class CardGesture {
   private last: PointerPoint | null = null;
   /** Подавить ближайший `click` (после перетаскивания или меню). */
   private suppressClick = false;
+  /** Точка, где карточку подняли долгим нажатием; `null` — тянут мышью или не поднята. */
+  private liftedAt: PointerPoint | null = null;
+  /** После подъёма палец сдвинулся дальше `moveTolerance` — это перенос, не меню. */
+  private travelled = false;
 
   constructor(private readonly options: GestureOptions = DEFAULT_GESTURE_OPTIONS) {}
 
@@ -110,7 +117,11 @@ export class CardGesture {
   move(point: PointerPoint): GestureEffect {
     const start = this.start;
     if (!start) return NONE;
-    if (this.phase === 'dragging') return { type: 'drag-move', x: point.x, y: point.y };
+    if (this.phase === 'dragging') {
+      const lifted = this.liftedAt;
+      if (lifted && !this.travelled && Math.hypot(point.x - lifted.x, point.y - lifted.y) > this.options.moveTolerance) this.travelled = true;
+      return { type: 'drag-move', x: point.x, y: point.y };
+    }
     if (this.phase !== 'pressed') return NONE;
     this.last = point;
     const distance = Math.hypot(point.x - start.x, point.y - start.y);
@@ -135,20 +146,33 @@ export class CardGesture {
     if (start.pointerType === 'mouse') return NONE;
     if (time !== undefined && time - start.time < this.options.longPressMs) return NONE;
     this.suppressClick = true;
-    if (this.options.longPress === 'drag') {
+    if ((start.longPress ?? this.options.longPress) === 'drag') {
       this.phase = 'dragging';
       const at = this.last ?? start;
+      this.liftedAt = { x: at.x, y: at.y, time: time ?? start.time + this.options.longPressMs };
+      this.travelled = false;
       return { type: 'drag-start', x: at.x, y: at.y, byLongPress: true };
     }
     this.phase = 'menu';
     return { type: 'long-press' };
   }
 
+  /** Поднятую карточку уже повели (сдвиг больше допуска от точки подъёма). */
+  hasTravelled(): boolean {
+    return this.phase === 'dragging' && (this.liftedAt === null || this.travelled);
+  }
+
   up(point: PointerPoint): GestureEffect {
     const phase = this.phase;
+    const lifted = this.liftedAt;
+    const travelled = this.travelled || (lifted !== null && Math.hypot(point.x - lifted.x, point.y - lifted.y) > this.options.moveTolerance);
     this.phase = 'idle';
     this.start = null;
     this.last = null;
+    this.liftedAt = null;
+    this.travelled = false;
+    // Подняли и отпустили на месте — меню задачи (iPhone: `contextmenu` нет).
+    if (phase === 'dragging' && lifted && !travelled) return { type: 'long-press' };
     if (phase === 'dragging') return { type: 'drop', x: point.x, y: point.y };
     return NONE;
   }
@@ -160,6 +184,8 @@ export class CardGesture {
     this.phase = 'idle';
     this.start = null;
     this.last = null;
+    this.liftedAt = null;
+    this.travelled = false;
     return active ? { type: 'cancel', wasDragging } : NONE;
   }
 
@@ -174,6 +200,8 @@ export class CardGesture {
     this.phase = 'idle';
     this.start = null;
     this.last = null;
+    this.liftedAt = null;
+    this.travelled = false;
     this.suppressClick = false;
   }
 }

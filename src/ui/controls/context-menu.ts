@@ -50,6 +50,26 @@ export function showMenuAt(menu: Menu, anchor: MouseEvent | HTMLElement): void {
   menu.showAtPosition({ x: 0, y: 0 });
 }
 
+/**
+ * Меню открыто касанием: отменить ближайший `touchend`. Иначе браузер следом пришлёт совместимые
+ * `mousedown`/`click` — они попадут в подложку меню Obsidian на телефоне и сразу его закроют
+ * (доработка 006, проверено настоящими касаниями CDP). Палец мог уже подняться — тогда обработчик
+ * снимается по таймеру.
+ */
+export function swallowNextTouchEnd(doc: Pick<Document, 'addEventListener' | 'removeEventListener'>, timeoutMs = 1500): void {
+  let timer = 0;
+  const done = (): void => {
+    window.clearTimeout(timer);
+    doc.removeEventListener('touchend', onTouchEnd, true);
+  };
+  const onTouchEnd = (evt: Event): void => {
+    if (evt.cancelable) evt.preventDefault();
+    done();
+  };
+  doc.addEventListener('touchend', onTouchEnd, { capture: true, passive: false });
+  timer = window.setTimeout(done, timeoutMs);
+}
+
 export interface ContextMenuBinding {
   /** `true` один раз после меню долгого нажатия: этот `click` не открывает элемент. */
   consumeClick(): boolean;
@@ -62,7 +82,12 @@ export interface ContextMenuOptions {
   keyTarget?: HTMLElement;
   /** Нажатие на эти элементы (кнопки со своим действием) жест не начинает. */
   controlSelector?: string;
-  /** Короткая вибрация при долгом нажатии (Android). */
+  /**
+   * Тактильный отклик при открытии меню долгим нажатием (сервис `haptics`, вид `tap`);
+   * вызывается синхронно в обработчике жеста.
+   */
+  haptic?: () => void;
+  /** @deprecated Не используется: отклик — через `haptic` (доработка 006). */
   vibrate?: boolean;
   gesture?: GestureOptions;
   /** Время для защиты от двойного открытия (тесты). */
@@ -112,13 +137,12 @@ export function attachContextMenu(
         return;
       case 'long-press':
         finish();
-        if (options.vibrate) {
-          try {
-            navigator.vibrate?.(10);
-          } catch {
-            // Вибрация необязательна.
-          }
+        try {
+          options.haptic?.();
+        } catch {
+          // Отклик необязателен.
         }
+        swallowNextTouchEnd(el.doc);
         show(el);
         return;
       case 'cancel':

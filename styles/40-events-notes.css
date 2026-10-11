@@ -223,3 +223,28 @@ body {
   height: 1.45em;
   min-width: 1.45em;
 }
+
+/* Подсказка под «Календарь»: синхронизация не настроена (доработка 006, §4). */
+.mp-event-form-calendar-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--size-4-1) var(--size-4-2);
+}
+
+.modal.mp-sheet button.mp-event-form-hint-link {
+  height: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-accent);
+  font-size: inherit;
+  font-weight: var(--font-semibold);
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.modal.mp-sheet button.mp-event-form-hint-link:hover {
+  background: transparent;
+  text-decoration: underline;
+}

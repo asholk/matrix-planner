@@ -22,6 +22,7 @@ import { registerDictionary, t } from '../i18n';
 import { enLockscreen } from '../i18n/en/lockscreen';
 import { ruLockscreen } from '../i18n/ru/lockscreen';
 import type { Unsubscribe, WallpaperSettings, WallpaperTemplate } from '../model/types';
+import type { HapticKind } from '../ui/haptics';
 import { PhotoExporter, renderPhotoButton, type PhotoEnvironment, type PhotoWallpaperSource } from './photo-export';
 import {
   bannerViewModelOf,
@@ -57,6 +58,8 @@ export interface LockscreenTabDeps extends WallpaperEditorDeps {
   companion?: Pick<CompanionStore, 'onChange'> | null;
   /** Изменения задач и событий — перерисовать миниатюры. */
   dayItems?: Pick<DayItemsProvider, 'onChange'> | null;
+  /** Тактильный отклик: «Обновить экран блокировки», «Получить фото», «Настроить» — `tap`. */
+  haptic?(kind: HapticKind): void;
 }
 
 /** Фабрика вкладки для `PlannerViewOptions.tabs.lockscreen`. */
@@ -231,7 +234,10 @@ export class LockscreenTab implements TabController {
     const customize = meta.createEl('button', { cls: 'mp-ls-button mod-primary', attr: { type: 'button' } });
     setIcon(customize.createSpan({ cls: 'mp-ls-button-icon', attr: { 'aria-hidden': 'true' } }), 'sliders-horizontal');
     customize.createSpan({ text: t('lockscreen.current.customize') });
-    customize.addEventListener('click', () => this.openEditor());
+    customize.addEventListener('click', () => {
+      this.deps.haptic?.('tap');
+      this.openEditor();
+    });
 
     const actions = el.createDiv({ cls: 'mp-ls-current-actions' });
     const update = actions.createEl('button', { cls: 'mp-ls-button mp-ls-update', attr: { type: 'button' } });
@@ -240,7 +246,10 @@ export class LockscreenTab implements TabController {
 
     const photo = actions.createEl('button', { cls: 'mp-ls-button mp-ls-photo-button', attr: { type: 'button' } });
     // Синхронно из клика: лист «Поделиться» требует жеста пользователя.
-    photo.addEventListener('click', () => this.photo?.handleClick());
+    photo.addEventListener('click', () => {
+      this.deps.haptic?.('tap');
+      this.photo?.handleClick();
+    });
     this.photoButtonEl = photo;
     this.renderPhotoButton();
   }
@@ -365,6 +374,7 @@ export class LockscreenTab implements TabController {
   /** Синхронно из клика: трекер открывает быструю команду до первого `await`. */
   private runUpdate(): void {
     if (this.deps.status.getState().kind === 'rendering') return;
+    this.deps.haptic?.('tap');
     void this.deps.status.run();
   }
 

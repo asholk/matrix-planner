@@ -294,6 +294,11 @@ export interface DayListModel {
   noticeKey: string | null;
   /** Показывать сообщение пустого дня. */
   empty: boolean;
+  /**
+   * День пуст, а часть источников скрыта фильтром (доработка 006, §5): вместо пустого дня —
+   * «Нет элементов с выбранными фильтрами» и «Показать все».
+   */
+  filtered: boolean;
 }
 
 export function buildRow(item: DayItem, strings: CalendarLabelStrings): DayListRow {
@@ -366,6 +371,7 @@ export function buildDayList(params: {
     coverage: agenda.coverage,
     noticeKey,
     empty: isAgendaEmpty(agenda) && !hidesEmpty,
+    filtered: isAgendaEmpty(agenda) && !hidesEmpty && isFilterNarrowed(params.sources),
   };
 }
 
@@ -440,4 +446,44 @@ export function initialScrollMinute(timed: readonly Pick<DayItem, 'startMinute'>
   const first = timed.reduce<number | null>((min, item) => (item.startMinute === null ? min : min === null ? item.startMinute : Math.min(min, item.startMinute)), null);
   const target = nowMinute ?? first ?? 8 * 60;
   return Math.max(0, target - 30);
+}
+
+// ---------------------------------------------------------------------------
+// Скрытие элементов, ожидающих удаления (доработка 006, §12)
+// ---------------------------------------------------------------------------
+
+/** id заметки элемента (задача, событие, заметка); внешнее событие — `null`. */
+export function itemNoteId(item: DayItem): string | null {
+  switch (item.source) {
+    case 'task':
+      return item.taskId;
+    case 'event':
+      return item.eventId;
+    case 'note':
+      return item.noteId;
+    default:
+      return null;
+  }
+}
+
+/** Дни без элементов, удаление которых ожидает «Вернуть» (без изменений — тот же объект). */
+export function hideItems(days: DayItemsByDate, hidden: (id: string) => boolean): DayItemsByDate {
+  const keep = (item: DayItem): boolean => {
+    const id = itemNoteId(item);
+    return id === null || !hidden(id);
+  };
+  let changed = false;
+  const result = new Map<LocalDateString, DayAgenda>();
+  for (const [date, agenda] of days) {
+    const allDay = agenda.allDay.filter(keep);
+    const timed = agenda.timed.filter(keep);
+    const notes = agenda.notes.filter(keep);
+    if (allDay.length !== agenda.allDay.length || timed.length !== agenda.timed.length || notes.length !== agenda.notes.length) {
+      changed = true;
+      result.set(date, { ...agenda, allDay, timed, notes });
+    } else {
+      result.set(date, agenda);
+    }
+  }
+  return changed ? result : days;
 }

@@ -64,6 +64,18 @@ describe('attachContextMenu', () => {
     expect(binding.consumeClick()).toBe(false);
   });
 
+  it('отклик haptic — синхронно при открытии меню; следующий touchend отменяется (иначе click закроет меню)', () => {
+    const haptic = vi.fn();
+    const { el, open } = setup({ haptic });
+    press(el);
+    vi.advanceTimersByTime(500);
+    expect(haptic).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(el.doc.dispatch('touchend', { cancelable: true }).prevented).toBe(true);
+    // Только один раз.
+    expect(el.doc.dispatch('touchend', { cancelable: true }).prevented).toBe(false);
+  });
+
   it('сдвиг пальца до срабатывания — прокрутка: меню нет, click не подавляется', () => {
     const { el, open, binding } = setup();
     press(el);

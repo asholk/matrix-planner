@@ -2,8 +2,9 @@
  * Форма события (ТЗ §4.3, кадры 11–12): лист `SheetPresenter`, выбор даты `DatePickerFactory`.
  *
  * Карточки: значок + название, заметки, URL; «Весь день», «Начало», «Конец», «Повтор»;
- * «Цвет» (8 цветов) и «Календарь» (только разрешающие запись, без компаньона — «Планировщик»).
- * При правке — кнопка удаления (с подтверждением повторным нажатием). Правка меняет всю серию.
+ * «Цвет» (8 цветов) и «Календарь» (только разрешающие запись). Без синхронизации — подсказка
+ * подключить «Календарь» iOS. При правке — «Удалить» (одно нажатие, «Вернуть» в уведомлении).
+ * Правка меняет всю серию.
  * Состояние и правила — в `event-draft.ts`; общие классы полей — из формы задачи.
  */
 
@@ -16,6 +17,9 @@ import { ruModel } from '../i18n/ru/model';
 import { enModel } from '../i18n/en/model';
 import { shortDateLabel } from '../ui/controls/date-picker';
 import { renderDeleteButton } from '../ui/controls/delete-button';
+import type { HapticKind } from '../ui/haptics';
+import { deleteWithUndo, sharedPendingDeletes } from '../app/pending-deletes';
+import { bindEnterToSubmit, shouldAutofocusTitle } from '../tasks/task-form';
 import { registerEventDictionaries } from './event-service';
 import { openExternalEventDetails } from './event-details';
 import {
@@ -25,6 +29,7 @@ import {
   EventDraftController,
   createEventDraftState,
   draftStateFromEvent,
+  isPatchEmpty,
   setAllDay,
   setBody,
   setCalendar,
@@ -36,6 +41,8 @@ import {
   setStart,
   setTitle,
   setUrl,
+  toEventDraft,
+  toEventPatch,
   validateEventDraft,
   type EventDraftState,
 } from './event-draft';
@@ -48,13 +55,33 @@ registerDictionary('en', 'model', enModel);
 export type EventFormDeps = Pick<
   PlannerServices,
   'events' | 'index' | 'repository' | 'sheets' | 'datePicker' | 'clock' | 'format' | 'notifier' | 'settings' | 'calendarCache'
->;
+> &
+  Partial<Pick<PlannerServices, 'platform' | 'haptics' | 'pendingDeletes'>>;
 
 export interface EventFormOptions {
   /** После успешного сохранения (созданное событие или `null` при правке). */
   onSaved?(event: PlannerEvent | null): void;
   /** После удаления события. */
   onDeleted?(id: string): void;
+  /**
+   * Синхронизация с «Календарём» iOS (доработка 006, §4): не настроена — под списком календарей
+   * подсказка со ссылкой на вкладку «Настройки».
+   */
+  calendarSync?: { isConfigured(): boolean; openSettings(): void };
+}
+
+/** Подсказка под «Календарь»: только когда синхронизация не настроена. */
+export function calendarHintKey(sync: EventFormOptions['calendarSync']): string | null {
+  if (!sync) return null;
+  return sync.isConfigured() ? null : 'events.calendarConnectHint';
+}
+
+/** Форма события изменена (правка — изменённые поля, создание — отличие от открытого черновика). */
+export function isEventDraftDirty(state: EventDraftState, baseline: EventDraftState): boolean {
+  if (state.mode === 'edit') return !isPatchEmpty(toEventPatch(state));
+  const next = toEventDraft(state);
+  const base = toEventDraft(baseline);
+  return JSON.stringify({ ...next, body: next.body.trim() }) !== JSON.stringify({ ...base, body: base.body.trim() });
 }
 
 /** CSS-цвет палитры события (переменные определены в styles/40-events-notes.css). */
@@ -109,9 +136,11 @@ export function openEventForm(deps: EventFormDeps, request: EventFormRequest, op
     const preferred = deps.settings.get().defaultEventCalendarId;
     const writable = deps.events.getWritableCalendars();
     const calendarId = writable.some((option) => option.calendarId === preferred) ? preferred : null;
-    initial = createEventDraftState({ now, date: request.date ?? null, calendarId });
+    initial = createEventDraftState({ now, date: request.date ?? null, calendarId, time: request.time ?? null });
   }
   const form = new EventFormView(deps, new EventDraftController(initial, deps.events), options);
+  const haptic = (kind: HapticKind): void => deps.haptics?.play(kind);
+  haptic('tap');
   const handle = deps.sheets.open({
     title: t(request.mode === 'edit' ? 'events.titleEdit' : 'events.titleCreate'),
     submitLabel: t('common.actions.done'),
@@ -119,6 +148,8 @@ export function openEventForm(deps: EventFormDeps, request: EventFormRequest, op
     render: (contentEl, sheet) => form.mount(contentEl, sheet),
     onSubmit: () => form.submit(),
     onClose: () => form.dispose(),
+    isDirty: () => form.isDirty(),
+    haptic,
   });
   if (editEvent) form.loadBody(editEvent);
   return handle;
@@ -138,12 +169,31 @@ class EventFormView {
   private deleting = false;
   private disposed = false;
   private readonly cleanups: Array<() => void> = [];
+  /** Черновик при открытии (для «Сбросить изменения?»). */
+  private baseline: EventDraftState;
 
   constructor(
     private readonly deps: EventFormDeps,
     private readonly controller: EventDraftController,
     private readonly options: EventFormOptions,
-  ) {}
+  ) {
+    this.baseline = controller.get();
+  }
+
+  private haptic(kind: HapticKind): void {
+    this.deps.haptics?.play(kind);
+  }
+
+  /** Выбор в группе (цвет, календарь, повтор, значок, «Весь день») — отклик `select`. */
+  private select(apply: () => void): void {
+    this.haptic('select');
+    apply();
+  }
+
+  isDirty(): boolean {
+    if (this.deleting || this.controller.isSaved()) return false;
+    return isEventDraftDirty(this.state, this.baseline);
+  }
 
   private get state(): EventDraftState {
     return this.controller.get();
@@ -163,8 +213,11 @@ class EventFormView {
     this.renderStyle();
     if (this.state.mode === 'edit') this.renderDelete(contentEl);
     this.syncSubmit();
-    const focusTimer = window.setTimeout(() => this.titleInput?.focus(), 0);
-    this.cleanups.push(() => window.clearTimeout(focusTimer));
+    // При правке на телефоне клавиатура не открывается сама (доработка 006, §10).
+    if (shouldAutofocusTitle(this.state.mode, this.deps.platform)) {
+      const focusTimer = window.setTimeout(() => this.titleInput?.focus(), 0);
+      this.cleanups.push(() => window.clearTimeout(focusTimer));
+    }
   }
 
   dispose(): void {
@@ -176,11 +229,14 @@ class EventFormView {
     if (this.deleting) return false;
     const result = await this.controller.submit();
     if (result.ok) {
+      this.haptic('success');
       this.options.onSaved?.(result.event);
       return true;
     }
-    if (result.reason === 'error') this.deps.notifier.show(eventErrorMessage(result.error));
-    else if (result.reason === 'invalid') {
+    if (result.reason === 'error') {
+      this.haptic('error');
+      this.deps.notifier.show(eventErrorMessage(result.error));
+    } else if (result.reason === 'invalid') {
       const errors = validateEventDraft(this.state).errors;
       if (errors.title) {
         this.titleInput?.setAttr('aria-invalid', 'true');
@@ -199,6 +255,7 @@ class EventFormView {
         if (this.disposed) return;
         if (result.ok) {
           this.controller.update((s) => setLoadedBody(s, result.value));
+          this.baseline = setLoadedBody(this.baseline, result.value);
           this.syncBody(null);
         } else {
           this.syncBody(t('events.bodyLoadFailed'));
@@ -219,6 +276,15 @@ class EventFormView {
 
   private syncSubmit(): void {
     this.sheet?.setSubmitEnabled(this.controller.canSubmit() && !this.deleting);
+  }
+
+  /** Enter в названии: сохранить; пустое название — подсветить поле. */
+  private submitFromKeyboard(): void {
+    if (!this.controller.canSubmit()) {
+      if (this.state.title.trim() === '') this.titleInput?.setAttr('aria-invalid', 'true');
+      return;
+    }
+    this.sheet?.submit?.();
   }
 
   private syncBody(status: string | null): void {
@@ -250,7 +316,7 @@ class EventFormView {
         placeholder: t('events.fields.title'),
         'aria-label': t('events.fields.title'),
         'aria-required': 'true',
-        enterkeyhint: 'next',
+        enterkeyhint: 'done',
       },
     });
     title.value = this.state.title;
@@ -258,12 +324,8 @@ class EventFormView {
       title.removeAttribute('aria-invalid');
       this.update((s) => setTitle(s, title.value));
     });
-    title.addEventListener('keydown', (evt: KeyboardEvent) => {
-      if (evt.key === 'Enter' && !evt.isComposing && !evt.ctrlKey && !evt.metaKey) {
-        evt.preventDefault();
-        this.bodyInput?.focus();
-      }
-    });
+    // Enter — «Готово» (доработка 006, §9); к заметкам — Tab.
+    bindEnterToSubmit(title, () => this.submitFromKeyboard());
     this.titleInput = title;
 
     card.createDiv({ cls: 'mp-form-separator' });
@@ -303,10 +365,12 @@ class EventFormView {
           .setTitle(name)
           .setIcon(name)
           .setChecked(name === this.state.icon)
-          .onClick(() => {
-            this.update((s) => setIconName(s, name));
-            this.syncIcon();
-          }),
+          .onClick(() =>
+            this.select(() => {
+              this.update((s) => setIconName(s, name));
+              this.syncIcon();
+            }),
+          ),
       );
     }
     menu.addSeparator();
@@ -314,10 +378,12 @@ class EventFormView {
       item
         .setTitle(t('events.noIcon'))
         .setChecked(this.state.icon === null)
-        .onClick(() => {
-          this.update((s) => setIconName(s, null));
-          this.syncIcon();
-        }),
+        .onClick(() =>
+          this.select(() => {
+            this.update((s) => setIconName(s, null));
+            this.syncIcon();
+          }),
+        ),
     );
     showMenu(menu, evt, anchor);
   }
@@ -345,7 +411,7 @@ class EventFormView {
     toggle.toggleEl.setAttr('aria-labelledby', allDay.labelId);
     toggle.onChange((value) => {
       this.picker = null;
-      this.update((s) => setAllDay(s, value), 'schedule');
+      this.select(() => this.update((s) => setAllDay(s, value), 'schedule'));
     });
 
     this.renderMomentRow(card, 'start');
@@ -364,7 +430,7 @@ class EventFormView {
           item
             .setTitle(repeatLabel(rule))
             .setChecked(rule === this.state.repeat)
-            .onClick(() => this.update((s) => setRepeat(s, rule), 'schedule')),
+            .onClick(() => this.select(() => this.update((s) => setRepeat(s, rule), 'schedule'))),
         );
       }
     });
@@ -495,17 +561,39 @@ class EventFormView {
           item
             .setTitle(option.title)
             .setChecked(option.calendarId === this.state.calendarId)
-            .onClick(() => this.update((s) => setCalendar(s, option.calendarId), 'style')),
+            .onClick(() => this.select(() => this.update((s) => setCalendar(s, option.calendarId), 'style'))),
         );
       }
     });
     const dot = createSpan({ cls: 'mp-event-calendar-dot', attr: { 'aria-hidden': 'true' } });
     dot.setCssProps({ '--mp-calendar-color': current?.color ?? 'var(--text-faint)' });
     button.prepend(dot);
-    if (choices.length === 1) card.createDiv({ cls: 'mp-task-form-hint', text: t('events.calendarHint') });
+    this.renderCalendarHint(card);
+  }
+
+  /** Без синхронизации — «Подключите „Календарь iOS“ в настройках…» со ссылкой на вкладку «Настройки». */
+  private renderCalendarHint(card: HTMLElement): void {
+    const sync = this.options.calendarSync;
+    const key = calendarHintKey(sync);
+    if (!sync || key === null) return;
+    const hint = card.createDiv({ cls: 'mp-task-form-hint mp-event-form-calendar-hint' });
+    hint.createSpan({ text: t(key) });
+    const link = hint.createEl('button', {
+      cls: 'mp-event-form-hint-link',
+      text: t('events.calendarConnectAction'),
+      attr: { type: 'button', 'aria-label': t('events.calendarConnectLabel') },
+    });
+    link.addEventListener('click', () => {
+      this.haptic('tap');
+      const close = this.sheet?.requestClose?.() ?? Promise.resolve(true);
+      void close.then((closed) => {
+        if (closed) sync.openSettings();
+      });
+    });
   }
 
   private chooseColor(color: EventColor): void {
+    this.haptic('select');
     this.update((s) => setColor(s, color), 'style');
     this.syncIcon();
   }
@@ -513,42 +601,32 @@ class EventFormView {
   // --- Удаление ---
 
   private renderDelete(parent: HTMLElement): void {
+    // Одно нажатие (доработка 006, §12): отмена — «Вернуть» в уведомлении.
     renderDeleteButton(parent, {
       label: t('events.delete'),
-      confirmLabel: t('events.deleteConfirm'),
       onDelete: () => this.runDelete(),
     });
   }
 
-  private async runDelete(): Promise<boolean> {
+  /** Лист закрывается, событие скрывается, «Событие удалено · Вернуть» 5 с, затем удаление. */
+  private runDelete(): Promise<boolean> {
     const id = this.state.eventId;
-    if (id === null) return false;
+    if (id === null) return Promise.resolve(false);
     this.deleting = true;
-    this.sheet?.setBusy(true);
-    this.syncSubmit();
-    try {
-      const result = await this.deps.events.delete(id);
-      if (this.disposed) return true;
-      if (result.ok) {
-        this.deps.notifier.show(t('events.deleted'));
-        this.options.onDeleted?.(id);
-        this.sheet?.close();
-        return true;
-      }
-      // Сбой не теряется: сообщение называет этап, форма остаётся открытой для повтора.
-      this.deps.notifier.show(eventErrorMessage(result.error));
-      return false;
-    } catch (error) {
-      if (!this.disposed) this.deps.notifier.show(t('common.errors.unknown'));
-      console.error('[matrix-planner] event delete failed', error);
-      return false;
-    } finally {
-      this.deleting = false;
-      if (!this.disposed) {
-        this.sheet?.setBusy(false);
-        this.syncSubmit();
-      }
-    }
+    const events = this.deps.events;
+    deleteWithUndo(
+      { pending: this.deps.pendingDeletes ?? sharedPendingDeletes(), notifier: this.deps.notifier, haptic: (kind) => this.haptic(kind) },
+      {
+        id,
+        remove: () => events.delete(id),
+        message: t('events.deletedUndo'),
+        undoLabel: t('events.undo'),
+        errorMessage: (result) => eventErrorMessage(result.error),
+      },
+    );
+    this.options.onDeleted?.(id);
+    this.sheet?.close();
+    return Promise.resolve(true);
   }
 }
 

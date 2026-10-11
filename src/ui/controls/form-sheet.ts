@@ -10,9 +10,14 @@ import type { PlatformInfo, SheetHandle, SheetOptions, SheetPresenter } from '..
 import { registerDictionary, t } from '../../i18n';
 import { ruShell } from '../../i18n/ru/shell';
 import { enShell } from '../../i18n/en/shell';
+import { ruSheetGuard } from '../../i18n/ru/sheet-guard';
+import { enSheetGuard } from '../../i18n/en/sheet-guard';
+import type { HapticKind } from '../haptics';
 
 registerDictionary('ru', 'shell', ruShell);
 registerDictionary('en', 'shell', enShell);
+registerDictionary('ru', 'sheetGuard', ruSheetGuard);
+registerDictionary('en', 'sheetGuard', enSheetGuard);
 
 /** Расстояние протягивания вниз, после которого лист закрывается. */
 const DRAG_CLOSE_PX = 96;
@@ -68,19 +73,139 @@ export function attachDragToClose(handleEl: HTMLElement, sheetEl: HTMLElement, o
   };
 }
 
-class FormSheet extends Modal implements SheetHandle {
+// ---------------------------------------------------------------------------
+// Защита черновика (доработка 006, §6)
+// ---------------------------------------------------------------------------
+
+export interface CloseGuardDeps {
+  /** Форма изменена; нет функции — не изменена. */
+  isDirty?(): boolean;
+  /** «Сбросить изменения?»: `true` — сбросить, `false` — продолжить правку. */
+  confirm(): Promise<boolean>;
+  /** Закрыть лист без вопроса. */
+  close(): void;
+  haptic?(kind: HapticKind): void;
+}
+
+export interface CloseGuard {
+  /** Закрытие пользователем (свайп, крестик, Esc, касание вне листа). `true` — лист закрыт. */
+  request(): Promise<boolean>;
+  /** Вопрос уже открыт (повторные попытки закрытия игнорируются). */
+  isAsking(): boolean;
+}
+
+export function createCloseGuard(deps: CloseGuardDeps): CloseGuard {
+  let asking = false;
+  const dirty = (): boolean => {
+    try {
+      return deps.isDirty?.() ?? false;
+    } catch (error) {
+      console.error('[matrix-planner] sheet isDirty failed', error);
+      return false;
+    }
+  };
+  return {
+    isAsking: () => asking,
+    async request() {
+      if (asking) return false;
+      if (!dirty()) {
+        deps.close();
+        return true;
+      }
+      asking = true;
+      deps.haptic?.('warning');
+      let discard = false;
+      try {
+        discard = await deps.confirm();
+      } catch (error) {
+        console.error('[matrix-planner] discard confirm failed', error);
+        discard = false;
+      } finally {
+        asking = false;
+      }
+      if (discard) deps.close();
+      return discard;
+    },
+  };
+}
+
+/** Окно «Сбросить изменения?» (на мобильных — нижний лист с двумя кнопками). */
+class DiscardConfirm extends Modal {
+  private result = false;
+
+  constructor(
+    app: App,
+    private readonly platform: PlatformInfo,
+    private readonly done: (discard: boolean) => void,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const { modalEl, contentEl } = this;
+    const titleId = `mp-discard-title-${++sheetCounter}`;
+    this.containerEl.addClass('mp-sheet-container', 'mp-discard-container');
+    modalEl.addClass('mp-discard');
+    if (this.platform.isMobile) modalEl.addClass('mp-discard-bottom');
+    modalEl.setAttr('role', 'alertdialog');
+    modalEl.setAttr('aria-modal', 'true');
+    modalEl.setAttr('aria-labelledby', titleId);
+    contentEl.addClass('mp-discard-body');
+    contentEl.createEl('h2', { cls: 'mp-discard-title', text: t('sheetGuard.title'), attr: { id: titleId } });
+    contentEl.createEl('p', { cls: 'mp-discard-desc', text: t('sheetGuard.desc') });
+    const actions = contentEl.createDiv({ cls: 'mp-discard-actions' });
+    const discard = actions.createEl('button', { cls: 'mp-discard-button mod-warning', text: t('sheetGuard.discard'), attr: { type: 'button' } });
+    const keep = actions.createEl('button', { cls: 'mp-discard-button mp-discard-keep', text: t('sheetGuard.keep'), attr: { type: 'button' } });
+    discard.addEventListener('click', () => {
+      this.result = true;
+      this.close();
+    });
+    keep.addEventListener('click', () => this.close());
+    // По умолчанию — безопасный вариант.
+    window.setTimeout(() => keep.focus(), 0);
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    this.done(this.result);
+  }
+}
+
+/** Показать «Сбросить изменения?». */
+export function confirmDiscard(app: App, platform: PlatformInfo): Promise<boolean> {
+  return new Promise((resolve) => new DiscardConfirm(app, platform, resolve).open());
+}
+
+class FormSheet extends Modal {
   private submitEl: HTMLButtonElement | null = null;
   private submitEnabled = true;
   private busy = false;
   private closed = false;
   private detachDrag: (() => void) | null = null;
+  private readonly guard: CloseGuard;
+  /** Ручка для формы и вызывающего: `close()` — без вопроса, `requestClose()` — с вопросом. */
+  readonly handle: SheetHandle;
 
   constructor(
     app: App,
     private readonly platform: PlatformInfo,
     private readonly options: SheetOptions,
+    confirm: () => Promise<boolean>,
   ) {
     super(app);
+    this.guard = createCloseGuard({
+      isDirty: options.isDirty ? () => !this.closed && !this.busy && (options.isDirty?.() ?? false) : undefined,
+      confirm,
+      close: () => this.forceClose(),
+      haptic: (kind) => options.haptic?.(kind),
+    });
+    this.handle = {
+      setSubmitEnabled: (enabled) => this.setSubmitEnabled(enabled),
+      setBusy: (busy) => this.setBusy(busy),
+      close: () => this.forceClose(),
+      submit: () => void this.submit(),
+      requestClose: () => this.requestClose(),
+    };
   }
 
   onOpen(): void {
@@ -97,7 +222,7 @@ class FormSheet extends Modal implements SheetHandle {
     modalEl.insertBefore(header, contentEl);
     if (this.platform.isMobile) {
       const grabber = header.createDiv({ cls: 'mp-sheet-grabber', attr: { 'aria-hidden': 'true' } });
-      this.detachDrag = attachDragToClose(grabber, modalEl, () => this.close());
+      this.detachDrag = attachDragToClose(grabber, modalEl, () => void this.requestClose());
     }
     const bar = header.createDiv({ cls: 'mp-sheet-bar' });
     const closeBtn = bar.createEl('button', {
@@ -105,7 +230,7 @@ class FormSheet extends Modal implements SheetHandle {
       attr: { type: 'button', 'aria-label': t('shell.sheet.close'), title: t('shell.sheet.close') },
     });
     setIcon(closeBtn, 'x');
-    closeBtn.addEventListener('click', () => this.close());
+    closeBtn.addEventListener('click', () => void this.requestClose());
     bar.createEl('h2', { cls: 'mp-sheet-title', text: options.title, attr: { id: titleId } });
     if (options.submitLabel !== null) {
       const submit = bar.createEl('button', {
@@ -134,7 +259,7 @@ class FormSheet extends Modal implements SheetHandle {
     });
     this.syncSubmit();
     try {
-      options.render(contentEl, this);
+      options.render(contentEl, this.handle);
     } catch (error) {
       console.error('[matrix-planner] sheet render failed', error);
       contentEl.createDiv({ cls: 'mp-sheet-error', text: t('common.errors.unknown') });
@@ -168,7 +293,23 @@ class FormSheet extends Modal implements SheetHandle {
     this.syncSubmit();
   }
 
+  /**
+   * Obsidian закрывает окно через `close()` (Esc, касание вне листа): изменённая форма
+   * сначала спрашивает «Сбросить изменения?».
+   */
   close(): void {
+    if (this.closed) return;
+    void this.requestClose();
+  }
+
+  requestClose(): Promise<boolean> {
+    if (this.closed) return Promise.resolve(true);
+    return this.guard.request();
+  }
+
+  /** Закрыть без вопроса (после сохранения, удаления). */
+  forceClose(): void {
+    if (this.closed) return;
     super.close();
   }
 
@@ -196,7 +337,7 @@ class FormSheet extends Modal implements SheetHandle {
     } finally {
       if (!this.closed) this.setBusy(false);
     }
-    if (ok && !this.closed) this.close();
+    if (ok && !this.closed) this.forceClose();
   }
 }
 
@@ -205,11 +346,13 @@ export class FormSheetPresenter implements SheetPresenter {
   constructor(
     private readonly app: App,
     private readonly platform: PlatformInfo,
+    /** «Сбросить изменения?» (в тестах — подмена). */
+    private readonly confirm: () => Promise<boolean> = () => confirmDiscard(app, platform),
   ) {}
 
   open(options: SheetOptions): SheetHandle {
-    const sheet = new FormSheet(this.app, this.platform, options);
+    const sheet = new FormSheet(this.app, this.platform, options, this.confirm);
     sheet.open();
-    return sheet;
+    return sheet.handle;
   }
 }

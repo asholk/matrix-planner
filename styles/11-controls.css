@@ -374,3 +374,58 @@
     animation: none;
   }
 }
+
+/* Шапка вида на телефоне (доработка 006, §3): кнопки шторок Obsidian — свайпы внутри вида
+   шторки не открывают, а заголовок вида Obsidian с его кнопками скрыт. */
+.mp-view-topbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2) calc(var(--mp-gutter) + var(--mp-safe-right)) 0 calc(var(--mp-gutter) + var(--mp-safe-left));
+}
+
+.mp-view-topbar-spacer {
+  flex: 1 1 auto;
+}
+
+.mp-view.has-topbar .mp-panel {
+  padding-top: var(--size-4-2);
+}
+
+.mp-view button.mp-sidebar-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.25em;
+  height: 2.25em;
+  padding: 0;
+  border: none;
+  border-radius: var(--mp-radius-pill);
+  background: var(--mp-card-bg);
+  color: var(--text-muted);
+  box-shadow: var(--mp-shadow-card);
+  cursor: var(--cursor);
+}
+
+/* Область касания 44 × 44 px при значке прежнего размера. */
+.mp-sidebar-toggle::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+}
+
+.mp-sidebar-toggle:hover {
+  color: var(--text-normal);
+}
+
+.mp-sidebar-toggle .svg-icon {
+  width: 1.1em;
+  height: 1.1em;
+}

@@ -243,3 +243,52 @@ describe('зона удаления', () => {
     expect(rect).toEqual({ left: 50, right: 350, top: 740, bottom: 790 });
   });
 });
+
+describe('подъём и меню без сдвига (доработка 006, §4)', () => {
+  it('подняли и отпустили на месте — меню (iPhone), click подавлен', () => {
+    const g = new CardGesture(TASK_DRAG_GESTURE_OPTIONS);
+    g.down(down({ pointerType: 'touch' }));
+    expect(g.timeout(500)).toMatchObject({ type: 'drag-start', byLongPress: true });
+    expect(g.hasTravelled()).toBe(false);
+    expect(g.up({ x: 100, y: 100, time: 900 })).toEqual({ type: 'long-press' });
+    expect(g.consumesClick()).toBe(true);
+  });
+
+  it('дрожание пальца меньше 8 px после подъёма — всё равно меню', () => {
+    const g = new CardGesture(TASK_DRAG_GESTURE_OPTIONS);
+    g.down(down({ pointerType: 'touch' }));
+    g.timeout(500);
+    expect(g.move({ x: 104, y: 105, time: 600 })).toEqual({ type: 'drag-move', x: 104, y: 105 });
+    expect(g.up({ x: 105, y: 105, time: 700 })).toEqual({ type: 'long-press' });
+  });
+
+  it('сдвиг больше 8 px после подъёма — перенос, даже если палец вернулся', () => {
+    const g = new CardGesture(TASK_DRAG_GESTURE_OPTIONS);
+    g.down(down({ pointerType: 'touch' }));
+    g.timeout(500);
+    g.move({ x: 130, y: 100, time: 600 });
+    expect(g.hasTravelled()).toBe(true);
+    expect(g.up({ x: 101, y: 100, time: 700 })).toEqual({ type: 'drop', x: 101, y: 100 });
+  });
+
+  it('отпускание далеко без промежуточных move — перенос', () => {
+    const g = new CardGesture(TASK_DRAG_GESTURE_OPTIONS);
+    g.down(down({ pointerType: 'touch' }));
+    g.timeout(500);
+    expect(g.up({ x: 200, y: 100, time: 700 })).toEqual({ type: 'drop', x: 200, y: 100 });
+  });
+
+  it('режим долгого нажатия можно задать для жеста: меню в списке по датам', () => {
+    const g = new CardGesture(TASK_DRAG_GESTURE_OPTIONS);
+    g.down(down({ pointerType: 'touch', longPress: 'menu' }));
+    expect(g.timeout(500)).toEqual({ type: 'long-press' });
+    expect(g.getPhase()).toBe('menu');
+  });
+
+  it('мышь по-прежнему переносит без меню', () => {
+    const g = new CardGesture(TASK_DRAG_GESTURE_OPTIONS);
+    g.down(down());
+    g.move({ x: 120, y: 100, time: 10 });
+    expect(g.up({ x: 120, y: 100, time: 20 })).toEqual({ type: 'drop', x: 120, y: 100 });
+  });
+});

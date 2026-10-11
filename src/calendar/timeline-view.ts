@@ -6,7 +6,7 @@
 
 import { setIcon } from 'obsidian';
 import { t } from '../i18n';
-import { layoutTimeline, MINUTES_PER_DAY } from './timeline-layout';
+import { layoutTimeline, MINUTES_PER_DAY, timelineMinuteAt } from './timeline-layout';
 import {
   initialScrollMinute,
   minuteLabel,
@@ -23,6 +23,78 @@ export interface TimelineOptions {
   strings: Pick<CalendarLabelStrings, 'hour12' | 'am' | 'pm'>;
   /** Прокрутка шкалы с прошлой отрисовки того же дня; `null` — начальная. */
   scrollTop: number | null;
+  /**
+   * Долгое нажатие на пустом месте шкалы (доработка 006, §13): минута начала нового события
+   * (округлена до 15 мин). Прокрутка и сдвиг пальца отменяют нажатие.
+   */
+  onLongPressEmpty?: ((minute: number) => void) | null;
+}
+
+/** Задержка долгого нажатия на пустом месте шкалы, мс. */
+export const TIMELINE_LONG_PRESS_MS = 500;
+/** Сдвиг пальца, после которого нажатие считается прокруткой, px. */
+const LONG_PRESS_SLOP_PX = 8;
+
+/**
+ * Долгое нажатие на пустом месте сетки: блоки элементов не считаются, прокрутка шкалы, сдвиг
+ * пальца, отпускание и отмена указателя сбрасывают таймер.
+ */
+export function attachTimelineLongPress(
+  scroller: HTMLElement,
+  grid: HTMLElement,
+  onLongPress: (minute: number) => void,
+  timers: { set(callback: () => void, ms: number): number; clear(id: number): void } = {
+    set: (callback, ms) => window.setTimeout(callback, ms),
+    clear: (id) => window.clearTimeout(id),
+  },
+): () => void {
+  let timer: number | null = null;
+  let start: { x: number; y: number } | null = null;
+  const cancel = (): void => {
+    if (timer !== null) timers.clear(timer);
+    timer = null;
+    start = null;
+  };
+  const down = (evt: PointerEvent): void => {
+    if (evt.button !== 0) return;
+    const target = evt.target as HTMLElement | null;
+    if (target?.closest?.('.mp-cal-timeline-block')) return;
+    cancel();
+    start = { x: evt.clientX, y: evt.clientY };
+    const clientY = evt.clientY;
+    timer = timers.set(() => {
+      timer = null;
+      start = null;
+      const rect = grid.getBoundingClientRect();
+      onLongPress(timelineMinuteAt(clientY - rect.top, rect.height));
+    }, TIMELINE_LONG_PRESS_MS);
+  };
+  const move = (evt: PointerEvent): void => {
+    if (!start) return;
+    if (Math.abs(evt.clientX - start.x) > LONG_PRESS_SLOP_PX || Math.abs(evt.clientY - start.y) > LONG_PRESS_SLOP_PX) cancel();
+  };
+  // Системное меню долгого нажатия на пустом месте не нужно.
+  const context = (evt: MouseEvent): void => {
+    const target = evt.target as HTMLElement | null;
+    if (!target?.closest?.('.mp-cal-timeline-block')) evt.preventDefault();
+  };
+  grid.addEventListener('pointerdown', down);
+  grid.addEventListener('pointermove', move);
+  grid.addEventListener('pointerup', cancel);
+  grid.addEventListener('pointercancel', cancel);
+  grid.addEventListener('pointerleave', cancel);
+  grid.addEventListener('contextmenu', context);
+  scroller.addEventListener('scroll', cancel);
+  return () => {
+    cancel();
+    grid.removeEventListener('pointerdown', down);
+    grid.removeEventListener('pointermove', move);
+    grid.removeEventListener('pointerup', cancel);
+    grid.removeEventListener('pointercancel', cancel);
+    grid.removeEventListener('pointerleave', cancel);
+    grid.removeEventListener('contextmenu', context);
+    scroller.removeEventListener('scroll', cancel);
+  };
 }
 
 /** Возвращает прокручиваемый элемент шкалы (вкладка сохраняет его прокрутку). */
@@ -46,6 +118,12 @@ export function renderTimeline(parent: HTMLElement, model: DayListModel, ctx: Da
     const row = rows.get(block.item.key);
     if (!row) continue;
     renderBlock(lane, row, timelineGeometry(block), block.endMinute - block.startMinute, ctx);
+  }
+
+  if (options.onLongPressEmpty) {
+    scroller.setAttr('aria-description', t('calendar.timeline.newEventHint'));
+    grid.addClass('is-pressable');
+    attachTimelineLongPress(scroller, grid, options.onLongPressEmpty);
   }
 
   if (options.nowMinute !== null) {

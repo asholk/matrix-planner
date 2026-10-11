@@ -17,6 +17,7 @@ import type {
   NoteIndex,
   NoteService,
   Notifier,
+  PendingDeletes,
   PlannerViewHost,
   SettingsStore,
   TabController,
@@ -35,7 +36,7 @@ import type {
   Unsubscribe,
   VaultPath,
 } from '../model/types';
-import { floatingFromDate, isValidTimeZone, parseDateParts, timeToMinutes } from '../model/dates';
+import { floatingFromDate, isValidTimeZone, minutesToTime, parseDateParts, timeToMinutes } from '../model/dates';
 import { DEFAULT_QUADRANT_STYLE, DEFAULT_QUADRANT_TITLES } from '../model/defaults';
 import { registerDictionary, t } from '../i18n';
 import { ruCalendar } from '../i18n/ru/calendar';
@@ -45,6 +46,8 @@ import { enCalendarModel } from '../i18n/en/calendar-model';
 import { ruCache } from '../i18n/ru/cache';
 import { enCache } from '../i18n/en/cache';
 import { createDatePicker } from '../ui/controls/date-picker';
+import type { HapticKind } from '../ui/haptics';
+import { SyncStatusLine, type SyncStatusSource } from './sync-status-line';
 import { showMenuAt } from '../ui/controls/context-menu';
 import { errorMessageKey } from '../tasks/tasks-presenter';
 import { addTaskMenuItems } from '../tasks/task-menu';
@@ -58,6 +61,7 @@ import {
   buildWeekCells,
   goToday,
   headerMonth,
+  hideItems,
   initCalendarState,
   isFilterNarrowed,
   itemAction,
@@ -116,7 +120,16 @@ export interface CalendarTabDeps {
   index?: (Pick<NoteIndex, 'getMatrix' | 'isReady' | 'whenReady'> & Partial<Pick<NoteIndex, 'getById'>>) | null;
   /** Выбор месяца и года; по умолчанию — общий `createDatePicker`. */
   datePicker?: DatePickerFactory;
+  /** Тактильный отклик (`CoreServices.haptics`). */
+  haptic?(kind: HapticKind): void;
+  /** Статус синхронизации с «Календарём» iOS — строка под шапкой (доработка 006, §7). */
+  syncStatus?: SyncStatusSource | null;
+  /** Удаления с «Вернуть»: такие элементы скрыты до удаления (доработка 006, §12). */
+  pendingDeletes?: Pick<PendingDeletes, 'has' | 'onChange'> | null;
 }
+
+/** Окно «Вернуть» после выполнения задачи во вкладке, мс. */
+export const COMPLETE_UNDO_MS = 5000;
 
 /** Период проверки смены суток, пока вкладка показана, мс. */
 export const DAY_CHECK_INTERVAL_MS = 60_000;
@@ -200,6 +213,7 @@ export class CalendarTab implements TabController {
 
   private rootEl: HTMLElement | null = null;
   private headerEl: HTMLElement | null = null;
+  private syncLine: SyncStatusLine | null = null;
   private pickerEl: HTMLElement | null = null;
   private weekEl: HTMLElement | null = null;
   private bodyEl: HTMLElement | null = null;
@@ -240,13 +254,28 @@ export class CalendarTab implements TabController {
     const root = containerEl.createDiv({ cls: 'mp-calendar' });
     this.rootEl = root;
     this.headerEl = root.createDiv({ cls: 'mp-cal-header', attr: { role: 'toolbar', 'aria-label': t('calendar.header.toolbar') } });
+    if (this.deps.syncStatus) {
+      const line = new SyncStatusLine({
+        source: this.deps.syncStatus,
+        openSettings: () => this.host.switchTab('settings'),
+        haptic: (kind) => this.haptic(kind),
+      });
+      line.mount(root.createDiv());
+      this.syncLine = line;
+    }
     this.pickerEl = root.createDiv({ cls: 'mp-cal-picker' });
     this.pickerEl.hidden = true;
     this.weekEl = root.createDiv({ cls: 'mp-cal-week' });
     this.bodyEl = root.createDiv({ cls: 'mp-cal-body' });
 
     this.subscriptions.push(this.deps.dayItems.onChange(() => this.scheduleRender()));
-    this.subscriptions.push(this.deps.settings.onChange(() => this.scheduleRender()));
+    this.subscriptions.push(
+      this.deps.settings.onChange(() => {
+        this.syncLine?.refresh();
+        this.scheduleRender();
+      }),
+    );
+    if (this.deps.pendingDeletes) this.subscriptions.push(this.deps.pendingDeletes.onChange(() => this.scheduleRender()));
     if (this.deps.cache) this.subscriptions.push(this.deps.cache.onChange(() => this.scheduleRender()));
 
     const doc = (containerEl as { ownerDocument?: Document | null }).ownerDocument ?? (typeof document === 'undefined' ? null : document);
@@ -283,6 +312,8 @@ export class CalendarTab implements TabController {
       this.renderTimer = null;
     }
     for (const unsubscribe of this.subscriptions.splice(0)) unsubscribe();
+    this.syncLine?.unmount();
+    this.syncLine = null;
     this.rootEl?.remove();
     this.rootEl = null;
     this.headerEl = null;
@@ -383,6 +414,8 @@ export class CalendarTab implements TabController {
     let days: DayItemsByDate;
     try {
       days = this.deps.dayItems.getDays(range, { includeCompleted: true });
+      const pending = this.deps.pendingDeletes;
+      if (pending) days = hideItems(days, (id) => pending.has(id));
     } catch (error) {
       console.error('[matrix-planner] calendar data failed', error);
       days = new Map();
@@ -518,7 +551,7 @@ export class CalendarTab implements TabController {
           maxBars: DEFAULT_MAX_BARS,
           title: monthYearTitle(format.language, year, month),
           focusSelected: monthFocus,
-          vibrate: this.host.platform.isAndroid,
+          menuHaptic: () => this.haptic('tap'),
         },
       );
       renderDayList(body, model, ctx);
@@ -528,6 +561,7 @@ export class CalendarTab implements TabController {
         nowMinute: state.selected === state.today ? this.nowMinute() : null,
         strings,
         scrollTop: previous,
+        onLongPressEmpty: this.host.actions.isAvailable('event') ? (minute) => this.createEventAt(minute) : null,
       });
       this.timelineScroll = { date: state.selected, top: this.timelineEl.scrollTop };
       const timeline = this.timelineEl;
@@ -555,7 +589,8 @@ export class CalendarTab implements TabController {
         return row.source === 'task' || row.source === 'event' ? planner : null;
       },
       connectCalendar: () => this.host.switchTab('settings'),
-      vibrate: this.host.platform.isAndroid,
+      showAllSources: () => this.showAllSources(),
+      menuHaptic: () => this.haptic('tap'),
       handlers: {
         open: (item) => this.openItem(item),
         menu: (item, anchor) => this.openItemMenu(item, anchor),
@@ -567,8 +602,26 @@ export class CalendarTab implements TabController {
 
   // --- Действия ---
 
+  private haptic(kind: HapticKind): void {
+    this.deps.haptic?.(kind);
+  }
+
+  /** «Показать все» в пустом дне при суженном фильтре. */
+  private showAllSources(): void {
+    this.haptic('select');
+    void this.deps.settings.update((draft) => {
+      for (const key of SOURCE_KEYS) draft.ui.calendarSources[key] = true;
+    });
+  }
+
+  /** Долгое нажатие на пустом месте шкалы — новое событие на это время (1 ч); отклик `tap` — при открытии формы. */
+  private createEventAt(minute: number): void {
+    this.host.actions.openEventForm({ mode: 'create', date: this.state.selected, time: minutesToTime(minute) });
+  }
+
   private changeMode(mode: CalendarMode): void {
     if (this.state.mode === mode) return;
+    this.haptic('select');
     this.closePicker();
     this.settingsMode = mode;
     this.update(setMode(this.state, mode));
@@ -578,6 +631,7 @@ export class CalendarTab implements TabController {
   }
 
   private openSourcesMenu(evt: MouseEvent): void {
+    this.haptic('tap');
     const sources = this.sources();
     const menu = new Menu();
     for (const key of SOURCE_KEYS) {
@@ -586,6 +640,7 @@ export class CalendarTab implements TabController {
           .setTitle(t(`calendar.sources.${key}`))
           .setChecked(sources[key])
           .onClick(() => {
+            this.haptic('select');
             void this.deps.settings.update((draft) => {
               draft.ui.calendarSources = toggleSource(draft.ui.calendarSources, key);
             });
@@ -748,13 +803,9 @@ export class CalendarTab implements TabController {
     rowEl.addClass('is-busy');
     if (request.op === 'complete') {
       rowEl.addClass('is-completing');
-      if (this.host.platform.isAndroid) {
-        try {
-          navigator.vibrate?.(15);
-        } catch {
-          // Вибрация необязательна.
-        }
-      }
+      this.haptic('success');
+    } else {
+      this.haptic('undo');
     }
     const run = async () => {
       try {
@@ -763,12 +814,16 @@ export class CalendarTab implements TabController {
             ? await this.deps.tasks.complete(request.taskId, request.instanceDate)
             : await this.deps.tasks.uncomplete(request.taskId, request.instanceDate);
         if (!result.ok) {
+          this.haptic('error');
           this.deps.notifier.show(t(errorMessageKey(result.error)));
           if (result.error.detail) console.warn('[matrix-planner] calendar task operation failed', result.error);
           rowEl.removeClass('is-completing');
+        } else if (request.op === 'complete' && result.changed) {
+          this.offerUncomplete(request.taskId, request.instanceDate);
         }
       } catch (error) {
         console.error('[matrix-planner] calendar task operation failed', error);
+        this.haptic('error');
         this.deps.notifier.show(t('common.errors.unknown'));
         rowEl.removeClass('is-completing');
       } finally {
@@ -778,6 +833,27 @@ export class CalendarTab implements TabController {
     };
     if (request.op === 'complete') window.setTimeout(() => void run(), COMPLETE_ANIMATION_MS);
     else void run();
+  }
+
+  /** «Задача выполнена · Вернуть» (как во вкладке «Задачи»): «Вернуть» снимает выполнение. */
+  private offerUncomplete(taskId: string, instanceDate: LocalDateString | undefined): void {
+    const notifier = this.deps.notifier;
+    const message = t('calendar.notices.taskCompleted');
+    if (!notifier.showAction) {
+      notifier.show(message);
+      return;
+    }
+    notifier.showAction(
+      message,
+      {
+        label: t('calendar.notices.undo'),
+        run: () => {
+          this.haptic('undo');
+          void this.runItemOp(`undo:${taskId}`, () => this.deps.tasks.uncomplete(taskId, instanceDate));
+        },
+      },
+      COMPLETE_UNDO_MS,
+    );
   }
 
   // --- Выбор месяца и года ---

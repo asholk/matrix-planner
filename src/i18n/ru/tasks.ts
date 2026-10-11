@@ -52,10 +52,21 @@ export const ruTasks = {
     delete: 'Удалить',
     uncomplete: 'Вернуть в работу',
   },
+  swipe: {
+    complete: 'Выполнить',
+    postpone: 'На завтра',
+    delete: 'Удалить',
+  },
+  overdue: {
+    rescheduleAll: 'Перенести всё на сегодня',
+  },
   drag: {
     deleteZone: 'Перетащите сюда, чтобы удалить',
   },
   notices: {
+    completed: 'Задача выполнена',
+    postponed: 'Задача перенесена на завтра',
+    rescheduledAll: 'Перенесено {count}',
     deleted: 'Задача удалена в корзину',
     deletedUndo: 'Задача удалена',
     undo: 'Вернуть',

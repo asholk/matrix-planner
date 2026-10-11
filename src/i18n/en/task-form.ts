@@ -29,6 +29,8 @@ export const enTaskForm = {
   deleteLabel: 'Delete task',
   deleteConfirm: 'Select again to delete',
   deleted: 'Task moved to trash',
+  deletedUndo: 'Task deleted',
+  undo: 'Undo',
   /** Caption of the selected quadrant next to "Quadrant" (frames 04, 05). */
   quadrantHint: {
     do: 'Urgent and important',

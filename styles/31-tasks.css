@@ -802,3 +802,206 @@
 .mp-view.is-phone .mp-task-check {
   width: 1.8em;
 }
+
+/* --- Доработка 006: жесты касанием, свайпы, области касания --- */
+
+/* Вертикальная прокрутка — браузеру; горизонтальные жесты (свайп, перенос) — вкладке.
+   Без выделения текста и выноски iOS при долгом нажатии. */
+.mp-task-card {
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+  min-height: max(3em, 44px);
+}
+
+.mp-tasks.is-dragging,
+.mp-tasks.is-dragging * {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Кружок выполнения: значок прежнего размера, область касания не меньше 44 × 44 px. По ширине — сама
+   кнопка (от края карточки), а не псевдоэлемент: список квадранта обрезает всё, что выходит за карточку,
+   а вправо область заходила бы на название (нажатие открывало бы не то). */
+.mp-tasks .mp-task-check {
+  position: relative;
+}
+
+.mp-view.is-mobile .mp-tasks .mp-task-check {
+  width: 44px;
+  margin-left: -0.3em;
+}
+
+.mp-tasks .mp-task-check::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  min-width: 44px;
+  height: 44px;
+  transform: translateY(-50%);
+}
+
+/* «+» квадранта: та же область касания; заголовок не ниже неё, чтобы она не заходила на карточки. */
+.mp-quadrant-add {
+  position: relative;
+}
+
+.mp-quadrant-add::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+}
+
+.mp-quadrant-header {
+  min-height: 44px;
+}
+
+/* Свайп карточки в режиме «Список». */
+.mp-list-section-cards {
+  position: relative;
+}
+
+.mp-task-card.is-swiping {
+  z-index: 1;
+  transform: translateX(var(--mp-swipe-x, 0px));
+  transition: none;
+}
+
+.mp-task-card.is-swipe-out,
+.mp-task-card.is-swipe-back {
+  transition: transform 180ms ease-out;
+}
+
+.mp-task-swipe-track {
+  position: absolute;
+  z-index: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  border-radius: 0.9em;
+  background: var(--background-modifier-hover);
+  pointer-events: none;
+  --mp-swipe-complete: var(--mp-done);
+  --mp-swipe-postpone: var(--color-orange, #e8912d);
+  --mp-swipe-delete: var(--text-error);
+}
+
+.mp-task-swipe-side {
+  display: none;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: 0 var(--size-4-4);
+  color: #ffffff;
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+}
+
+.mp-task-swipe-side.mod-postpone {
+  justify-content: flex-end;
+}
+
+.mp-task-swipe-track.is-right .mp-task-swipe-side.mod-complete,
+.mp-task-swipe-track.is-left .mp-task-swipe-side.mod-postpone {
+  display: flex;
+}
+
+/* До порога — бледный цвет действия, за порогом — насыщенный. */
+.mp-task-swipe-track.is-right {
+  background: color-mix(in srgb, var(--mp-swipe-complete) 45%, var(--background-primary));
+}
+
+.mp-task-swipe-track.is-left {
+  background: color-mix(in srgb, var(--mp-swipe-postpone) 45%, var(--background-primary));
+}
+
+.mp-task-swipe-track.is-right.is-armed {
+  background: var(--mp-swipe-complete);
+}
+
+.mp-task-swipe-track.is-left.is-armed {
+  background: var(--mp-swipe-postpone);
+}
+
+.mp-task-swipe-track.is-left[data-action='delete'] {
+  background: var(--mp-swipe-delete);
+}
+
+.mp-task-swipe-icon {
+  display: inline-flex;
+  flex: none;
+  transition: transform var(--mp-transition);
+}
+
+.mp-task-swipe-track.is-armed .mp-task-swipe-icon {
+  transform: scale(1.2);
+}
+
+.mp-task-swipe-icon .svg-icon {
+  width: 1.3em;
+  height: 1.3em;
+  stroke-width: 2.5;
+}
+
+.mp-task-swipe-icon.mod-delete,
+.mp-task-swipe-label.mod-delete,
+.mp-task-swipe-track[data-action='delete'] .mp-task-swipe-icon.mod-postpone,
+.mp-task-swipe-track[data-action='delete'] .mp-task-swipe-label.mod-postpone {
+  display: none;
+}
+
+.mp-task-swipe-track[data-action='delete'] .mp-task-swipe-icon.mod-delete,
+.mp-task-swipe-track[data-action='delete'] .mp-task-swipe-label.mod-delete {
+  display: inline-flex;
+}
+
+/* «Перенести всё на сегодня» в разделе «Просрочено». */
+.mp-tasks-reschedule-all {
+  margin-left: auto;
+  gap: var(--size-4-1);
+  min-height: 2.25em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-error);
+}
+
+.mp-tasks-reschedule-all-icon {
+  display: inline-flex;
+}
+
+.mp-tasks-reschedule-all-icon .svg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-task-card.is-swipe-out,
+  .mp-task-card.is-swipe-back {
+    transition: none;
+  }
+}
+
+/* Сетка на телефоне: колонка узкая (~150 px), поэтому кружок — 34 × 44 px, чтобы слова в названии
+   не рвались посреди слова; в списке остаётся 44 × 44. */
+.mp-view.is-phone .mp-matrix .mp-task-check {
+  width: 34px;
+}
+
+.mp-view.is-phone .mp-matrix .mp-task-check::before {
+  min-width: 0;
+}
+
+.mp-view.is-phone .mp-matrix .mp-task-title-row {
+  gap: 0.15em;
+}
+
+.mp-view.is-phone .mp-matrix .mp-task-flag .svg-icon {
+  width: 0.85em;
+  height: 0.85em;
+}

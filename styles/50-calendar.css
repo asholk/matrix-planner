@@ -963,3 +963,101 @@
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
+
+/* Строка статуса синхронизации под шапкой (доработка 006, §7). */
+.mp-cal-sync {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  min-height: 2em;
+  margin: var(--size-4-1) 0 0;
+  padding: var(--size-4-1) var(--size-4-3);
+  border-radius: var(--mp-radius-pill);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.mp-cal-sync[hidden] {
+  display: none;
+}
+
+.mp-cal-sync[data-tone='error'] {
+  background: rgba(var(--color-red-rgb), 0.1);
+  color: var(--text-error);
+}
+
+.mp-cal-sync[data-tone='success'] {
+  background: rgba(var(--color-green-rgb), 0.12);
+  color: var(--text-success);
+}
+
+.mp-cal-sync-icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.mp-cal-sync-icon .svg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+.mp-cal-sync[data-kind='sending'] .mp-cal-sync-icon .svg-icon {
+  animation: mp-cal-sync-spin 1s linear infinite;
+}
+
+@keyframes mp-cal-sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.mp-cal-sync-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mp-calendar button.mp-cal-sync-action {
+  flex: none;
+  height: auto;
+  padding: 0 var(--size-4-1);
+  border: none;
+  background: transparent;
+  color: var(--text-accent);
+  font-size: inherit;
+  font-weight: var(--font-semibold);
+  box-shadow: none;
+  cursor: var(--cursor);
+}
+
+.mp-calendar button.mp-cal-sync-action:hover {
+  background: transparent;
+  text-decoration: underline;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-cal-sync[data-kind='sending'] .mp-cal-sync-icon .svg-icon {
+    animation: none;
+  }
+}
+
+/* Пустой день при суженном фильтре: «Показать все» (доработка 006, §5). */
+.mp-cal-empty-action {
+  background: var(--mp-fab-bg);
+  color: var(--mp-fab-ink);
+  font-weight: var(--font-semibold);
+}
+
+.mp-cal-empty-action:hover {
+  background: var(--mp-fab-bg);
+  opacity: 0.9;
+}
+
+/* Долгое нажатие на пустом месте шкалы — без системного меню и выделения (доработка 006, §13). */
+.mp-cal-timeline-grid.is-pressable {
+  -webkit-touch-callout: none;
+  user-select: none;
+}

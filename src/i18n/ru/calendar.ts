@@ -44,6 +44,8 @@ export const ruCalendar = {
     label: 'Элементы дня {date}',
     connect: 'Подключить',
     connectLabel: 'Открыть настройки календаря iOS',
+    filteredEmpty: 'Нет элементов с выбранными фильтрами',
+    showAll: 'Показать все',
   },
   item: {
     task: 'Задача «{title}»',
@@ -64,6 +66,7 @@ export const ruCalendar = {
   timeline: {
     label: 'Временная шкала дня',
     now: 'Сейчас',
+    newEventHint: 'Удерживайте пустое место шкалы, чтобы добавить событие',
   },
   month: {
     label: 'Месяц {value}',
@@ -80,5 +83,7 @@ export const ruCalendar = {
     eventPostponed: 'Событие перенесено на завтра',
     eventDeleted: 'Событие удалено',
     noteDeleted: 'Заметка удалена в корзину',
+    taskCompleted: 'Задача выполнена',
+    undo: 'Вернуть',
   },
 } satisfies Dictionary;

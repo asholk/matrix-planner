@@ -10,8 +10,10 @@
  */
 
 import { createHaptics } from '../ui/haptics';
+import { ObservableDeferredDeletes } from './pending-deletes';
 import { Notice, Platform, type App, type Plugin, type WorkspaceLeaf } from 'obsidian';
 import type {
+  AddContext,
   BannerFactory,
   Clock,
   CoreServices,
@@ -20,7 +22,6 @@ import type {
   IdGenerator,
   Notifier,
   PlannerActions,
-  PlannerViewOptions,
   NoteIndex,
   PlatformInfo,
   TabFactory,
@@ -51,7 +52,7 @@ import { createTasksTab } from '../tasks/tasks-tab';
 import { VaultIntegrityService } from '../integrity/integrity-service';
 import { createAttentionPanel, createWorkspaceOpeners } from '../integrity/attention-panel';
 import { createVaultMigrationDeps, needsMigration, runMigrations } from '../integrity/migrations';
-import { PlannerView, VIEW_TYPE_PLANNER } from '../ui/planner-view';
+import { PlannerView, VIEW_TYPE_PLANNER, type PlannerShellOptions } from '../ui/planner-view';
 import { FormSheetPresenter } from '../ui/controls/form-sheet';
 import { createDatePicker } from '../ui/controls/date-picker';
 import { createAddMenuOpener } from '../ui/add-menu';
@@ -368,8 +369,12 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
   const sheets = new FormSheetPresenter(app, platform);
 
   const haptics = createHaptics({ enabled: () => settings.get().haptics });
+  // Одна очередь отложенных удалений на всё (форма, перетаскивание, свайп); выгрузка — удалить сразу.
+  const pendingDeletes = new ObservableDeferredDeletes();
+  plugin.register(() => pendingDeletes.flush());
   const services: CoreServices = {
     haptics,
+    pendingDeletes,
     clock,
     ids,
     platform,
@@ -420,7 +425,14 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
     // Формы события и заметки — этап 2; до подключения `isAvailable` возвращает false.
     openEventForm: unsupported,
     openNoteForm: unsupported,
-    openAddMenu: createAddMenuOpener(app, platform, () => actions),
+    openAddMenu: (() => {
+      const open = createAddMenuOpener(app, platform, () => actions);
+      // Отклик при открытии листа «Добавить» (доработка 006).
+      return (context: AddContext, anchor?: MouseEvent | HTMLElement) => {
+        haptics.play('tap');
+        open(context, anchor);
+      };
+    })(),
     openNote,
     openItem: async (id) => {
       const item = index.getById(id);
@@ -473,7 +485,7 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
     openStatsSheet({ sheets, index, clock, format, notifier, actions });
   };
 
-  const tasksTab = createTasksTab({ index, tasks, settings, clock, format, notifier, weather, openStats });
+  const tasksTab = createTasksTab({ index, tasks, settings, clock, format, notifier, weather, openStats, haptics, pendingDeletes });
 
   // Общие зависимости вкладки настроек Obsidian и вкладки «Настройки» вида.
   const settingsDeps: SettingsTabDeps = {
@@ -495,11 +507,12 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
     },
   });
 
-  const viewOptions = (): PlannerViewOptions => ({
+  const viewOptions = (): PlannerShellOptions => ({
     tabs: { ...(extension?.tabs ?? {}), tasks: tasksTab, settings: settingsTab },
     banner: extension?.banner ?? null,
     actions,
     platform,
+    haptics,
     initialTab: settings.get().ui.lastTab,
     onTabChange: (tab: PlannerTabId) => {
       // «Настройки» не запоминаются: при следующем открытии — рабочая вкладка.

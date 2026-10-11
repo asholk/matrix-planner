@@ -5,6 +5,7 @@ import type { FloatingDateTime, OpResult, PlannerSettings, Task, TaskProperties 
 import { defaultMatrixConfig } from '../../src/model/defaults';
 import { parseFloating } from '../../src/model/dates';
 import { setLanguageOverride } from '../../src/i18n';
+import { sharedPendingDeletes } from '../../src/app/pending-deletes';
 import { COMPLETE_ANIMATION_MS, TASKS_REFRESH_INTERVAL_MS, TasksTab } from '../../src/tasks/tasks-tab';
 
 function at(value: string): FloatingDateTime {
@@ -39,7 +40,12 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
 
 const OK: OpResult = { ok: true, value: undefined, changed: true };
 
-function setup(initial: Task[]) {
+interface SetupOptions {
+  layout?: 'grid' | 'list';
+  grouping?: 'quadrant' | 'date';
+}
+
+function setup(initial: Task[], opts: SetupOptions = {}) {
   let tasks = initial;
   let now = new Date(Date.UTC(2026, 9, 10, 9, 0));
   const clock: Clock = { now: () => now, timeZone: () => 'UTC' };
@@ -47,13 +53,17 @@ function setup(initial: Task[]) {
     isReady: () => true,
     whenReady: async () => {},
     getTasks: () => tasks,
+    getById: (id: string) => tasks.find((task) => task.id === id),
     getMatrix: () => defaultMatrixConfig('ru'),
     onChange: () => () => {},
   } as unknown as NoteIndex;
   const complete = vi.fn(async (_id: string, _instanceDate?: string): Promise<OpResult> => OK);
-  const service = { complete, uncomplete: vi.fn(async () => OK) } as unknown as TaskService;
+  const uncomplete = vi.fn(async (_id: string, _instanceDate?: string): Promise<OpResult> => OK);
+  const reschedule = vi.fn(async (_id: string, _date: string): Promise<OpResult> => OK);
+  const update = vi.fn(async (): Promise<OpResult> => OK);
+  const service = { complete, uncomplete, reschedule, update } as unknown as TaskService;
   const settings = {
-    get: () => ({ ui: { tasksLayout: 'grid', tasksListGrouping: 'quadrant' } }) as unknown as PlannerSettings,
+    get: () => ({ ui: { tasksLayout: opts.layout ?? 'grid', tasksListGrouping: opts.grouping ?? 'quadrant' } }) as unknown as PlannerSettings,
     onChange: () => () => {},
   } as unknown as SettingsStore;
   const openTaskForm = vi.fn();
@@ -66,19 +76,31 @@ function setup(initial: Task[]) {
     switchTab: () => {},
     register: () => {},
   } as unknown as PlannerViewHost;
+  const haptics: string[] = [];
+  const actions: Array<{ message: string; label: string; run: () => void }> = [];
+  const shown: string[] = [];
   const tab = new TasksTab(host, {
     index,
     tasks: service,
     settings,
     clock,
     format: { get: () => ({ language: 'ru', weekStart: 1, hour12: false }) },
-    notifier: { show: () => {} },
+    notifier: {
+      show: (message: string) => shown.push(message),
+      showAction: (message: string, action: { label: string; run: () => void }) => actions.push({ message, ...action }),
+    },
+    haptics: { play: (kind) => haptics.push(kind) },
   });
   const container = new MockElement();
   return {
     tab,
     container,
     complete,
+    uncomplete,
+    reschedule,
+    haptics,
+    actions,
+    shown,
     openTaskForm,
     mount: () => tab.mount(container as unknown as HTMLElement),
     setTasks: (next: Task[]) => (tasks = next),
@@ -287,6 +309,124 @@ describe('пустой квадрант (доработка 005, §5)', () => {
     ctx.container.findAllByClass('mp-tasks-done-filter')[0]?.dispatch('click');
     expect(ctx.container.findAllByClass('mp-tasks-empty-add')).toHaveLength(0);
     expect(ctx.container.findAllByClass('mp-tasks-empty')[0]?.getText()).toContain('Здесь пока нет выполненных задач');
+    ctx.tab.unmount();
+  });
+});
+
+describe('«Вернуть» и отклик (доработка 006)', () => {
+  it('выполнение кружком: отклик success сразу, уведомление «Задача выполнена · Вернуть» после записи', async () => {
+    const series = makeTask({ id: 'series', due: at('2026-10-10T08:00'), repeat: 'daily', repeatAnchor: '2026-10-01' });
+    const ctx = setup([series]);
+    ctx.mount();
+    ctx.tab.onShow();
+    clickCheck(ctx.container, 'series');
+    expect(ctx.haptics).toEqual(['success']);
+    await vi.advanceTimersByTimeAsync(COMPLETE_ANIMATION_MS);
+    expect(ctx.actions).toHaveLength(1);
+    expect(ctx.actions[0]?.message).toBe('Задача выполнена');
+    expect(ctx.actions[0]?.label).toBe('Вернуть');
+    ctx.actions[0]?.run();
+    await vi.advanceTimersByTimeAsync(0);
+    // Возвращается именно выполненное повторение.
+    expect(ctx.uncomplete).toHaveBeenCalledWith('series', '2026-10-10');
+    expect(ctx.haptics).toEqual(['success', 'undo']);
+    ctx.tab.unmount();
+  });
+
+  it('без изменений (уже выполнено) — уведомления нет; ошибка — отклик error', async () => {
+    const ctx = setup([makeTask({ id: 'a' }), makeTask({ id: 'b' })]);
+    ctx.complete.mockResolvedValueOnce({ ok: true, value: undefined, changed: false });
+    ctx.complete.mockResolvedValueOnce({ ok: false, error: { code: 'write-failed' } });
+    ctx.mount();
+    ctx.tab.onShow();
+    clickCheck(ctx.container, 'a');
+    await vi.advanceTimersByTimeAsync(COMPLETE_ANIMATION_MS);
+    clickCheck(ctx.container, 'b');
+    await vi.advanceTimersByTimeAsync(COMPLETE_ANIMATION_MS);
+    expect(ctx.actions).toHaveLength(0);
+    expect(ctx.haptics).toEqual(['success', 'success', 'error']);
+    expect(ctx.shown).toHaveLength(1);
+    ctx.tab.unmount();
+  });
+
+  it('переключение «Выполнено» и «Сетка / Список» — отклик select', () => {
+    const ctx = setup([makeTask({ id: 'a' })]);
+    ctx.mount();
+    ctx.container.findAllByClass('mp-tasks-done-filter')[0]?.dispatch('click');
+    expect(ctx.haptics).toEqual(['select']);
+    ctx.tab.unmount();
+  });
+});
+
+describe('«Перенести всё на сегодня» (доработка 006, §7)', () => {
+  it('кнопка в «Просрочено» переносит все просроченные с сохранением времени, одно уведомление и «Вернуть»', async () => {
+    const ctx = setup(
+      [
+        makeTask({ id: 'late1', due: at('2026-10-08T10:30') }),
+        makeTask({ id: 'late2', due: at('2026-10-09'), quadrant: 'plan' }),
+        makeTask({ id: 'future', due: at('2026-10-12') }),
+      ],
+      { layout: 'list', grouping: 'date' },
+    );
+    ctx.mount();
+    ctx.tab.onShow();
+    const buttons = ctx.container.findAllByClass('mp-tasks-reschedule-all');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]?.getText()).toBe('Перенести всё на сегодня');
+    buttons[0]?.dispatch('click');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ctx.reschedule.mock.calls).toEqual([
+      ['late1', '2026-10-10'],
+      ['late2', '2026-10-10'],
+    ]);
+    expect(ctx.actions).toHaveLength(1);
+    expect(ctx.actions[0]?.message).toBe('Перенесено 2');
+    ctx.reschedule.mockClear();
+    ctx.actions[0]?.run();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ctx.reschedule.mock.calls).toEqual([
+      ['late1', '2026-10-08'],
+      ['late2', '2026-10-09'],
+    ]);
+    expect(ctx.haptics).toEqual(['drop', 'undo']);
+    ctx.tab.unmount();
+  });
+
+  it('в сетке и без просроченных кнопки нет', () => {
+    const grid = setup([makeTask({ id: 'late', due: at('2026-10-08') })]);
+    grid.mount();
+    expect(grid.container.findAllByClass('mp-tasks-reschedule-all')).toHaveLength(0);
+    grid.tab.unmount();
+    const list = setup([makeTask({ id: 'ok', due: at('2026-10-12') })], { layout: 'list', grouping: 'date' });
+    list.mount();
+    expect(list.container.findAllByClass('mp-tasks-reschedule-all')).toHaveLength(0);
+    list.tab.unmount();
+  });
+
+  it('в режиме «Список» карточки помечены для свайпа, в сетке — нет', () => {
+    const list = setup([makeTask({ id: 'a' })], { layout: 'list', grouping: 'quadrant' });
+    list.mount();
+    expect(cardOf(list.container, 'a').hasClass('is-swipeable')).toBe(true);
+    list.tab.unmount();
+    const grid = setup([makeTask({ id: 'a' })]);
+    grid.mount();
+    expect(cardOf(grid.container, 'a').hasClass('is-swipeable')).toBe(false);
+    grid.tab.unmount();
+  });
+});
+
+describe('общая очередь удалений (удаление из формы)', () => {
+  it('задача в очереди сразу скрыта, «Вернуть» — снова видна', async () => {
+    const ctx = setup([makeTask({ id: 'a' }), makeTask({ id: 'b' })]);
+    ctx.mount();
+    ctx.tab.onShow();
+    const queue = sharedPendingDeletes();
+    queue.schedule('a', () => {}, 5000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ctx.container.findAllByClass('mp-task-card').map((el) => el.getAttribute('data-task-id'))).toEqual(['b']);
+    queue.undo('a');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ctx.container.findAllByClass('mp-task-card')).toHaveLength(2);
     ctx.tab.unmount();
   });
 });

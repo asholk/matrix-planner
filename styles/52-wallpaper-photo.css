@@ -1,0 +1,43 @@
+/* Редактор обоев, раздел «Фон»: «Выбрать из Фото». */
+
+.mp-photo-import-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+
+.mp-photo-import-button .mp-photo-import-icon {
+  display: inline-flex;
+}
+
+.mp-photo-import-button .mp-photo-import-icon svg {
+  width: var(--icon-s);
+  height: var(--icon-s);
+}
+
+.mp-photo-import-button.is-loading {
+  cursor: progress;
+  opacity: 0.8;
+}
+
+.mp-photo-import-button.is-loading .mp-photo-import-icon svg {
+  animation: mp-photo-import-spin 1s linear infinite;
+}
+
+/* Поле выбора файла скрыто: его открывает кнопка. */
+.mp-photo-import-input {
+  display: none;
+}
+
+@keyframes mp-photo-import-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-photo-import-button.is-loading .mp-photo-import-icon svg {
+    animation: none;
+  }
+}

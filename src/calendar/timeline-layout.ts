@@ -65,3 +65,17 @@ export function layoutTimeline(items: readonly DayItem[], options: { minDuration
   flush();
   return blocks;
 }
+
+/** Шаг времени нового события при долгом нажатии на шкале, мин. */
+export const TIMELINE_SNAP_MINUTES = 15;
+
+/**
+ * Минута суток по вертикали на шкале (доработка 006, §13): `y` — от верха сетки, `height` — высота
+ * суток. Округление до `step` минут, не позже 23:45.
+ */
+export function timelineMinuteAt(y: number, height: number, step: number = TIMELINE_SNAP_MINUTES): number {
+  if (!(height > 0) || !Number.isFinite(y)) return 0;
+  const raw = (y / height) * MINUTES_PER_DAY;
+  const snapped = Math.round(raw / step) * step;
+  return Math.min(Math.max(snapped, 0), MINUTES_PER_DAY - step);
+}

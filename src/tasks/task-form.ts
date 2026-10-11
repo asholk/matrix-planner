@@ -16,6 +16,8 @@ import { ruTaskForm } from '../i18n/ru/task-form';
 import { enTaskForm } from '../i18n/en/task-form';
 import { shortDateLabel } from '../ui/controls/date-picker';
 import { renderDeleteButton } from '../ui/controls/delete-button';
+import type { HapticKind } from '../ui/haptics';
+import { deleteWithUndo, sharedPendingDeletes } from '../app/pending-deletes';
 import {
   REMIND_OPTIONS,
   REPEAT_OPTIONS,
@@ -24,6 +26,7 @@ import {
   createDraftState,
   draftFromTask,
   fieldAvailability,
+  isPatchEmpty,
   setBody,
   setDate,
   setLoadedBody,
@@ -33,6 +36,8 @@ import {
   setRepeat,
   setTime,
   setTitle,
+  toTaskDraft,
+  toTaskPatch,
   type TaskDraftState,
 } from './task-draft';
 
@@ -43,7 +48,8 @@ registerDictionary('en', 'taskForm', enTaskForm);
 export type TaskFormDeps = Pick<
   CoreServices,
   'tasks' | 'index' | 'repository' | 'sheets' | 'datePicker' | 'clock' | 'format' | 'notifier' | 'settings'
->;
+> &
+  Partial<Pick<CoreServices, 'platform' | 'haptics' | 'pendingDeletes'>>;
 
 export interface TaskFormOptions {
   /** Вызывается после успешного сохранения (созданная задача или `null` при правке). */
@@ -87,6 +93,30 @@ export function remindLabel(offset: RemindOffset): string {
 }
 
 /**
+ * Форма изменена (доработка 006, §6): правка — есть изменённые поля, создание — черновик
+ * отличается от открытого (`baseline`); пробелы в названии и заметках не считаются.
+ */
+export function isTaskDraftDirty(state: TaskDraftState, baseline: TaskDraftState): boolean {
+  if (state.mode === 'edit') return !isPatchEmpty(toTaskPatch(state));
+  const next = toTaskDraft(state);
+  const base = toTaskDraft(baseline);
+  return (
+    next.title !== base.title ||
+    next.body.trim() !== base.body.trim() ||
+    next.quadrant !== base.quadrant ||
+    next.priority !== base.priority ||
+    next.repeat !== base.repeat ||
+    next.remind !== base.remind ||
+    JSON.stringify(next.due) !== JSON.stringify(base.due)
+  );
+}
+
+/** Автофокус на названии: при создании всегда, при правке — только на компьютере (без экранной клавиатуры). */
+export function shouldAutofocusTitle(mode: 'create' | 'edit', platform: { isMobile: boolean } | undefined): boolean {
+  return mode === 'create' || !(platform?.isMobile ?? false);
+}
+
+/**
  * Открывает форму задачи. Для правки неизвестного id показывает уведомление и возвращает `null`.
  */
 export function openTaskForm(deps: TaskFormDeps, request: TaskFormRequest, options: TaskFormOptions = {}): SheetHandle | null {
@@ -104,6 +134,8 @@ export function openTaskForm(deps: TaskFormDeps, request: TaskFormRequest, optio
     initial = createDraftState({ quadrant: request.quadrant ?? null, date: request.date ?? null });
   }
   const form = new TaskFormView(deps, new TaskDraftController(initial, deps.tasks), options, editTask?.id ?? null);
+  const haptic = (kind: HapticKind): void => deps.haptics?.play(kind);
+  haptic('tap');
   const handle = deps.sheets.open({
     title: t(request.mode === 'edit' ? 'taskForm.titleEdit' : 'taskForm.titleCreate'),
     submitLabel: t('common.actions.done'),
@@ -111,6 +143,8 @@ export function openTaskForm(deps: TaskFormDeps, request: TaskFormRequest, optio
     render: (contentEl, sheet) => form.mount(contentEl, sheet),
     onSubmit: () => form.submit(),
     onClose: () => form.dispose(),
+    isDirty: () => form.isDirty(),
+    haptic,
   });
   if (editTask) form.loadBody(editTask);
   return handle;
@@ -127,6 +161,8 @@ class TaskFormView {
   private disposed = false;
   private deleting = false;
   private readonly cleanups: Array<() => void> = [];
+  /** Черновик при открытии (для «Сбросить изменения?»). */
+  private baseline: TaskDraftState;
 
   constructor(
     private readonly deps: TaskFormDeps,
@@ -134,7 +170,19 @@ class TaskFormView {
     private readonly options: TaskFormOptions,
     /** Правка существующей задачи — внизу кнопка «Удалить». */
     private readonly editId: string | null = null,
-  ) {}
+  ) {
+    this.baseline = controller.get();
+  }
+
+  private haptic(kind: HapticKind): void {
+    this.deps.haptics?.play(kind);
+  }
+
+  /** Есть несохранённые изменения. */
+  isDirty(): boolean {
+    if (this.deleting || this.controller.isSaved()) return false;
+    return isTaskDraftDirty(this.state, this.baseline);
+  }
 
   private get state(): TaskDraftState {
     return this.controller.get();
@@ -153,17 +201,19 @@ class TaskFormView {
     this.renderSchedule();
     this.renderPriorityAndQuadrant();
     if (this.editId !== null) {
+      // Одно нажатие (доработка 006, §12): отмена — «Вернуть» в уведомлении.
       renderDeleteButton(contentEl, {
         label: t('taskForm.delete'),
         ariaLabel: t('taskForm.deleteLabel'),
-        confirmLabel: t('taskForm.deleteConfirm'),
         onDelete: () => this.runDelete(),
       });
     }
     this.syncSubmit();
-    // Фокус на названии при открытии (после вставки листа в DOM).
-    const focusTimer = window.setTimeout(() => this.titleInput?.focus(), 0);
-    this.cleanups.push(() => window.clearTimeout(focusTimer));
+    // Фокус на названии при создании; при правке на телефоне клавиатура не открывается сама.
+    if (shouldAutofocusTitle(this.state.mode, this.deps.platform)) {
+      const focusTimer = window.setTimeout(() => this.titleInput?.focus(), 0);
+      this.cleanups.push(() => window.clearTimeout(focusTimer));
+    }
   }
 
   dispose(): void {
@@ -175,11 +225,14 @@ class TaskFormView {
     if (this.deleting) return false;
     const result = await this.controller.submit();
     if (result.ok) {
+      this.haptic('success');
       this.options.onSaved?.(result.task);
       return true;
     }
-    if (result.reason === 'error') this.deps.notifier.show(errorMessage(result.error));
-    else if (result.reason === 'invalid') {
+    if (result.reason === 'error') {
+      this.haptic('error');
+      this.deps.notifier.show(errorMessage(result.error));
+    } else if (result.reason === 'invalid') {
       this.titleInput?.setAttr('aria-invalid', 'true');
       this.titleInput?.focus();
     }
@@ -194,6 +247,7 @@ class TaskFormView {
         if (this.disposed) return;
         if (result.ok) {
           this.controller.update((s) => setLoadedBody(s, result.value));
+          this.baseline = setLoadedBody(this.baseline, result.value);
           this.syncBody(null);
         } else {
           this.syncBody(t('taskForm.bodyLoadFailed'));
@@ -203,6 +257,12 @@ class TaskFormView {
         if (!this.disposed) this.syncBody(t('taskForm.bodyLoadFailed'));
       },
     );
+  }
+
+  /** Выбор в группе (квадрант, повтор, напоминание, переключатель) — отклик `select`. */
+  private select(apply: () => void): void {
+    this.haptic('select');
+    apply();
   }
 
   private update(change: (state: TaskDraftState) => TaskDraftState, rerender: 'schedule' | 'matrix' | 'none' = 'none'): void {
@@ -216,35 +276,37 @@ class TaskFormView {
     this.sheet?.setSubmitEnabled(this.controller.canSubmit() && !this.deleting);
   }
 
-  /** Удаление из формы: в корзину через `TaskService.delete`, лист закрывается. */
-  private async runDelete(): Promise<boolean> {
-    const id = this.editId;
-    if (id === null) return false;
-    this.deleting = true;
-    this.sheet?.setBusy(true);
-    this.syncSubmit();
-    try {
-      const result = await this.deps.tasks.delete(id);
-      if (this.disposed) return true;
-      if (result.ok) {
-        this.deps.notifier.show(t('taskForm.deleted'));
-        this.options.onDeleted?.(id);
-        this.sheet?.close();
-        return true;
-      }
-      this.deps.notifier.show(errorMessage(result.error));
-      return false;
-    } catch (error) {
-      if (!this.disposed) this.deps.notifier.show(t('common.errors.unknown'));
-      console.error('[matrix-planner] task delete failed', error);
-      return false;
-    } finally {
-      this.deleting = false;
-      if (!this.disposed) {
-        this.sheet?.setBusy(false);
-        this.syncSubmit();
-      }
+  /** Enter в названии: сохранить; пустое название — подсветить поле. */
+  private submitFromKeyboard(): void {
+    if (!this.controller.canSubmit()) {
+      if (this.state.title.trim() === '') this.titleInput?.setAttr('aria-invalid', 'true');
+      return;
     }
+    this.sheet?.submit?.();
+  }
+
+  /**
+   * Удаление из формы (доработка 006, §12): лист закрывается, задача сразу скрывается,
+   * «Задача удалена · Вернуть» 5 с, затем — в корзину через `TaskService.delete`.
+   */
+  private runDelete(): Promise<boolean> {
+    const id = this.editId;
+    if (id === null) return Promise.resolve(false);
+    this.deleting = true;
+    const tasks = this.deps.tasks;
+    deleteWithUndo(
+      { pending: this.deps.pendingDeletes ?? sharedPendingDeletes(), notifier: this.deps.notifier, haptic: (kind) => this.haptic(kind) },
+      {
+        id,
+        remove: () => tasks.delete(id),
+        message: t('taskForm.deletedUndo'),
+        undoLabel: t('taskForm.undo'),
+        errorMessage: (result) => errorMessage(result.error),
+      },
+    );
+    this.options.onDeleted?.(id);
+    this.sheet?.close();
+    return Promise.resolve(true);
   }
 
   private syncBody(status: string | null): void {
@@ -275,13 +337,8 @@ class TaskFormView {
       title.removeAttribute('aria-invalid');
       this.update((s) => setTitle(s, title.value));
     });
-    title.addEventListener('keydown', (evt: KeyboardEvent) => {
-      // Enter в названии переходит к заметкам (Ctrl/Cmd+Enter — «Готово» в листе).
-      if (evt.key === 'Enter' && !evt.isComposing && !evt.ctrlKey && !evt.metaKey) {
-        evt.preventDefault();
-        this.bodyInput?.focus();
-      }
-    });
+    // Enter в названии — «Готово» (как подписана клавиша на iPhone); к заметкам — Tab.
+    bindEnterToSubmit(title, () => this.submitFromKeyboard());
     this.titleInput = title;
 
     card.createDiv({ cls: 'mp-form-separator' });
@@ -315,7 +372,7 @@ class TaskFormView {
             item
               .setTitle(repeatLabel(rule))
               .setChecked(rule === this.state.repeat)
-              .onClick(() => this.update((s) => setRepeat(s, rule), 'schedule')),
+              .onClick(() => this.select(() => this.update((s) => setRepeat(s, rule), 'schedule'))),
           );
         }
       });
@@ -327,7 +384,7 @@ class TaskFormView {
             item
               .setTitle(remindLabel(offset))
               .setChecked(offset === this.state.remind)
-              .onClick(() => this.update((s) => setRemind(s, offset), 'schedule')),
+              .onClick(() => this.select(() => this.update((s) => setRemind(s, offset), 'schedule'))),
           );
         }
       });
@@ -467,7 +524,7 @@ class TaskFormView {
     const priority = this.row(card, 'flag', t('taskForm.fields.priority'));
     const toggle = new ToggleComponent(priority.value).setValue(state.priority === 'high');
     toggle.toggleEl.setAttr('aria-labelledby', priority.labelId);
-    toggle.onChange((high) => this.update((s) => setPriority(s, high)));
+    toggle.onChange((high) => this.select(() => this.update((s) => setPriority(s, high))));
 
     const matrix = this.deps.index.getMatrix();
     const quadrantRow = this.row(card, 'layout-grid', t('taskForm.fields.quadrant'));
@@ -491,7 +548,7 @@ class TaskFormView {
       const index = QUADRANT_KEYS.indexOf(this.state.quadrant);
       const next = QUADRANT_KEYS[(index + delta + QUADRANT_KEYS.length) % QUADRANT_KEYS.length];
       if (!next) return;
-      this.update((s) => setQuadrant(s, next), 'matrix');
+      this.select(() => this.update((s) => setQuadrant(s, next), 'matrix'));
       this.quadrantEl?.querySelector<HTMLElement>('.mp-task-form-tile.is-selected')?.focus();
     });
   }
@@ -515,7 +572,18 @@ class TaskFormView {
       mini.createSpan({ cls: cell === QUADRANT_CELL[config.key] ? 'mp-task-form-tile-cell is-active' : 'mp-task-form-tile-cell' });
     }
     tile.createSpan({ cls: 'mp-task-form-tile-label', text: config.title });
-    tile.addEventListener('click', () => this.update((s) => setQuadrant(s, config.key), 'matrix'));
+    tile.addEventListener('click', () => this.select(() => this.update((s) => setQuadrant(s, config.key), 'matrix')));
   }
 }
 
+/**
+ * Enter в однострочном поле — «Готово» формы (без Shift, Ctrl/Cmd и во время набора IME).
+ * Ctrl/Cmd+Enter обрабатывает сам лист.
+ */
+export function bindEnterToSubmit(input: HTMLInputElement, submit: () => void): void {
+  input.addEventListener('keydown', (evt: KeyboardEvent) => {
+    if (evt.key !== 'Enter' || evt.isComposing || evt.ctrlKey || evt.metaKey || evt.shiftKey || evt.altKey) return;
+    evt.preventDefault();
+    submit();
+  });
+}

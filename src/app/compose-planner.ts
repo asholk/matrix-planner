@@ -14,6 +14,7 @@ import type {
   PlannerActions,
   PlannerServices,
   SettingsSection,
+  WallpaperBannerState,
   WallpaperRenderer,
 } from './contracts';
 import { SYSTEM_FILES, type PlannerSettings } from '../model/types';
@@ -71,6 +72,9 @@ import { createVaultImagePicker } from '../wallpaper/wallpaper-editor';
 import { SETTINGS_SECTION_ORDER } from '../settings/settings-tab';
 import { registerCalendarSyncCommand, registerPlannerCommands } from './commands';
 import { composeCore, type CoreContext, type CoreExtension, type CoreHandle, type CoreOverrides } from './compose-core';
+import { sharedPendingDeletes } from './pending-deletes';
+import type { HapticKind } from '../ui/haptics';
+import type { CalendarSyncStatus } from '../caldav/sync-engine';
 
 /**
  * Словари модулей этапа 2. Модули регистрируют свои словари и сами (при импорте);
@@ -129,6 +133,23 @@ function wallpaperInputsChanged(next: Readonly<PlannerSettings>, previous: Reado
     next.timeFormat !== previous.timeFormat ||
     next.rootFolder !== previous.rootFolder
   );
+}
+
+/**
+ * Отклик на итог обновления экрана блокировки (доработка 006, §10): успех — `success`,
+ * ошибка — `error`. Срабатывает только при переходе из «Обновление…»/«Команда запущена».
+ */
+export function wallpaperHapticFor(previous: WallpaperBannerState['kind'], next: WallpaperBannerState['kind']): HapticKind | null {
+  if (previous === next) return null;
+  if (previous !== 'rendering' && previous !== 'launched') return null;
+  if (next === 'confirmed' || next === 'saved') return 'success';
+  if (next === 'failed') return 'error';
+  return null;
+}
+
+/** Отклик `error`, когда адресная отправка завершилась ошибкой (сеть, вход, сервер). */
+export function pushErrorHaptic(previous: Pick<CalendarSyncStatus, 'pushing'>, next: Pick<CalendarSyncStatus, 'pushing' | 'error'>): boolean {
+  return Boolean(previous.pushing) && !next.pushing && next.error !== null && next.error.kind !== 'not-configured';
 }
 
 /** Подсказка про «Другие типы файлов» Obsidian Sync (рядом с разделом «Компаньон»). */
@@ -209,8 +230,14 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
     getScreen: overrides.getScreen ? () => overrides.getScreen?.() ?? null : undefined,
   });
 
+  // Отложенные удаления из форм с «Вернуть» (общие для вкладок); выгрузка — удалить сразу.
+  const pendingDeletes = core.pendingDeletes ?? sharedPendingDeletes();
+  plugin.register(() => pendingDeletes.flush());
+  const haptic = (kind: HapticKind): void => core.haptics?.play(kind);
+
   const services: PlannerServices = {
     ...core,
+    pendingDeletes,
     calendarCache,
     tombstones,
     companion,
@@ -233,7 +260,10 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
   });
   const plannerActions: Pick<PlannerActions, 'openEventForm' | 'openTaskForm' | 'openNoteForm' | 'openItem' | 'isAvailable'> = {
     openEventForm: (request) => {
-      openEventForm(services, request, { onSaved: () => saveFeedback.afterSave('event') });
+      openEventForm(services, request, {
+        onSaved: () => saveFeedback.afterSave('event'),
+        calendarSync: { isConfigured: () => syncEngine.isConfigured(), openSettings: () => void actions.showTab('settings') },
+      });
     },
     openTaskForm: (request) => {
       // Подсказка — для новой задачи со сроком: только такие попадают в календарь.
@@ -320,6 +350,14 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
     });
   }
   plugin.registerDomEvent(window, 'pagehide', () => void syncScheduler.flush());
+  // Ошибка отправки изменений — отклик `error` (уведомление показывает движок).
+  let lastSyncStatus: CalendarSyncStatus = syncEngine.getStatus();
+  plugin.register(
+    syncEngine.onStatusChange((status) => {
+      if (pushErrorHaptic(lastSyncStatus, status)) haptic('error');
+      lastSyncStatus = status;
+    }),
+  );
   registerCalendarSyncCommand(plugin, {
     syncNow: () => void syncEngine.syncNow({ manual: true }),
     pendingDeletions: () => syncEngine.getPendingDeletions(),
@@ -345,6 +383,14 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
     }),
   );
   plugin.register(calendarCache.onChange(() => markDataChanged()));
+  let lastWallpaperKind = wallpaperStatus.getState().kind;
+  plugin.register(
+    wallpaperStatus.onChange((state) => {
+      const kind = wallpaperHapticFor(lastWallpaperKind, state.kind);
+      lastWallpaperKind = state.kind;
+      if (kind) haptic(kind);
+    }),
+  );
   // Новая метка удаления (своя или с другого устройства) меняет состав обоев.
   plugin.register(
     tombstones.onChange(() => {
@@ -408,9 +454,19 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
     cache: calendarCache,
     index,
     datePicker: core.datePicker,
+    haptic,
+    pendingDeletes,
+    syncStatus: {
+      getStatus: () => syncEngine.getStatus(),
+      onStatusChange: (listener) => syncEngine.onStatusChange(listener),
+      isEnabled: () => settings.get().calendarSync.enabled,
+      provider: () => settings.get().calendarSync.provider,
+      retry: async () => (await syncEngine.syncNow()).status === 'ok',
+    },
   });
   const lockscreenTab = createLockscreenTab({
     app,
+    writeGuard: core.guard,
     settings,
     wallpaper,
     status: wallpaperStatus,
@@ -422,10 +478,13 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
     pickImage,
     companion,
     dayItems,
+    haptic,
   });
   const banner = createUpdateBanner({
     status: wallpaperStatus,
     sheets,
+    haptic,
+    compact: platform.isPhone,
     getHelpContext: () => ({ profileId: wallpaper.resolveProfile().id, shortcutName: settings.get().wallpaper.shortcutName }),
   });
 

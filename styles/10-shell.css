@@ -336,3 +336,134 @@ body:not(.is-mobile) .mp-tab-label {
     display: none;
   }
 }
+
+/* Баннер скрыт после успешного обновления (доработка 006, §8). */
+.mp-banner-slot:has(> .mp-ls-banner.is-hidden) {
+  display: none;
+}
+
+.mp-ls-banner.is-hidden {
+  display: none;
+}
+
+/* Компактный баннер на телефоне: кнопка-таблетка в одну строку (доработка 006, §8). */
+.mp-banner-slot .mp-ls-banner.is-compact {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: var(--size-4-2);
+  padding: 0;
+  border-radius: var(--mp-radius-pill);
+  background: transparent;
+  box-shadow: none;
+}
+
+.mp-banner-slot .mp-ls-banner.is-compact .mp-ls-banner-action {
+  justify-content: center;
+  width: auto;
+  max-width: 100%;
+  min-height: 2.75em;
+  gap: var(--size-4-2);
+  padding: var(--size-4-1) var(--size-4-4) var(--size-4-1) var(--size-4-3);
+  border-radius: var(--mp-radius-pill);
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-float);
+  white-space: nowrap;
+}
+
+.mp-banner-slot .mp-ls-banner.is-compact .mp-ls-banner-icon {
+  width: 1.75em;
+  height: 1.75em;
+  border-radius: 50%;
+}
+
+.mp-banner-slot .mp-ls-banner.is-compact .mp-ls-banner-icon .svg-icon {
+  width: 1.05em;
+  height: 1.05em;
+}
+
+.mp-banner-slot .mp-ls-banner.is-compact .mp-ls-banner-title {
+  overflow: hidden;
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+  text-overflow: ellipsis;
+}
+
+.mp-banner-slot .mp-ls-banner.is-compact .mp-ls-banner-help {
+  align-self: center;
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-float);
+}
+
+/* «Сбросить изменения?» (доработка 006, §6): небольшое окно, на мобильных — нижний лист. */
+.modal.mp-discard {
+  width: min(22rem, calc(100% - 2 * var(--mp-gutter, 16px)));
+  max-width: 22rem;
+  padding: var(--size-4-4);
+  border-radius: var(--mp-radius-card);
+}
+
+.modal.mp-discard > .modal-close-button,
+.modal.mp-discard > .modal-header,
+.modal.mp-discard > .modal-title,
+.modal.mp-discard > .modal-header-button {
+  display: none;
+}
+
+.modal.mp-discard.mp-discard-bottom {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding-bottom: calc(var(--size-4-4) + var(--mp-safe-bottom, env(safe-area-inset-bottom, 0px)));
+  border-radius: var(--mp-radius-card) var(--mp-radius-card) 0 0;
+}
+
+.mp-discard-body.modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  padding: 0;
+  text-align: center;
+}
+
+.mp-discard-title {
+  margin: 0;
+  font-size: var(--font-ui-large);
+  font-weight: var(--font-bold);
+}
+
+.mp-discard-desc {
+  margin: 0 0 var(--size-4-2);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.mp-discard-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.mp-discard-button {
+  width: 100%;
+  min-height: var(--mp-touch, 44px);
+  border-radius: var(--mp-radius-pill);
+  font-weight: var(--font-semibold);
+  cursor: var(--cursor);
+}
+
+.modal.mp-discard button.mp-discard-button.mod-warning {
+  background: var(--background-modifier-error);
+  color: var(--text-on-accent);
+}
+
+.modal.mp-discard button.mp-discard-keep {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  box-shadow: none;
+}

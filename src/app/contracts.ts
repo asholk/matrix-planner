@@ -534,7 +534,8 @@ export type TaskFormRequest =
   | { mode: 'edit'; id: ItemId };
 
 export type EventFormRequest =
-  | { mode: 'create'; date?: LocalDateString | null }
+  /** `time` — начало нового события (долгое нажатие на временной шкале), длительность — 1 ч. */
+  | { mode: 'create'; date?: LocalDateString | null; time?: import('../model/types').LocalTimeString | null }
   | { mode: 'edit'; id: ItemId }
   /** Внешнее событие из кэша — просмотр. */
   | { mode: 'view-external'; occurrenceKey: string };
@@ -628,6 +629,13 @@ export interface SheetOptions {
   /** Возврат `false` оставляет лист открытым (ошибка сохранения). */
   onSubmit?(): Promise<boolean> | boolean;
   onClose?(): void;
+  /**
+   * Форма изменена (доработка 006, §6): закрытие свайпом, крестиком, Esc или касанием вне листа
+   * сначала спрашивает «Сбросить изменения?». Нет функции или `false` — лист закрывается сразу.
+   */
+  isDirty?(): boolean;
+  /** Тактильный отклик листа (вопрос «Сбросить изменения?» — `warning`). */
+  haptic?(kind: import('../ui/haptics').HapticKind): void;
 }
 
 export interface SheetHeaderAction {
@@ -639,7 +647,12 @@ export interface SheetHeaderAction {
 export interface SheetHandle {
   setSubmitEnabled(enabled: boolean): void;
   setBusy(busy: boolean): void;
+  /** Закрыть без вопроса (после сохранения или удаления). */
   close(): void;
+  /** «Готово» из формы (Enter в названии); недоступная кнопка — без действия. */
+  submit?(): void;
+  /** Закрыть как пользователь: изменённая форма спрашивает «Сбросить изменения?». `true` — закрыт. */
+  requestClose?(): Promise<boolean>;
 }
 
 export interface SheetPresenter {
@@ -687,6 +700,22 @@ export interface CoreServices {
   datePicker: DatePickerFactory;
   /** Тактильный отклик (src/ui/haptics.ts); необязателен — в тестах и на платформах без отклика отсутствует. */
   haptics?: { play(kind: import('../ui/haptics').HapticKind): void };
+  /**
+   * Общая очередь отложенных удалений с «Вернуть» (доработка 006, §12): удалённый из формы
+   * элемент сразу скрывается во вкладках, а удаляется через 5 с. Необязательна.
+   */
+  pendingDeletes?: PendingDeletes;
+}
+
+/** Отложенные удаления (реализация — `DeferredDeletes` + подписка). */
+export interface PendingDeletes {
+  schedule(id: ItemId, run: () => void, delayMs?: number): void;
+  /** «Вернуть»: `true` — удаление ещё не выполнено и отменено. */
+  undo(id: ItemId): boolean;
+  has(id: ItemId): boolean;
+  /** Выполнить ожидающие удаления сейчас (выгрузка плагина). */
+  flush(): void;
+  onChange(listener: () => void): Unsubscribe;
 }
 
 export interface PlannerServices extends CoreServices {

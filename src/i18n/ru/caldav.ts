@@ -31,6 +31,16 @@ export const ruCaldav = {
       other: 'Удаление {count} события из календаря ждёт подтверждения в настройках календаря iOS',
     },
   },
+  statusLine: {
+    sending: 'Отправка…',
+    offline: 'Не отправлено: нет связи',
+    auth: 'Ошибка входа в iCloud',
+    authCaldav: 'Ошибка входа на сервер календаря',
+    sent: 'Отправлено в «Календарь» iOS',
+    sentCaldav: 'Отправлено в календарь',
+    retry: 'Повторить',
+    settings: 'Настройки',
+  },
   settings: {
     heading: 'Календарь iOS',
     intro:

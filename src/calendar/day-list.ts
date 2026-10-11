@@ -29,8 +29,10 @@ export interface DayListContext {
   calendarTitle(row: DayListRow): string | null;
   /** Кнопка «Подключить» в сообщении об отсутствии событий iOS (переход к настройкам). */
   connectCalendar?: (() => void) | null;
-  /** Короткая вибрация при долгом нажатии (Android). */
-  vibrate?: boolean;
+  /** Тактильный отклик при открытии меню долгим нажатием (`attachContextMenu`). */
+  menuHaptic?: () => void;
+  /** «Показать все» в пустом дне при суженном фильтре источников (доработка 006, §5). */
+  showAllSources?: (() => void) | null;
   handlers: CalendarItemHandlers;
 }
 
@@ -48,7 +50,11 @@ export function renderDayHeading(parent: HTMLElement, model: DayListModel): HTML
 }
 
 /** Сообщение о покрытии кэша и пустой день — отдельными элементами. */
-export function renderDayStatus(parent: HTMLElement, model: DayListModel, ctx: Pick<DayListContext, 'isMobile' | 'connectCalendar'>): void {
+export function renderDayStatus(
+  parent: HTMLElement,
+  model: DayListModel,
+  ctx: Pick<DayListContext, 'isMobile' | 'connectCalendar' | 'showAllSources'>,
+): void {
   if (model.noticeKey) {
     const notice = parent.createDiv({ cls: 'mp-cal-notice', attr: { role: 'note' } });
     notice.toggleClass('is-out-of-range', model.coverage === 'out-of-range');
@@ -63,6 +69,15 @@ export function renderDayStatus(parent: HTMLElement, model: DayListModel, ctx: P
       });
       button.addEventListener('click', () => connect());
     }
+  }
+  const showAll = ctx.showAllSources;
+  if (model.empty && model.filtered && showAll) {
+    const empty = parent.createDiv({ cls: 'mp-cal-empty mp-cal-empty-filtered' });
+    setIcon(empty.createSpan({ cls: 'mp-cal-empty-icon', attr: { 'aria-hidden': 'true' } }), 'list-filter');
+    empty.createSpan({ text: t('calendar.day.filteredEmpty') });
+    const button = empty.createEl('button', { cls: 'mp-chip mp-cal-empty-action', text: t('calendar.day.showAll'), attr: { type: 'button' } });
+    button.addEventListener('click', () => showAll());
+    return;
   }
   if (model.empty) {
     const empty = parent.createDiv({ cls: 'mp-cal-empty' });
@@ -179,12 +194,12 @@ export function renderItemRow(parent: HTMLElement, row: DayListRow, ctx: DayList
 export function bindItemActions(
   card: HTMLElement,
   item: DayItem,
-  ctx: Pick<DayListContext, 'handlers' | 'vibrate'>,
+  ctx: Pick<DayListContext, 'handlers' | 'menuHaptic'>,
   controlSelector?: string,
 ): void {
   const handlers = ctx.handlers;
   const binding = handlers.menu
-    ? attachContextMenu(card, (anchor) => handlers.menu?.(item, anchor), { controlSelector, vibrate: ctx.vibrate })
+    ? attachContextMenu(card, (anchor) => handlers.menu?.(item, anchor), { controlSelector, haptic: ctx.menuHaptic })
     : null;
   const open = () => ctx.handlers.open(item);
   card.addEventListener('click', (evt: MouseEvent) => {

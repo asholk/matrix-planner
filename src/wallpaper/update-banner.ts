@@ -20,6 +20,7 @@ import { enLockscreen } from '../i18n/en/lockscreen';
 import { ruLockscreen } from '../i18n/ru/lockscreen';
 import type { Unsubscribe } from '../model/types';
 import { describeBanner } from '../protocol/wallpaper-status';
+import type { HapticKind } from '../ui/haptics';
 
 registerDictionary('ru', 'lockscreen', ruLockscreen);
 registerDictionary('en', 'lockscreen', enLockscreen);
@@ -107,6 +108,14 @@ export function bannerViewModel(
   };
 }
 
+/**
+ * Баннер скрыт после успешного обновления (доработка 006, §8) — до следующих изменений:
+ * iPhone/iPad — подтверждение быстрой команды, компьютер и Android — обои сохранены.
+ */
+export function isBannerHidden(state: WallpaperBannerState, actionKind: WallpaperActionKind): boolean {
+  return state.kind === 'confirmed' || (state.kind === 'saved' && actionKind === 'save');
+}
+
 /** Модель баннера по трекеру (использует `describe()`, если он есть). */
 export function bannerViewModelOf(tracker: WallpaperStatusTrackerExt, translate: Translate = t): BannerViewModel {
   const state = tracker.getState();
@@ -191,6 +200,13 @@ export interface UpdateBannerDeps {
   sheets: SheetPresenter;
   /** Профиль и название команды для «Как настроить». */
   getHelpContext(): Omit<WallpaperHelpContext, 'actionKind'>;
+  /** Тактильный отклик: нажатие — `tap`. */
+  haptic?(kind: HapticKind): void;
+  /**
+   * Компактный вид (телефон): кнопка-таблетка в одну строку без строки описания;
+   * описание остаётся в подписи для диктора.
+   */
+  compact?: boolean;
 }
 
 /** Фабрика для `PlannerViewOptions.banner`. */
@@ -224,6 +240,11 @@ export class UpdateBanner implements BannerController {
     const model = bannerViewModelOf(this.deps.status);
     root.empty();
     root.dataset.tone = model.tone;
+    root.toggleClass('is-compact', Boolean(this.deps.compact));
+    const hidden = isBannerHidden(this.deps.status.getState(), model.actionKind);
+    root.hidden = hidden;
+    root.toggleClass('is-hidden', hidden);
+    if (hidden) return;
 
     const action = root.createEl('button', {
       cls: 'mp-ls-banner-action',
@@ -234,7 +255,7 @@ export class UpdateBanner implements BannerController {
     setIcon(iconEl, model.icon);
     const text = action.createSpan({ cls: 'mp-ls-banner-text' });
     text.createSpan({ cls: 'mp-ls-banner-title', text: model.title });
-    if (model.subtitle) text.createSpan({ cls: 'mp-ls-banner-subtitle', text: model.subtitle });
+    if (model.subtitle && !this.deps.compact) text.createSpan({ cls: 'mp-ls-banner-subtitle', text: model.subtitle });
     action.addEventListener('click', () => this.onAction());
 
     if (model.helpLabel) {
@@ -244,6 +265,7 @@ export class UpdateBanner implements BannerController {
         attr: { type: 'button' },
       });
       help.addEventListener('click', () => {
+        this.deps.haptic?.('tap');
         openWallpaperHelp(this.deps.sheets, { ...this.deps.getHelpContext(), actionKind: this.deps.status.getActionKind() });
       });
     }
@@ -252,6 +274,7 @@ export class UpdateBanner implements BannerController {
   /** Синхронный вызов: никаких `await` до `run()`. */
   private onAction(): void {
     if (this.deps.status.getState().kind === 'rendering') return;
+    this.deps.haptic?.('tap');
     void this.deps.status.run();
   }
 }

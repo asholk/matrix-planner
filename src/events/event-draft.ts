@@ -187,10 +187,26 @@ export interface CreateEventDraftContext {
   date?: LocalDateString | null;
   /** Календарь по умолчанию (уже проверенный на право записи). */
   calendarId?: string | null;
+  /** Начало (долгое нажатие на временной шкале); длительность — `EVENT_DEFAULTS.durationMinutes`. */
+  time?: LocalTimeString | null;
+}
+
+/** Слот с заданным началом в выбранный день (конец — через `durationMinutes`). */
+export function eventSlotAt(
+  date: LocalDateString,
+  time: LocalTimeString,
+  durationMinutes: number = EVENT_DEFAULTS.durationMinutes,
+): { start: FloatingDateTime & { time: LocalTimeString }; end: FloatingDateTime & { time: LocalTimeString } } {
+  const start = { date, time };
+  return { start, end: addMinutes(start, durationMinutes) as FloatingDateTime & { time: LocalTimeString } };
 }
 
 export function createEventDraftState(context: CreateEventDraftContext): EventDraftState {
-  const slot = defaultEventSlot(context.now, context.date ?? null);
+  const day = context.date !== undefined && context.date !== null && isValidDate(context.date) ? context.date : context.now.date;
+  const slot =
+    context.time !== undefined && context.time !== null && isValidTime(context.time)
+      ? eventSlotAt(day, context.time)
+      : defaultEventSlot(context.now, context.date ?? null);
   return {
     mode: 'create',
     eventId: null,

@@ -88,6 +88,8 @@ export interface CalendarSyncStatus {
   pendingDeletions: number;
   /** Время последней успешной адресной отправки изменений (ISO). */
   lastPushAt: string | null;
+  /** Идёт адресная отправка изменений (строка «Отправка…» во вкладке «Календарь»). */
+  pushing?: boolean;
 }
 
 export interface SyncStats {
@@ -446,7 +448,7 @@ export class CalendarSyncEngine {
       return await run();
     } catch (error) {
       this.log('Calendar sync failed', error);
-      this.setStatus({ running: false });
+      this.setStatus({ running: false, pushing: false });
       return { status: 'error', kind: 'server', detail: error instanceof Error ? error.message : String(error) };
     }
   }
@@ -575,6 +577,7 @@ export class CalendarSyncEngine {
     if (!this.deps.index.isReady()) return { status: 'skipped', reason: 'not-ready' };
     const client = this.clientFor(settings);
     if (!client) return this.finishPush({ status: 'error', kind: 'not-configured', detail: 'credentials missing' });
+    this.setStatus({ pushing: true });
 
     const account = accountKey(settings);
     const state = parseState(this.deps.state.load(), account);
@@ -673,6 +676,7 @@ export class CalendarSyncEngine {
   }
 
   private finishPush(outcome: PushOutcome): PushOutcome {
+    if (this.getStatus().pushing) this.setStatus({ pushing: false });
     if (outcome.status === 'ok') {
       this.pushNetworkNotified = false;
       this.authNotified = false;

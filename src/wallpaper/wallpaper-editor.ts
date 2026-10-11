@@ -19,10 +19,14 @@ import type {
   SheetPresenter,
   WallpaperService,
   WallpaperStatusTracker,
+  WriteGuard,
 } from '../app/contracts';
 import { registerDictionary, t } from '../i18n';
 import { enLockscreen } from '../i18n/en/lockscreen';
 import { ruLockscreen } from '../i18n/ru/lockscreen';
+import { enWallpaperPhoto } from '../i18n/en/wallpaper-photo';
+import { ruWallpaperPhoto } from '../i18n/ru/wallpaper-photo';
+import type { HapticKind } from '../ui/haptics';
 import { floatingFromDate } from '../model/dates';
 import type {
   LocalDateString,
@@ -33,6 +37,7 @@ import type {
 } from '../model/types';
 import { PALETTE_SPECS } from './layout';
 import { renderPhotoButton, type PhotoExporter } from './photo-export';
+import { PHOTO_FOLDER_NAME, createBrowserPhotoEnv, importPhoto, photoFolder, type PhotoImportEnv, type PhotoImportResult } from './photo-import';
 import {
   BACKGROUND_KINDS,
   CROP_MAX_SCALE,
@@ -69,6 +74,8 @@ import {
 
 registerDictionary('ru', 'lockscreen', ruLockscreen);
 registerDictionary('en', 'lockscreen', enLockscreen);
+registerDictionary('ru', 'wallpaperPhoto', ruWallpaperPhoto);
+registerDictionary('en', 'wallpaperPhoto', enWallpaperPhoto);
 
 export type EditorSection = 'template' | 'background' | 'palette' | 'params';
 
@@ -95,6 +102,14 @@ export interface WallpaperEditorDeps {
   calendars: Pick<CalendarCacheReader, 'getCalendars'> | null;
   /** Выбор картинки из хранилища (см. `createVaultImagePicker`). */
   pickImage(): Promise<VaultPath | null>;
+  /** Хранилище для «Выбрать из Фото»; без него кнопки нет. */
+  app?: App | null;
+  /** Запрет записи (режим только чтения) для «Выбрать из Фото». */
+  writeGuard?: Pick<WriteGuard, 'check'> | null;
+  /** Подмена декодирования/кодирования фото (тесты). */
+  photoImportEnv?: PhotoImportEnv;
+  /** Тактильный отклик. */
+  haptic?(kind: HapticKind): void;
 }
 
 export interface WallpaperEditorOptions {
@@ -216,7 +231,13 @@ export function createVaultImagePicker(app: App, notifier: Notifier, excludeFold
       const files = app.vault
         .getFiles()
         .filter((file) => IMAGE_EXTENSIONS.has(file.extension.toLowerCase()))
-        .filter((file) => !excluded || !(file.path === excluded || file.path.startsWith(`${excluded}/`)))
+        // Папка обоев скрыта, кроме загруженных фонов (`Обои/Фоны`).
+        .filter(
+          (file) =>
+            !excluded ||
+            file.path.startsWith(`${excluded}/${PHOTO_FOLDER_NAME}/`) ||
+            !(file.path === excluded || file.path.startsWith(`${excluded}/`)),
+        )
         .sort((a, b) => b.stat.mtime - a.stat.mtime);
       if (files.length === 0) {
         notifier.show(t('lockscreen.editor.background.pickerEmpty'));
@@ -262,6 +283,9 @@ class WallpaperEditor {
   private sectionBodyEl: HTMLElement | null = null;
   private privacyEl: HTMLElement | null = null;
   private photoButtonEl: HTMLButtonElement | null = null;
+  /** Скрытый `<input type="file">` для «Выбрать из Фото» (живёт с редактором). */
+  private photoInputEl: HTMLInputElement | null = null;
+  private photoImportBusy = false;
   private readonly photo: PhotoExporter | null;
   private cropMode = false;
   private previewTimer: number | null = null;
@@ -345,6 +369,8 @@ class WallpaperEditor {
     this.rootEl = null;
     this.canvas = null;
     this.photoButtonEl = null;
+    this.photoInputEl?.remove();
+    this.photoInputEl = null;
   }
 
   // --- Получить фото ---
@@ -577,6 +603,7 @@ class WallpaperEditor {
       const choose = row.createEl('button', { cls: 'mp-chip', text: t('lockscreen.editor.background.changeImage'), attr: { type: 'button' } });
       setIcon(choose.createSpan({ attr: { 'aria-hidden': 'true' } }), 'image');
       choose.addEventListener('click', () => void this.chooseImage());
+      this.renderPhotoImportButton(row);
 
       const crop = background.crop;
       rangeRow(content, t('lockscreen.editor.background.offsetX'), { min: 0, max: 100, step: 1, value: Math.round(crop.centerX * 100) }, (value) =>
@@ -595,6 +622,9 @@ class WallpaperEditor {
       reset.addEventListener('click', () => this.update(resetCrop(this.draft), { rerenderSection: true }));
       return;
     }
+
+    // Для цвета и градиента — отдельная строка: картинки ещё может не быть.
+    this.renderPhotoImportButton(content.createDiv({ cls: 'mp-photo-import-row' }));
 
     if (background.kind === 'solid') {
       colorRow(content, t('lockscreen.editor.background.color'), background.color, (color) =>
@@ -639,6 +669,86 @@ class WallpaperEditor {
     }
     if (!path || this.disposed) return;
     this.update(setImage(this.draft, path), { rerenderSection: true });
+  }
+
+  // --- Выбрать из Фото ---
+
+  private renderPhotoImportButton(parentEl: HTMLElement): void {
+    if (!this.deps.app) return;
+    const busy = this.photoImportBusy;
+    const label = busy ? t('wallpaperPhoto.loading') : Platform.isMobile ? t('wallpaperPhoto.pick') : t('wallpaperPhoto.pickDesktop');
+    const button = parentEl.createEl('button', {
+      cls: 'mp-chip mp-photo-import-button',
+      attr: { type: 'button', title: t('wallpaperPhoto.pickHint', { folder: photoFolder(this.deps.settings.get().rootFolder) }) },
+    });
+    setIcon(button.createSpan({ cls: 'mp-photo-import-icon', attr: { 'aria-hidden': 'true' } }), busy ? 'loader' : 'image-plus');
+    button.createSpan({ text: label });
+    button.toggleClass('is-loading', busy);
+    button.setAttr('aria-busy', busy ? 'true' : 'false');
+    button.disabled = busy;
+    // Синхронно из клика: iOS открывает выбор файла только по жесту пользователя.
+    button.addEventListener('click', () => {
+      if (this.photoImportBusy || this.disposed) return;
+      this.deps.haptic?.('tap');
+      this.photoInput().click();
+    });
+  }
+
+  /** Без `capture`: iOS предлагает «Медиатека», «Снять фото», «Выбрать файл». */
+  private photoInput(): HTMLInputElement {
+    if (this.photoInputEl) return this.photoInputEl;
+    const host = this.rootEl ?? activeDocument.body;
+    const input = host.createEl('input', {
+      cls: 'mp-photo-import-input',
+      attr: { type: 'file', accept: 'image/*', tabindex: '-1', 'aria-hidden': 'true' },
+    });
+    input.addEventListener('change', () => {
+      const file = input.files?.[0] ?? null;
+      // Сброс — чтобы то же фото можно было выбрать ещё раз.
+      input.value = '';
+      if (file) void this.importPhotoFile(file);
+    });
+    this.photoInputEl = input;
+    return input;
+  }
+
+  private async importPhotoFile(file: Blob): Promise<void> {
+    const app = this.deps.app;
+    if (!app || this.photoImportBusy || this.disposed) return;
+    this.setPhotoImportBusy(true);
+    let result: PhotoImportResult;
+    try {
+      result = await importPhoto(file, {
+        vault: app.vault,
+        guard: this.deps.writeGuard ?? null,
+        env: this.deps.photoImportEnv ?? createBrowserPhotoEnv(),
+        rootFolder: this.deps.settings.get().rootFolder,
+        profile: this.deps.wallpaper.resolveProfile(previewSettings(this.baseSettings(), this.draft)),
+        now: this.deps.clock.now(),
+        timeZone: this.deps.clock.timeZone(),
+      });
+    } catch (error) {
+      result = { ok: false, code: 'write', detail: error instanceof Error ? error.message : String(error) };
+    }
+    this.photoImportBusy = false;
+    if (this.disposed) return;
+    if (!result.ok) {
+      console.error('[matrix-planner] photo import failed', result);
+      this.deps.haptic?.('error');
+      this.deps.notifier.show(photoImportMessage(result));
+      this.setPhotoImportBusy(false);
+      return;
+    }
+    // Новый путь — кадрирование по умолчанию; раздел и предпросмотр обновятся.
+    const next = setImage(this.draft, result.path);
+    if (this.section === 'background') this.update(next, { rerenderSection: true });
+    else this.update(next);
+    this.deps.haptic?.('success');
+  }
+
+  private setPhotoImportBusy(busy: boolean): void {
+    this.photoImportBusy = busy;
+    if (this.section === 'background') this.renderSection();
   }
 
   private renderPaletteSection(body: HTMLElement): void {
@@ -753,6 +863,22 @@ class WallpaperEditor {
 // ===========================================================================
 // Мелкие элементы управления
 // ===========================================================================
+
+/** Текст уведомления об ошибке «Выбрать из Фото». */
+function photoImportMessage(result: Exclude<PhotoImportResult, { ok: true }>): string {
+  switch (result.code) {
+    case 'read-only': {
+      const specific = t(result.messageKey);
+      return specific !== result.messageKey ? specific : t('wallpaperPhoto.readOnly');
+    }
+    case 'decode':
+      return t('wallpaperPhoto.decodeFailed');
+    case 'encode':
+      return t('wallpaperPhoto.encodeFailed');
+    case 'write':
+      return t('wallpaperPhoto.writeFailed', { reason: result.detail });
+  }
+}
 
 function optionButton(parentEl: HTMLElement, selected: boolean): HTMLButtonElement {
   const button = parentEl.createEl('button', {
