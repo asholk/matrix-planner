@@ -9,6 +9,7 @@
  * и возвращает вкладки, баннер и дополнительные зависимости настроек.
  */
 
+import { createHaptics } from '../ui/haptics';
 import { Notice, Platform, type App, type Plugin, type WorkspaceLeaf } from 'obsidian';
 import type {
   BannerFactory,
@@ -366,7 +367,9 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
   });
   const sheets = new FormSheetPresenter(app, platform);
 
+  const haptics = createHaptics({ enabled: () => settings.get().haptics });
   const services: CoreServices = {
+    haptics,
     clock,
     ids,
     platform,

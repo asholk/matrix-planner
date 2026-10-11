@@ -599,6 +599,8 @@ export interface PlannerSettings {
   calendarSync: CalendarSyncSettings;
   /** Погода в шапке вкладки «Задачи». */
   weather: WeatherSettings;
+  /** Тактильный отклик (вибрация) на действия. */
+  haptics: boolean;
   // Состояние интерфейса (не показывается в настройках)
   ui: {
     lastTab: PlannerTabId;

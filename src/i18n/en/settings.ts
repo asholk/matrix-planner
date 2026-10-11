@@ -37,6 +37,10 @@ export const enSettings = {
       desc: 'Used for the “At time of event” reminder when a task only has a date.',
       error: 'Enter time as HH:MM',
     },
+    haptics: {
+      name: 'Haptic feedback',
+      desc: 'Vibration on actions: completing, moving, deleting, swiping. On iPhone it uses the iOS 17.4+ system haptic.',
+    },
   },
   calendar: {
     weekStart: {

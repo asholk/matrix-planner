@@ -129,3 +129,15 @@ body.theme-dark {
     --mp-transition: 0ms linear;
   }
 }
+
+/* Скрытый переключатель для тактильного отклика на iOS (src/ui/haptics.ts): не display:none, иначе отклика нет. */
+.mp-haptic-switch {
+  position: fixed;
+  left: -100px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}

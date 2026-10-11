@@ -350,6 +350,7 @@ export function normalizeSettings(raw: unknown, fallback: PlannerSettings = crea
     wallpaper: normalizeWallpaper(source.wallpaper, fallback.wallpaper),
     calendarSync: normalizeCalendarSync(source.calendarSync, legacyCalendarSyncFallback(source, fallback.calendarSync)),
     weather: normalizeWeather(source.weather, fallback.weather),
+    haptics: typeof source.haptics === 'boolean' ? source.haptics : fallback.haptics,
     ui: normalizeUi(source.ui, fallback.ui),
   };
 }

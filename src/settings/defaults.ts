@@ -79,6 +79,7 @@ export function createDefaultSettings(): PlannerSettings {
     wallpaper: createDefaultWallpaperSettings(),
     calendarSync: createDefaultCalendarSyncSettings(),
     weather: createDefaultWeatherSettings(),
+    haptics: true,
     ui: {
       lastTab: 'tasks',
       tasksLayout: 'grid',

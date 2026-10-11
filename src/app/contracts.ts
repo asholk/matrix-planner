@@ -685,6 +685,8 @@ export interface CoreServices {
   integrity: IntegrityService;
   sheets: SheetPresenter;
   datePicker: DatePickerFactory;
+  /** Тактильный отклик (src/ui/haptics.ts); необязателен — в тестах и на платформах без отклика отсутствует. */
+  haptics?: { play(kind: import('../ui/haptics').HapticKind): void };
 }
 
 export interface PlannerServices extends CoreServices {

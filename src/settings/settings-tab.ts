@@ -247,6 +247,17 @@ export class PlannerSettingsRenderer {
         });
       });
     });
+
+    new Setting(el)
+      .setName(t('settings.general.haptics.name'))
+      .setDesc(t('settings.general.haptics.desc'))
+      .addToggle((toggle) => {
+        toggle.setValue(settings.haptics).onChange((value) => {
+          void this.save((draft) => {
+            draft.haptics = value;
+          });
+        });
+      });
   }
 
   // -------------------------------------------------------------------------
