@@ -6,6 +6,7 @@
 
 import { setIcon } from 'obsidian';
 import { t } from '../i18n';
+import { isMenuKey } from '../ui/controls/context-menu';
 import { cardAriaLabel, type CardLabelStrings, type TaskCardModel } from './tasks-presenter';
 
 export interface TaskCardOptions {
@@ -98,7 +99,7 @@ export function renderTaskCard(
     handlers.onOpen(card);
   });
   main.addEventListener('keydown', (evt) => {
-    if (evt.key === 'ContextMenu' || (evt.key === 'F10' && evt.shiftKey)) {
+    if (isMenuKey(evt)) {
       evt.preventDefault();
       handlers.onMenu(card, main);
     }

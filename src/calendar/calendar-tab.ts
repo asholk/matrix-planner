@@ -12,8 +12,10 @@ import type {
   DatePickerFactory,
   DatePickerHandle,
   DayItemsProvider,
+  EventService,
   FormatPreferencesProvider,
   NoteIndex,
+  NoteService,
   Notifier,
   PlannerViewHost,
   SettingsStore,
@@ -21,7 +23,18 @@ import type {
   TabFactory,
   TaskService,
 } from '../app/contracts';
-import type { CalendarMode, CalendarSourceFilter, DayItem, DayItemsByDate, LocalDateString, QuadrantKey, TaskDayItem, Unsubscribe } from '../model/types';
+import type {
+  CalendarMode,
+  CalendarSourceFilter,
+  DayItem,
+  DayItemsByDate,
+  LocalDateString,
+  OpResult,
+  QuadrantKey,
+  TaskDayItem,
+  Unsubscribe,
+  VaultPath,
+} from '../model/types';
 import { floatingFromDate, isValidTimeZone, parseDateParts, timeToMinutes } from '../model/dates';
 import { DEFAULT_QUADRANT_STYLE, DEFAULT_QUADRANT_TITLES } from '../model/defaults';
 import { registerDictionary, t } from '../i18n';
@@ -32,7 +45,11 @@ import { enCalendarModel } from '../i18n/en/calendar-model';
 import { ruCache } from '../i18n/ru/cache';
 import { enCache } from '../i18n/en/cache';
 import { createDatePicker } from '../ui/controls/date-picker';
+import { showMenuAt } from '../ui/controls/context-menu';
 import { errorMessageKey } from '../tasks/tasks-presenter';
+import { addTaskMenuItems } from '../tasks/task-menu';
+import { shiftEventPatch } from '../events/event-draft';
+import { calendarItemMenu, type CalendarMenuAction } from './item-menu';
 import {
   CALENDAR_MODES,
   SOURCE_KEYS,
@@ -87,11 +104,16 @@ export interface CalendarTabDeps {
   clock: Clock;
   format: FormatPreferencesProvider;
   notifier: Notifier;
-  tasks: Pick<TaskService, 'complete' | 'uncomplete'>;
+  /** Выполнение кружком и меню задачи (перенос в квадрант, на завтра, удаление). */
+  tasks: Pick<TaskService, 'complete' | 'uncomplete' | 'moveToQuadrant' | 'postponeToTomorrow' | 'delete'>;
+  /** Меню события-заметки: «Перенести на завтра» и «Удалить» (с меткой удаления). */
+  events?: Pick<EventService, 'update' | 'delete'> | null;
+  /** Меню быстрой заметки: «Удалить». */
+  notes?: Pick<NoteService, 'delete'> | null;
   /** Состояние кэша для сообщений о покрытии и названий календарей (необязательно). */
   cache?: Pick<CalendarCacheReader, 'getState' | 'getCalendars' | 'onChange'> | null;
-  /** Названия квадрантов и готовность индекса (необязательно). */
-  index?: Pick<NoteIndex, 'getMatrix' | 'isReady' | 'whenReady'> | null;
+  /** Названия квадрантов, готовность индекса и заметки элементов для меню (необязательно). */
+  index?: (Pick<NoteIndex, 'getMatrix' | 'isReady' | 'whenReady'> & Partial<Pick<NoteIndex, 'getById'>>) | null;
   /** Выбор месяца и года; по умолчанию — общий `createDatePicker`. */
   datePicker?: DatePickerFactory;
 }
@@ -487,10 +509,17 @@ export class CalendarTab implements TabController {
         {
           select: (date) => this.update(selectDate(this.state, date)),
           open: (item) => this.openItem(item),
+          menu: (item, anchor) => this.openItemMenu(item, anchor),
           move: (offset) => this.update(moveSelection(this.state, offset), 'month'),
           shift: (delta) => this.update(shiftPeriod(this.state, delta)),
         },
-        { language: format.language, maxBars: DEFAULT_MAX_BARS, title: monthYearTitle(format.language, year, month), focusSelected: monthFocus },
+        {
+          language: format.language,
+          maxBars: DEFAULT_MAX_BARS,
+          title: monthYearTitle(format.language, year, month),
+          focusSelected: monthFocus,
+          vibrate: this.host.platform.isAndroid,
+        },
       );
       renderDayList(body, model, ctx);
     } else if (state.mode === 'timeline') {
@@ -526,8 +555,10 @@ export class CalendarTab implements TabController {
         return row.source === 'task' || row.source === 'event' ? planner : null;
       },
       connectCalendar: () => this.host.switchTab('settings'),
+      vibrate: this.host.platform.isAndroid,
       handlers: {
         open: (item) => this.openItem(item),
+        menu: (item, anchor) => this.openItemMenu(item, anchor),
         toggle: (item, rowEl) => this.toggleTask(item, rowEl),
         isBusy: (key) => this.busy.has(key),
       },
@@ -588,6 +619,124 @@ export class CalendarTab implements TabController {
       case 'note':
         void actions.openItem(action.noteId);
         return;
+    }
+  }
+
+  // --- Меню элемента (долгое нажатие, ПКМ, Shift+F10) ---
+
+  private openItemMenu(item: DayItem, anchor: MouseEvent | HTMLElement): void {
+    const menu = new Menu();
+    if (item.source === 'task') {
+      if (!this.addTaskItems(menu, item)) return;
+    } else {
+      for (const entry of calendarItemMenu(item) ?? []) {
+        if (!this.canRunMenuAction(item, entry.action)) continue;
+        menu.addItem((menuItem) => {
+          menuItem
+            .setTitle(t(entry.labelKey))
+            .setIcon(entry.icon)
+            .setSection(entry.section)
+            .setWarning(entry.warning)
+            .onClick(() => this.runMenuAction(item, entry.action));
+        });
+      }
+    }
+    showMenuAt(menu, anchor);
+  }
+
+  /** Пункты задачи — как на вкладке «Задачи». `false` — меню задачи недоступно. */
+  private addTaskItems(menu: Menu, item: TaskDayItem): boolean {
+    const { tasks, index } = this.deps;
+    const note = index?.getById?.(item.taskId);
+    if (!index || !note || note.kind !== 'task') return false;
+    const request = taskToggleRequest(item);
+    addTaskMenuItems(
+      menu,
+      { taskId: item.taskId, path: note.path, quadrant: item.quadrant, done: item.completed, instanceDate: request.instanceDate ?? null },
+      {
+        tasks,
+        matrix: () => index.getMatrix(),
+        openNote: (path) => void this.host.actions.openNote(path),
+        run: (op, successMessage) => void this.runItemOp(item.key, op, successMessage),
+      },
+    );
+    return true;
+  }
+
+  /** Пункт доступен: есть сервис и заметка элемента. */
+  private canRunMenuAction(item: DayItem, action: CalendarMenuAction): boolean {
+    switch (action) {
+      case 'view':
+        return item.source === 'external';
+      case 'edit':
+        return item.source === 'event' && this.host.actions.isAvailable('event');
+      case 'open-note':
+        return this.itemPath(item) !== null;
+      case 'postpone':
+        return item.source === 'event' && Boolean(this.deps.events) && this.itemPath(item) !== null;
+      case 'delete':
+        return item.source === 'event' ? Boolean(this.deps.events) : item.source === 'note' && Boolean(this.deps.notes);
+    }
+  }
+
+  private itemPath(item: DayItem): VaultPath | null {
+    const id = item.source === 'event' ? item.eventId : item.source === 'note' ? item.noteId : item.source === 'task' ? item.taskId : null;
+    if (id === null) return null;
+    return this.deps.index?.getById?.(id)?.path ?? null;
+  }
+
+  private runMenuAction(item: DayItem, action: CalendarMenuAction): void {
+    switch (action) {
+      case 'view':
+      case 'edit':
+        this.openItem(item);
+        return;
+      case 'open-note': {
+        const path = this.itemPath(item);
+        if (path) void this.host.actions.openNote(path);
+        return;
+      }
+      case 'postpone': {
+        const events = this.deps.events;
+        if (item.source !== 'event' || !events) return;
+        const event = this.deps.index?.getById?.(item.eventId);
+        if (!event || event.kind !== 'event') {
+          this.deps.notifier.show(t('common.errors.notFound'));
+          return;
+        }
+        void this.runItemOp(item.key, () => events.update(item.eventId, shiftEventPatch(event, 1)), t('calendar.notices.eventPostponed'));
+        return;
+      }
+      case 'delete': {
+        const { events, notes } = this.deps;
+        if (item.source === 'event' && events) {
+          void this.runItemOp(item.key, () => events.delete(item.eventId), t('calendar.notices.eventDeleted'));
+        } else if (item.source === 'note' && notes) {
+          void this.runItemOp(item.key, () => notes.delete(item.noteId), t('calendar.notices.noteDeleted'));
+        }
+        return;
+      }
+    }
+  }
+
+  /** Операция из меню: ошибка — уведомление, успех с изменением — `successMessage`. */
+  private async runItemOp(key: string, op: () => Promise<OpResult<unknown>>, successMessage?: string): Promise<boolean> {
+    this.busy.add(key);
+    try {
+      const result = await op();
+      if (!result.ok) {
+        this.deps.notifier.show(t(errorMessageKey(result.error)));
+        if (result.error.detail) console.warn('[matrix-planner] calendar item operation failed', result.error);
+        return false;
+      }
+      if (successMessage && result.changed) this.deps.notifier.show(successMessage);
+      return true;
+    } catch (error) {
+      console.error('[matrix-planner] calendar item operation failed', error);
+      this.deps.notifier.show(t('common.errors.unknown'));
+      return false;
+    } finally {
+      this.busy.delete(key);
     }
   }
 

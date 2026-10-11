@@ -15,7 +15,7 @@ import {
   type DayListModel,
   type DayListRow,
 } from './calendar-state';
-import { renderAllDayBlock, renderDayHeading, renderDayStatus, renderNotesBlock, rowAriaLabel, type DayListContext } from './day-list';
+import { bindItemActions, renderAllDayBlock, renderDayHeading, renderDayStatus, renderNotesBlock, rowAriaLabel, type DayListContext } from './day-list';
 
 export interface TimelineOptions {
   /** Текущая минута, если показан сегодняшний день. */
@@ -99,13 +99,5 @@ function renderBlock(
   const time = row.rangeLabel ?? row.timeLabel;
   if (time) body.createDiv({ cls: 'mp-cal-timeline-time', text: time, attr: { 'aria-hidden': 'true' } });
 
-  const open = () => ctx.handlers.open(row.item);
-  card.addEventListener('click', open);
-  card.addEventListener('keydown', (evt: KeyboardEvent) => {
-    if (evt.target !== card) return;
-    if (evt.key === 'Enter' || evt.key === ' ') {
-      evt.preventDefault();
-      open();
-    }
-  });
+  bindItemActions(card, row.item, ctx, '.mp-cal-check');
 }

@@ -73,6 +73,11 @@ export interface SettingsTabDeps {
   format?: FormatPreferencesProvider;
   /** Календари из кэша компаньона: выбор календаря и показываемые календари. */
   calendars?: Pick<CalendarCacheReader, 'getCalendars' | 'onChange'>;
+  /**
+   * `calendar_id` календаря кэша, который и есть «Планировщик» на сервере (календарь для записи
+   * синхронизации). Он не показывается вторым «Планировщиком» в списках календарей.
+   */
+  plannerCalendarId?: () => string | null;
   wallpaperProfiles?: WallpaperProfileProvider;
   /** Состояние `_system/companion.json`. */
   companion?: Pick<CompanionStore, 'getState' | 'onChange'>;

@@ -48,7 +48,6 @@ import { conditionKey, formatWeatherLine, weatherCondition } from '../weather/we
 import type { WeatherProvider } from '../weather/weather-types';
 import {
   QUADRANT_CSS_VARS,
-  buildTaskMenu,
   buildTasksView,
   errorMessageKey,
   formatTodayTitle,
@@ -57,7 +56,6 @@ import {
   type QuadrantSection,
   type TaskCardModel,
   type TaskLabelFormat,
-  type TaskMenuAction,
   type TasksMode,
   type TasksViewModel,
 } from './tasks-presenter';
@@ -71,8 +69,9 @@ import {
   type DragSession,
   type DropZone,
   type GestureEffect,
-  type PointerKind,
 } from './task-drag';
+import { addTaskMenuItems } from './task-menu';
+import { MENU_DEBOUNCE_MS, showMenuAt, toPointerKind } from '../ui/controls/context-menu';
 
 registerDictionary('ru', 'tasks', ruTasks);
 registerDictionary('en', 'tasks', enTasks);
@@ -86,8 +85,6 @@ registerDictionary('en', 'stats', enStats);
 const COMPLETE_ANIMATION_MS = 260;
 /** Проверка устаревания (срок наступил, полночь, погода), пока вкладка показана, мс. */
 export const TASKS_REFRESH_INTERVAL_MS = 60_000;
-/** Повторное меню (долгое нажатие + `contextmenu` на Android) в этом окне игнорируется. */
-const MENU_DEBOUNCE_MS = 700;
 
 export interface TasksTabDeps {
   index: NoteIndex;
@@ -675,53 +672,14 @@ export class TasksTab implements TabController {
     if (nowMs - this.lastMenuAt < MENU_DEBOUNCE_MS) return;
     this.lastMenuAt = nowMs;
 
-    const matrix = this.deps.index.getMatrix();
     const menu = new Menu();
-    for (const item of buildTaskMenu(card, matrix)) {
-      const title = item.labelParams ? interpolate(t(item.labelKey), item.labelParams) : t(item.labelKey);
-      menu.addItem((menuItem) => {
-        menuItem
-          .setTitle(title)
-          .setIcon(item.icon)
-          .setSection(item.section)
-          .setWarning(item.warning)
-          .onClick(() => this.runMenuAction(card, item.action));
-      });
-    }
-    if (isMouseEvent(anchor) && (anchor.clientX !== 0 || anchor.clientY !== 0)) {
-      menu.showAtMouseEvent(anchor);
-      return;
-    }
-    const target = isMouseEvent(anchor) ? (anchor.currentTarget as HTMLElement | null) : anchor;
-    if (target) {
-      const rect = target.getBoundingClientRect();
-      menu.showAtPosition({ x: rect.left, y: rect.bottom }, target.doc);
-    } else {
-      menu.showAtPosition({ x: 0, y: 0 });
-    }
-  }
-
-  private runMenuAction(card: TaskCardModel, action: TaskMenuAction): void {
-    const { tasks, index } = this.deps;
-    switch (action.kind) {
-      case 'open-note':
-        void this.host.actions.openNote(card.path);
-        return;
-      case 'move': {
-        const title = index.getMatrix().byKey[action.quadrant]?.title ?? action.quadrant;
-        void this.runOp(card, () => tasks.moveToQuadrant(card.taskId, action.quadrant), t('tasks.notices.moved', { quadrant: title }));
-        return;
-      }
-      case 'postpone':
-        void this.runOp(card, () => tasks.postponeToTomorrow(card.taskId));
-        return;
-      case 'uncomplete':
-        void this.runOp(card, () => tasks.uncomplete(card.taskId, card.instanceDate ?? undefined));
-        return;
-      case 'delete':
-        void this.runOp(card, () => tasks.delete(card.taskId), t('tasks.notices.deleted'));
-        return;
-    }
+    addTaskMenuItems(menu, card, {
+      tasks: this.deps.tasks,
+      matrix: () => this.deps.index.getMatrix(),
+      openNote: (path) => void this.host.actions.openNote(path),
+      run: (op, successMessage) => void this.runOp(card, op, successMessage),
+    });
+    showMenuAt(menu, anchor);
   }
 
   // --- Жесты: долгое нажатие и перетаскивание ---
@@ -925,14 +883,6 @@ export class TasksTab implements TabController {
 // ---------------------------------------------------------------------------
 // Вспомогательные функции
 // ---------------------------------------------------------------------------
-
-function isMouseEvent(value: unknown): value is MouseEvent {
-  return typeof MouseEvent !== 'undefined' && value instanceof MouseEvent;
-}
-
-function toPointerKind(type: string): PointerKind {
-  return type === 'touch' || type === 'pen' ? type : 'mouse';
-}
 
 /** «10 окт. 2026, 13:31» — дата выполнения всегда с годом. */
 function formatCompletedLabel(date: LocalDateString, time: LocalTimeString | null, strings: DateLabelStrings, hour12: boolean): string {

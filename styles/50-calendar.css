@@ -954,3 +954,12 @@
     transition: none;
   }
 }
+
+/* Долгое нажатие открывает меню: без выделения текста и системной выноски iOS. */
+.mp-cal-row-card,
+.mp-cal-timeline-card,
+.mp-cal-month-bar {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}

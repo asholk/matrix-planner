@@ -422,7 +422,10 @@ export class PlannerSettingsRenderer {
         });
     });
 
-    const calendars: readonly CachedCalendar[] = this.deps.calendars?.getCalendars() ?? [];
+    const plannerId = this.deps.plannerCalendarId?.() ?? null;
+    // Календарь «Планировщика» на сервере — тот же «Планировщик»: второй строкой не показывается.
+    const cached: readonly CachedCalendar[] = this.deps.calendars?.getCalendars() ?? [];
+    const calendars = cached.filter((calendar) => calendar.calendarId !== plannerId);
 
     new Setting(el)
       .setName(t('settings.calendar.defaultCalendar.name'))
@@ -432,7 +435,7 @@ export class PlannerSettingsRenderer {
         dropdown.addOption('', t('settings.calendar.defaultCalendar.planner'));
         const writable = calendars.filter((calendar) => calendar.allowsModifications);
         for (const calendar of writable) dropdown.addOption(calendar.calendarId, calendar.title);
-        const current = settings.defaultEventCalendarId;
+        const current = settings.defaultEventCalendarId === plannerId ? null : settings.defaultEventCalendarId;
         if (current !== null && !writable.some((calendar) => calendar.calendarId === current)) {
           dropdown.addOption(current, t('settings.calendar.defaultCalendar.unavailable'));
         }
@@ -444,8 +447,14 @@ export class PlannerSettingsRenderer {
       });
 
     new Setting(el).setName(t('settings.calendar.visible.name')).setDesc(t('settings.calendar.visible.desc')).setClass('mp-settings-group');
-    this.calendarToggle(el, t('settings.calendar.visible.planner'), null, settings.visibleCalendars.planner, (value) => (draft) => {
+    const visible = settings.visibleCalendars;
+    const plannerVisible = visible.planner || (plannerId !== null && visible.calendarIds.includes(plannerId));
+    this.calendarToggle(el, t('settings.calendar.visible.planner'), null, plannerVisible, (value) => (draft) => {
       draft.visibleCalendars.planner = value;
+      if (plannerId === null) return;
+      const ids = draft.visibleCalendars.calendarIds.filter((id) => id !== plannerId);
+      if (value) ids.push(plannerId);
+      draft.visibleCalendars.calendarIds = ids;
     });
     this.calendarToggle(el, t('settings.calendar.visible.birthdays'), null, settings.visibleCalendars.birthdays, (value) => (draft) => {
       draft.visibleCalendars.birthdays = value;
@@ -459,7 +468,7 @@ export class PlannerSettingsRenderer {
         draft.visibleCalendars.calendarIds = ids;
       });
     }
-    if (external.length === 0) {
+    if (cached.every((calendar) => calendar.kind === 'birthdays')) {
       el.createDiv({ cls: 'mp-settings-note', text: t('settings.calendar.visible.noCache') });
     }
   }

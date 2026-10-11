@@ -155,20 +155,24 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
   plugin.register(tombstones.watch(app));
 
   // --- События, заметки, элементы дня ---
+  // Календарь для записи синхронизации CalDAV и есть «Планировщик»: без второго пункта
+  // в форме и настройках, видимость — общая с флагом «Планировщик».
+  const isPlannerCalendar = (calendarId: string): boolean => {
+    const href = settings.get().calendarSync.writeCalendarHref;
+    return href !== null && resourceKey(href) === resourceKey(calendarId);
+  };
+  const plannerCalendarId = (): string | null =>
+    calendarCache.getCalendars().find((calendar) => isPlannerCalendar(calendar.calendarId))?.calendarId ?? null;
   const events = new VaultEventService({
     repository,
     index,
     ids: core.ids,
     calendars: calendarCache,
     tombstones,
-    // Календарь для записи синхронизации CalDAV и есть «Планировщик» — без второго пункта в форме.
-    isPlannerCalendar: (calendarId) => {
-      const sync = settings.get().calendarSync;
-      return sync.enabled && sync.writeCalendarHref !== null && resourceKey(sync.writeCalendarHref) === resourceKey(calendarId);
-    },
+    isPlannerCalendar,
   });
   const notes = new VaultNoteService({ repository, index, ids: core.ids });
-  const dayItems = new PlannerDayItemsProvider({ index, settings, cache: calendarCache, clock, tombstones });
+  const dayItems = new PlannerDayItemsProvider({ index, settings, cache: calendarCache, clock, tombstones, plannerCalendarId });
   plugin.register(() => dayItems.dispose());
 
   // --- Ссылки и быстрые команды ---
@@ -399,6 +403,8 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
     format: core.format,
     notifier,
     tasks: core.tasks,
+    events,
+    notes,
     cache: calendarCache,
     index,
     datePicker: core.datePicker,
@@ -428,6 +434,7 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
     banner,
     settings: {
       calendars: calendarCache,
+      plannerCalendarId,
       companion,
       wallpaperProfiles: {
         list: () => KNOWN_PROFILES,

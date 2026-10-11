@@ -69,4 +69,16 @@ export const ruCalendar = {
     label: 'Месяц {value}',
     more: 'Ещё {count}',
   },
+  menu: {
+    openNote: 'Открыть заметку',
+    edit: 'Изменить',
+    postpone: 'Перенести на завтра',
+    delete: 'Удалить',
+    view: 'Открыть',
+  },
+  notices: {
+    eventPostponed: 'Событие перенесено на завтра',
+    eventDeleted: 'Событие удалено',
+    noteDeleted: 'Заметка удалена в корзину',
+  },
 } satisfies Dictionary;

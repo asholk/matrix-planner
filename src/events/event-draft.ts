@@ -139,6 +139,20 @@ export function eventToDraft(event: Pick<PlannerEvent, 'title' | 'icon' | 'url' 
   };
 }
 
+/**
+ * Патч сдвига события на `days` дней (меню «Перенести на завтра»): начало и конец вместе,
+ * время и длительность сохраняются; для повторяющегося события сдвигается вся серия.
+ */
+export function shiftEventPatch(event: Pick<PlannerEvent, 'allDay' | 'start' | 'end'>, days: number): Pick<EventPatch, 'allDay' | 'start' | 'end'> {
+  const start: FloatingDateTime = event.allDay ? { date: event.start.date, time: null } : { ...event.start };
+  const end: FloatingDateTime = event.allDay ? { date: inclusiveEndDate(event.start.date, event.end.date), time: null } : { ...event.end };
+  return {
+    allDay: event.allDay,
+    start: { ...start, date: addDays(start.date, days) },
+    end: { ...end, date: addDays(end.date, days) },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Состояние формы
 // ---------------------------------------------------------------------------

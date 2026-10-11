@@ -508,7 +508,10 @@ export interface WallpaperSettings {
 
 /** Специальные элементы списка «Показываемые календари». */
 export interface VisibleCalendarsSetting {
-  /** Локальный календарь «Планировщик» (события-заметки без `calendar_id`). */
+  /**
+   * «Планировщик»: события-заметки без `calendar_id` и календарь для записи синхронизации
+   * на сервере (вместе с его наличием в `calendarIds`, см. `isEventCalendarVisible`).
+   */
   planner: boolean;
   /** Календари с `kind: 'birthdays'` из кэша. */
   birthdays: boolean;
@@ -803,6 +806,11 @@ export interface DayItemsInput {
   matrix: MatrixConfig;
   sources: CalendarSourceFilter;
   visibleCalendars: VisibleCalendarsSetting;
+  /**
+   * `calendar_id` календаря кэша, который и есть «Планировщик» на сервере (календарь для
+   * записи синхронизации CalDAV). Он и флаг «Планировщик» — один календарь для видимости.
+   */
+  plannerCalendarId?: string | null;
   /** Показывать выполненные задачи/повторения. */
   includeCompleted: boolean;
 }

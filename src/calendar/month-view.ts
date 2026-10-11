@@ -9,11 +9,14 @@ import type { DayItem, LocalDateString } from '../model/types';
 import { t } from '../i18n';
 import { CALENDAR_MODEL_KEYS } from './day-items';
 import type { MonthLayout } from './month-layout';
+import { bindItemActions, type CalendarItemHandlers } from './day-list';
 import { fullDateLabel, itemColorCss, swipeDirection, weekdayNarrow, weekdayShort } from './calendar-state';
 
 export interface MonthViewHandlers {
   select(date: LocalDateString): void;
   open(item: DayItem): void;
+  /** Меню действий плашки (долгое нажатие, ПКМ, Shift+F10). */
+  menu?(item: DayItem, anchor: MouseEvent | HTMLElement): void;
   move(days: number): void;
   /** Сдвиг на `delta` месяцев (свайп). */
   shift(delta: number): void;
@@ -24,6 +27,8 @@ export interface MonthViewOptions {
   maxBars: number;
   title: string;
   focusSelected: boolean;
+  /** Короткая вибрация при долгом нажатии (Android). */
+  vibrate?: boolean;
 }
 
 export function renderMonthView(parent: HTMLElement, layout: MonthLayout, handlers: MonthViewHandlers, options: MonthViewOptions): HTMLElement {
@@ -39,6 +44,12 @@ export function renderMonthView(parent: HTMLElement, layout: MonthLayout, handle
     });
   }
 
+  const itemHandlers: CalendarItemHandlers = {
+    open: (item) => handlers.open(item),
+    menu: handlers.menu ? (item, anchor) => handlers.menu?.(item, anchor) : undefined,
+    toggle: () => undefined,
+    isBusy: () => false,
+  };
   let focusEl: HTMLElement | null = null;
   let suppressClick = false;
   for (const week of layout.weeks) {
@@ -96,10 +107,7 @@ export function renderMonthView(parent: HTMLElement, layout: MonthLayout, handle
       el.toggleClass('is-completed', completed);
       if (item.source === 'task') setIcon(el.createSpan({ cls: 'mp-cal-month-bar-mark', attr: { 'aria-hidden': 'true' } }), completed ? 'check' : 'circle');
       el.createSpan({ cls: 'mp-cal-month-bar-title', text: item.title });
-      el.addEventListener('click', (evt) => {
-        evt.stopPropagation();
-        handlers.open(item);
-      });
+      bindItemActions(el, item, { handlers: itemHandlers, vibrate: options.vibrate });
     }
   }
 

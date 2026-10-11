@@ -69,4 +69,16 @@ export const enCalendar = {
     label: 'Month {value}',
     more: '{count} more',
   },
+  menu: {
+    openNote: 'Open note',
+    edit: 'Edit',
+    postpone: 'Move to tomorrow',
+    delete: 'Delete',
+    view: 'Open',
+  },
+  notices: {
+    eventPostponed: 'Event moved to tomorrow',
+    eventDeleted: 'Event deleted',
+    noteDeleted: 'Note moved to trash',
+  },
 } satisfies Dictionary;

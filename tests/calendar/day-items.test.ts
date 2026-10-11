@@ -566,3 +566,67 @@ describe('финальные исправления', () => {
     expect(all(provider.getDays({ from: '2026-10-10', to: '2026-10-10' }).get('2026-10-10'))).toHaveLength(0);
   });
 });
+
+describe('«Планировщик» и его календарь на сервере — один календарь', () => {
+  const plannerCal: CachedCalendar = { calendarId: 'srv-planner', title: 'Планировщик', color: '#007AFF', kind: 'caldav', allowsModifications: true };
+  const created = event({ id: 'NEW', start: { date: '2026-10-10', time: '10:00' }, end: { date: '2026-10-10', time: '11:00' } });
+  // Копия события в календаре «Планировщик» на сервере (после синхронизации) и чужое событие там же.
+  const syncedCache = (): CalendarCacheState => {
+    const state = cacheState([
+      cached({ occurrenceKey: 'NEW|1', calendarId: 'srv-planner', linkedItemId: 'NEW', start: { date: '2026-10-10', time: '10:00' }, end: { date: '2026-10-10', time: '11:00' } }),
+      cached({ occurrenceKey: 'foreign|1', calendarId: 'srv-planner', start: { date: '2026-10-10', time: '17:00' }, end: { date: '2026-10-10', time: '18:00' } }),
+    ]);
+    if (state.status === 'ok') state.data.calendars = [plannerCal, work];
+    return state;
+  };
+  const titles = (over: Partial<DayItemsInput>) => all(buildDayItems(input({ events: [created], cache: syncedCache(), ...over })).get('2026-10-10')).map((i) => i.title);
+
+  it('событие из формы видно, если флаг выключен, а календарь «Планировщика» на сервере показывается', () => {
+    // Воспроизведение: флаг «Планировщик» выключен (первый из двух одноимённых переключателей),
+    // событие уже в «Календаре» iOS — раньше оно пропадало и из заметок, и из кэша.
+    const visible = { planner: false, birthdays: true, calendarIds: ['srv-planner', 'work'] };
+    // Без связи с флагом видно только чужое событие календаря, своё — нет.
+    expect(titles({ visibleCalendars: visible })).toEqual(['foreign|1']);
+    expect(titles({ visibleCalendars: visible, plannerCalendarId: 'srv-planner' })).toEqual(['NEW', 'foreign|1']);
+  });
+
+  it('событие-заметка с calendar_id календаря «Планировщика» — по тому же правилу', () => {
+    const inPlanner = event({ ...created, id: 'P2', title: 'P2', calendarId: 'srv-planner' });
+    const visible = { planner: false, birthdays: true, calendarIds: ['srv-planner'] };
+    const days = buildDayItems(input({ events: [inPlanner], visibleCalendars: visible, plannerCalendarId: 'srv-planner' }));
+    expect(all(days.get('2026-10-10')).map((i) => i.title)).toEqual(['P2']);
+  });
+
+  it('флаг включён, календарь выключен в списке — «Планировщик» и его чужие события видны', () => {
+    const visible = { planner: true, birthdays: true, calendarIds: ['work'] };
+    expect(titles({ visibleCalendars: visible, plannerCalendarId: 'srv-planner' })).toEqual(['NEW', 'foreign|1']);
+  });
+
+  it('выключены оба — «Планировщик» скрыт целиком, без копии из кэша', () => {
+    const visible = { planner: false, birthdays: true, calendarIds: ['work'] };
+    expect(titles({ visibleCalendars: visible, plannerCalendarId: 'srv-planner' })).toEqual([]);
+  });
+
+  it('провайдер передаёт календарь «Планировщика» в сборку', () => {
+    const build = vi.fn(buildDayItems);
+    const provider = new PlannerDayItemsProvider({
+      index: { getTasks: () => [], getEvents: () => [created], getNotes: () => [], getMatrix: () => matrix, onChange: () => () => undefined },
+      settings: {
+        get: () =>
+          ({
+            visibleCalendars: { planner: false, birthdays: true, calendarIds: ['srv-planner'] },
+            wallpaper: { calendarIds: null },
+            ui: { calendarSources: { tasks: true, events: true, notes: true, external: true } },
+          }) as unknown as PlannerSettings,
+        onChange: () => () => undefined,
+      },
+      cache: { getState: () => syncedCache(), onChange: () => () => undefined },
+      clock: { now: () => new Date('2026-10-10T07:00:00Z'), timeZone: () => 'Europe/Moscow' },
+      plannerCalendarId: () => 'srv-planner',
+      build,
+    });
+    const days = provider.getDays({ from: '2026-10-10', to: '2026-10-10' });
+    expect(build.mock.calls[0][0].plannerCalendarId).toBe('srv-planner');
+    expect(all(days.get('2026-10-10')).map((i) => i.title)).toEqual(['NEW', 'foreign|1']);
+  });
+});

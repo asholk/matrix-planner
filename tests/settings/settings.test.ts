@@ -646,6 +646,40 @@ describe('вкладка настроек', () => {
     expect(store.get().visibleCalendars).toEqual({ planner: false, birthdays: true, calendarIds: ['holidays'] });
   });
 
+  it('календарь «Планировщика» на сервере — без второго «Планировщика», один переключатель для обоих', async () => {
+    const { plugin, store } = await createStore();
+    // Состояние, в котором события из формы пропадали: флаг выключен, календарь сервера — в списке.
+    await store.update((draft) => {
+      draft.visibleCalendars = { planner: false, birthdays: true, calendarIds: ['srv-planner', 'work'] };
+      draft.defaultEventCalendarId = 'srv-planner';
+    });
+    const tab = createTab(plugin, {
+      store,
+      calendars: {
+        getCalendars: () => [
+          { calendarId: 'srv-planner', title: 'Планировщик', color: '#007AFF', kind: 'caldav', allowsModifications: true },
+          { calendarId: 'work', title: 'Работа', color: '#3E8BF0', kind: 'caldav', allowsModifications: true },
+        ],
+        onChange: () => () => undefined,
+      },
+      plannerCalendarId: () => 'srv-planner',
+    });
+    show(tab);
+
+    expect(settingsList().filter((setting) => setting.name === 'Планировщик')).toHaveLength(1);
+    const defaultCalendar = component(findSetting('Календарь для новых событий'), DropdownComponent);
+    expect(Object.keys(defaultCalendar.options)).toEqual(['', 'work']);
+    expect(defaultCalendar.getValue()).toBe('');
+    const planner = component(findSetting('Планировщик'), ToggleComponent);
+    expect(planner.getValue()).toBe(true);
+    planner.simulateChange(false);
+    await flush();
+    expect(store.get().visibleCalendars).toEqual({ planner: false, birthdays: true, calendarIds: ['work'] });
+    planner.simulateChange(true);
+    await flush();
+    expect(store.get().visibleCalendars).toEqual({ planner: true, birthdays: true, calendarIds: ['work', 'srv-planner'] });
+  });
+
   it('компаньон: только строка о будущем приложении, без кнопок и состояния', async () => {
     const { plugin, store } = await createStore();
     const open = vi.fn();

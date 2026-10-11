@@ -7,11 +7,14 @@
 import { setIcon } from 'obsidian';
 import type { DayItem, QuadrantKey, TaskDayItem } from '../model/types';
 import { t, tPlural } from '../i18n';
+import { attachContextMenu } from '../ui/controls/context-menu';
 import { CALENDAR_MODEL_KEYS } from './day-items';
 import type { DayListModel, DayListRow } from './calendar-state';
 
 export interface CalendarItemHandlers {
   open(item: DayItem): void;
+  /** Меню действий (долгое нажатие, ПКМ, Shift+F10); без него меню нет. */
+  menu?(item: DayItem, anchor: MouseEvent | HTMLElement): void;
   toggle(item: TaskDayItem, rowEl: HTMLElement): void;
   isBusy(key: string): boolean;
 }
@@ -26,6 +29,8 @@ export interface DayListContext {
   calendarTitle(row: DayListRow): string | null;
   /** Кнопка «Подключить» в сообщении об отсутствии событий iOS (переход к настройкам). */
   connectCalendar?: (() => void) | null;
+  /** Короткая вибрация при долгом нажатии (Android). */
+  vibrate?: boolean;
   handlers: CalendarItemHandlers;
 }
 
@@ -163,8 +168,30 @@ export function renderItemRow(parent: HTMLElement, row: DayListRow, ctx: DayList
     if (row.recurring) setIcon(metaEl.createSpan({ cls: 'mp-cal-row-meta-icon mp-cal-row-repeat' }), 'repeat');
   }
 
-  const open = () => ctx.handlers.open(row.item);
-  card.addEventListener('click', open);
+  bindItemActions(card, row.item, ctx, '.mp-cal-check');
+  return el;
+}
+
+/**
+ * Нажатие и Enter/пробел открывают элемент; долгое нажатие, ПКМ и Shift+F10 — меню действий
+ * (после меню долгого нажатия `click` не открывает элемент). Общее для списка, шкалы и месяца.
+ */
+export function bindItemActions(
+  card: HTMLElement,
+  item: DayItem,
+  ctx: Pick<DayListContext, 'handlers' | 'vibrate'>,
+  controlSelector?: string,
+): void {
+  const handlers = ctx.handlers;
+  const binding = handlers.menu
+    ? attachContextMenu(card, (anchor) => handlers.menu?.(item, anchor), { controlSelector, vibrate: ctx.vibrate })
+    : null;
+  const open = () => ctx.handlers.open(item);
+  card.addEventListener('click', (evt: MouseEvent) => {
+    evt.stopPropagation();
+    if (binding?.consumeClick()) return;
+    open();
+  });
   card.addEventListener('keydown', (evt: KeyboardEvent) => {
     if (evt.target !== card) return;
     if (evt.key === 'Enter' || evt.key === ' ') {
@@ -172,7 +199,6 @@ export function renderItemRow(parent: HTMLElement, row: DayListRow, ctx: DayList
       open();
     }
   });
-  return el;
 }
 
 /**

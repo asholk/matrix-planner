@@ -6,10 +6,13 @@
  * с `date`, события кэша «Календаря» iOS. Событие кэша, связанное с заметкой, второй раз не показывается.
  *
  * Видимость календарей:
- * - событие-заметка без `calendar_id` — флаг «Планировщик»;
- * - событие-заметка с `calendar_id` — если календарь выбран в «Показываемых календарях»
+ * - «Планировщик» — флаг `planner` или его календарь на сервере (календарь для записи
+ *   синхронизации, `plannerCalendarId`) в списке: это один календарь, а не два;
+ * - событие-заметка без `calendar_id` или в календаре «Планировщика» — как «Планировщик»;
+ * - событие-заметка с другим `calendar_id` — если календарь выбран в «Показываемых календарях»
  *   или включён «Планировщик» (это всё равно заметка Планировщика);
- * - событие кэша — календарь «Дни рождения» по флагу `birthdays` или по списку, прочие — по списку.
+ * - событие кэша — календарь «Планировщика» как «Планировщик», «Дни рождения» по флагу
+ *   `birthdays` или по списку, прочие — по списку.
  */
 
 import type {
@@ -108,8 +111,17 @@ export function cacheCoverageFor(cache: CalendarCacheState, date: LocalDateStrin
   return date >= from && date <= to ? 'covered' : 'out-of-range';
 }
 
-export function isEventCalendarVisible(calendarId: string | null, visible: VisibleCalendarsSetting): boolean {
-  if (calendarId === null) return visible.planner;
+/** «Планировщик» показывается: флаг или его календарь на сервере в «Показываемых календарях». */
+export function isPlannerVisible(visible: VisibleCalendarsSetting, plannerCalendarId: string | null = null): boolean {
+  return visible.planner || (plannerCalendarId !== null && visible.calendarIds.includes(plannerCalendarId));
+}
+
+export function isEventCalendarVisible(
+  calendarId: string | null,
+  visible: VisibleCalendarsSetting,
+  plannerCalendarId: string | null = null,
+): boolean {
+  if (calendarId === null || calendarId === plannerCalendarId) return isPlannerVisible(visible, plannerCalendarId);
   return visible.planner || visible.calendarIds.includes(calendarId);
 }
 
@@ -117,7 +129,9 @@ export function isExternalCalendarVisible(
   calendarId: string,
   calendar: CachedCalendar | undefined,
   visible: VisibleCalendarsSetting,
+  plannerCalendarId: string | null = null,
 ): boolean {
+  if (calendarId === plannerCalendarId) return isPlannerVisible(visible, plannerCalendarId);
   if (visible.calendarIds.includes(calendarId)) return true;
   return calendar?.kind === 'birthdays' && visible.birthdays;
 }
@@ -374,10 +388,11 @@ export const buildDayItems: DayItemsBuilder = (input) => {
     ? partitionCacheEvents(cacheData.events, knownIds, eventIds)
     : { external: [], linkedToEvents: new Map<ItemId, CachedCalendarEvent[]>(), hiddenLinked: 0 };
 
+  const plannerCalendarId = input.plannerCalendarId ?? null;
   if (sources.events) {
     for (const event of input.events) {
       if (event.deletedInCalendar) continue;
-      if (!isEventCalendarVisible(event.calendarId, input.visibleCalendars)) continue;
+      if (!isEventCalendarVisible(event.calendarId, input.visibleCalendars, plannerCalendarId)) continue;
       for (const item of buildEventItems(event, input, partition.linkedToEvents.get(event.id))) add(item);
     }
   }
@@ -386,7 +401,7 @@ export const buildDayItems: DayItemsBuilder = (input) => {
     const calendars = new Map(cacheData.calendars.map((calendar) => [calendar.calendarId, calendar]));
     for (const event of partition.external) {
       const calendar = calendars.get(event.calendarId);
-      if (!isExternalCalendarVisible(event.calendarId, calendar, input.visibleCalendars)) continue;
+      if (!isExternalCalendarVisible(event.calendarId, calendar, input.visibleCalendars, plannerCalendarId)) continue;
       for (const item of buildExternalItems(event, calendar, range)) add(item);
     }
   }
@@ -463,6 +478,8 @@ export interface DayItemsProviderDeps {
    * не удалит событие из «Календаря» iOS и не перепишет кэш.
    */
   tombstones?: TombstoneSource;
+  /** `calendar_id` календаря «Планировщика» на сервере (см. `DayItemsInput.plannerCalendarId`). */
+  plannerCalendarId?: () => string | null;
   /** Подмена сборки (тесты). */
   build?: DayItemsBuilder;
 }
@@ -568,6 +585,7 @@ export class PlannerDayItemsProvider implements DayItemsProvider {
       matrix: this.deps.index.getMatrix(),
       sources: filters.sources,
       visibleCalendars: filters.visibleCalendars,
+      plannerCalendarId: this.deps.plannerCalendarId?.() ?? null,
       includeCompleted: options.includeCompleted ?? !forWallpaper,
     };
     return (this.deps.build ?? buildDayItems)(input);
