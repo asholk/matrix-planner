@@ -56,7 +56,16 @@ export function wallpaperDayItems(agenda: DayAgenda | undefined): DayItem[] {
 }
 
 export function emitCard(ctx: LayoutContext, box: Box): void {
-  ctx.commands.push({ op: 'rect', x: box.x, y: box.y, w: box.w, h: box.h, radius: CARD_RADIUS_PT * ctx.unit, fill: ctx.palette.card });
+  ctx.commands.push({
+    op: 'rect',
+    x: box.x,
+    y: box.y,
+    w: box.w,
+    h: box.h,
+    radius: CARD_RADIUS_PT * ctx.unit,
+    fill: ctx.palette.card,
+    backdrop: 'blur',
+  });
 }
 
 export interface TextOptions {
@@ -136,7 +145,8 @@ function drawWeekStrip(ctx: LayoutContext, box: Box): void {
     emitText(ctx, label, cx, labelCy, { font: ctx.font(9, 600), color: palette.secondary, align: 'center', maxWidth: colW - 2 * u });
 
     const day = String(Number(date.slice(8, 10)));
-    const selected = date === input.date;
+    // Устаревшие обои: «сегодня» уже не тот день — без выделения.
+    const selected = !input.expired && date === input.date;
     if (selected) {
       ctx.commands.push({ op: 'circle', cx, cy: numberCy, r: 10 * u, fill: palette.text, stroke: null, lineWidth: 0 });
     }
@@ -225,7 +235,8 @@ function drawQuadrant(ctx: LayoutContext, key: QuadrantKey, box: Box): void {
     let titleRight = right;
     if (task.due) {
       const dueFont = ctx.font(11, 600);
-      const dueWidth = emitText(ctx, strings.formatDue(task.due, input.date), right, cy, {
+      const dueText = input.expired && strings.formatDueDate ? strings.formatDueDate(task.due) : strings.formatDue(task.due, input.date);
+      const dueWidth = emitText(ctx, dueText, right, cy, {
         font: dueFont,
         color: accent,
         align: 'right',

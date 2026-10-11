@@ -95,6 +95,11 @@ describe('вибрация итогов (006, §10)', () => {
     expect(wallpaperHapticFor('rendering', 'failed')).toBe('error');
     expect(wallpaperHapticFor('idle', 'confirmed')).toBeNull();
     expect(wallpaperHapticFor('rendering', 'launched')).toBeNull();
+    // 007: отмена команды — предупреждение; готовый пакет без запуска — без отклика.
+    expect(wallpaperHapticFor('launched', 'cancelled')).toBe('warning');
+    expect(wallpaperHapticFor('launched', 'failed')).toBe('error');
+    expect(wallpaperHapticFor('rendering', 'ready')).toBeNull();
+    expect(wallpaperHapticFor('dirty', 'ready')).toBeNull();
   });
 
   it('ошибка адресной отправки — error; «не настроено» и успех — без отклика', () => {

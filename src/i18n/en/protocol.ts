@@ -31,6 +31,16 @@ export const enProtocol = {
     failedShortcut: 'Couldn’t start the shortcut',
     failedCallback: 'Couldn’t update the lock screen',
     howToSetUp: 'How to set up',
+    readyAction: 'Wallpaper ready · Install',
+    readyHint: 'Tap to set the wallpaper on the lock screen',
+    cancelled: 'Wallpaper installation canceled',
+    failedRenderReason: 'Couldn’t draw the wallpaper: {reason}',
+    failedInstallReason: 'Couldn’t set the wallpaper: {reason}',
+    background: {
+      missing: 'background file not found',
+      read: 'background file can’t be read',
+      decode: 'background file is damaged or in an unsupported format',
+    },
     status: {
       confirmed: 'Wallpaper updated {date} at {time}',
       notConfirmedSince: 'No confirmed update since {date}',

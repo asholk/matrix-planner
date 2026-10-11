@@ -1061,3 +1061,38 @@
   -webkit-touch-callout: none;
   user-select: none;
 }
+
+/* --- Листание дней свайпом в «Списке» и «Временной шкале» (доработка 007) --- */
+
+/* Вертикальная прокрутка — браузеру, горизонтальный жест — листанию дней. */
+.mp-cal-body:not([data-mode='month']) > .mp-cal-day,
+.mp-cal-body:not([data-mode='month']) .mp-cal-timeline {
+  touch-action: pan-y;
+}
+
+.mp-cal-body:not([data-mode='month']) > .mp-cal-day:focus-visible {
+  outline: 2px solid var(--background-modifier-border-focus);
+  outline-offset: 2px;
+  border-radius: var(--mp-radius-panel);
+}
+
+/* День едет за пальцем; соседний день не выходит за край вида. */
+.mp-cal-body.is-day-moving {
+  overflow-x: clip;
+  overflow-clip-margin: var(--size-4-2);
+}
+
+.mp-cal-body.is-day-moving > .mp-cal-day {
+  transform: translate3d(var(--mp-day-x, 0px), 0, 0);
+  will-change: transform;
+}
+
+.mp-cal-body.is-day-animating > .mp-cal-day {
+  transition: transform var(--mp-day-duration, 200ms) cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-cal-body.is-day-animating > .mp-cal-day {
+    transition: none;
+  }
+}

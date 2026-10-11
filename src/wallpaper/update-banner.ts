@@ -4,6 +4,8 @@
  *
  * Нажатие вызывает `tracker.run()` синхронно в обработчике клика: трекер
  * открывает `shortcuts://` до первого `await`, пока жест пользователя действителен.
+ * Если пакет дорисовывался дольше жеста, баннер показывает «Обои готовы · Установить»
+ * (состояние `ready`): нажатие на него открывает команду синхронно.
  */
 
 import { setIcon } from 'obsidian';
@@ -62,7 +64,10 @@ export interface BannerViewModel {
 function toneOf(state: WallpaperBannerState): BannerTone {
   switch (state.kind) {
     case 'dirty':
+    case 'cancelled':
       return 'attention';
+    case 'ready':
+      return 'success';
     case 'failed':
       return 'error';
     case 'confirmed':
@@ -78,6 +83,8 @@ function iconOf(state: WallpaperBannerState, actionKind: WallpaperActionKind): s
       return 'loader';
     case 'confirmed':
       return 'check';
+    case 'ready':
+      return actionKind === 'update' ? 'smartphone' : 'download';
     case 'failed':
       return 'alert-triangle';
     default:
@@ -240,6 +247,7 @@ export class UpdateBanner implements BannerController {
     const model = bannerViewModelOf(this.deps.status);
     root.empty();
     root.dataset.tone = model.tone;
+    root.dataset.state = this.deps.status.getState().kind;
     root.toggleClass('is-compact', Boolean(this.deps.compact));
     const hidden = isBannerHidden(this.deps.status.getState(), model.actionKind);
     root.hidden = hidden;

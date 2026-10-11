@@ -2,9 +2,15 @@
  * Сервис обоев (ТЗ §4.5): пакет PNG на семь дат + `lock.png`, предпросмотр, очистка.
  *
  * Порядок записи защищает прежние файлы: сначала датированные `lock-ГГГГ-ММ-ДД.png`,
+ * затем запасной `lock-expired.png` (день после пакета, шаблон «Обои устарели»),
  * `lock.png` — последним и только при удачном рендере на сегодня. Данные читаются
  * один раз в начале; в результате — ревизия данных на этот момент, поэтому правки,
  * сделанные во время рендера, не считаются перенесёнными на экран блокировки.
+ *
+ * Отпечаток пакета — хеш входа раскладки на все даты (задачи, события, настройки,
+ * профиль, дата, зона, версия шаблона). Совпал с сохранённым и файлы на месте — пакет
+ * не перерисовывается; одинаковые PNG не переписываются (`writeIfChanged`).
+ * Недоступный фон (`WallpaperBackgroundError`) останавливает пакет до записи: прежние PNG остаются.
  */
 
 import { Platform } from 'obsidian';
@@ -17,6 +23,7 @@ import type {
   WallpaperLayoutFn,
   WallpaperRenderer,
   WallpaperRenderFailure,
+  WallpaperRenderOptions,
   WallpaperRenderResult,
   WallpaperService,
 } from '../app/contracts';
@@ -26,11 +33,11 @@ import { enWallpaperRender } from '../i18n/en/wallpaper-render';
 import { ruWallpaperLayout } from '../i18n/ru/wallpaper-layout';
 import { ruWallpaperRender } from '../i18n/ru/wallpaper-render';
 import { createDateLabelStrings, floatingFromDate, isValidTimeZone } from '../model/dates';
-import type { LocalDateString, OpResult, PlannerError, VaultPath, WallpaperProfile, WallpaperSettings } from '../model/types';
+import type { LocalDateString, OpResult, PlannerError, VaultPath, WallpaperLayoutInput, WallpaperProfile, WallpaperSettings } from '../model/types';
 import { WALLPAPER_LAYOUT_MODULE, createWallpaperStrings, layoutWallpaper } from './layout';
 import type { WallpaperOutputRepository } from './output-repository';
 import { resolveProfile as resolveProfileSetting, type ScreenInfo } from './profiles';
-import { createLayoutInput, formatWallpaperDue, planRenderDates, renderDataRange } from './render-plan';
+import { createLayoutInput, expiredDate, formatWallpaperDue, packFingerprint, planRenderDates, renderDataRange } from './render-plan';
 import type { WallpaperLayoutStrings } from './types';
 
 registerDictionary('ru', WALLPAPER_LAYOUT_MODULE, ruWallpaperLayout);
@@ -57,6 +64,11 @@ export interface WallpaperRenderServiceDeps {
   getScreen?(): ScreenInfo | null;
   /** Телефон или планшет; на компьютере автопрофиль — iPhone по умолчанию. По умолчанию `Platform.isMobile`. */
   isMobile?(): boolean;
+  /**
+   * Отметка файла фона (время изменения и размер) для отпечатка: замена картинки
+   * под тем же путём должна перерисовать пакет. `null` — файла нет.
+   */
+  backgroundStamp?(path: VaultPath): string | null;
   /** Подмена раскладки (тесты). */
   layout?: WallpaperLayoutFn;
   /** Подмена строк раскладки (тесты); по умолчанию — из словарей через `t`. */
@@ -66,6 +78,24 @@ export interface WallpaperRenderServiceDeps {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Коды недоступного фона (`WallpaperBackgroundError` из `background.ts`). */
+export const BACKGROUND_ERROR_CODES = ['missing', 'read', 'decode'] as const;
+export type BackgroundErrorCode = (typeof BACKGROUND_ERROR_CODES)[number];
+
+/** Код ошибки фона или `null`, если это другая ошибка рендера. */
+export function backgroundErrorCode(error: unknown): BackgroundErrorCode | null {
+  if (!(error instanceof Error)) return null;
+  const code = (error as { code?: unknown }).code;
+  const isBackground = error.name === 'WallpaperBackgroundError' || error.constructor.name === 'WallpaperBackgroundError';
+  if (!isBackground || typeof code !== 'string') return null;
+  return (BACKGROUND_ERROR_CODES as readonly string[]).includes(code) ? (code as BackgroundErrorCode) : null;
+}
+
+/** Ключ i18n причины для недоступного фона (словарь `protocol`). */
+export function backgroundErrorKey(code: BackgroundErrorCode): string {
+  return `protocol.wallpaper.background.${code}`;
 }
 
 function defaultScreen(): ScreenInfo | null {
@@ -87,13 +117,23 @@ export class PlannerWallpaperService implements WallpaperService {
   }
 
   /** Повторный вызов во время рендера получает тот же результат (без параллельных записей). */
-  renderAll(): Promise<OpResult<WallpaperRenderResult>> {
+  renderAll(options: WallpaperRenderOptions = {}): Promise<OpResult<WallpaperRenderResult>> {
     if (!this.inFlight) {
-      this.inFlight = this.runBatch().finally(() => {
+      this.inFlight = this.runBatch(options).finally(() => {
         this.inFlight = null;
       });
     }
     return this.inFlight;
+  }
+
+  /** Отпечаток пакета на текущие данные без рендера (сверка свежести после перезапуска). */
+  async computeFingerprint(): Promise<{ profileId: string; fingerprint: string }> {
+    const settings = this.deps.settings.get().wallpaper;
+    const profile = this.resolveProfile(settings);
+    const dates = planRenderDates(this.today());
+    await this.deps.dayItems.prepare?.();
+    const snapshot = this.snapshot(dates);
+    return { profileId: profile.id, fingerprint: this.fingerprint(dates, settings, profile, snapshot) };
   }
 
   async renderPreview(canvas: HTMLCanvasElement, draft: WallpaperSettings, date: LocalDateString): Promise<void> {
@@ -110,19 +150,9 @@ export class PlannerWallpaperService implements WallpaperService {
     return this.deps.output.exists(path) ? path : null;
   }
 
-  /** Байты `lock.png` текущего профиля (для «Получить фото»). */
-  async readCurrentImage(): Promise<OpResult<{ path: VaultPath; data: ArrayBuffer }>> {
-    const profileId = this.resolveProfile().id;
-    const path = this.deps.output.lockPath(profileId);
-    if (!this.deps.output.exists(path)) return { ok: false, error: { code: 'not-found', detail: path } };
-    const read = await this.deps.output.readLock(profileId);
-    if (!read.ok) return read;
-    return { ok: true, value: { path, data: read.value }, changed: false };
-  }
-
   // -------------------------------------------------------------------------
 
-  private async runBatch(): Promise<OpResult<WallpaperRenderResult>> {
+  private async runBatch(options: WallpaperRenderOptions): Promise<OpResult<WallpaperRenderResult>> {
     // Ревизия — до чтения данных: всё, что изменится позже, останется «есть изменения».
     const dataRevision = this.deps.getDataRevision();
     const settings = this.deps.settings.get().wallpaper;
@@ -132,15 +162,25 @@ export class PlannerWallpaperService implements WallpaperService {
     const result: WallpaperRenderResult = { profile, written: [], failed: [], lockUpdated: false, dataRevision };
     let lastError: PlannerError | null = null;
     let todayPng: ArrayBuffer | null = null;
+    let anyChanged = false;
+
+    let snapshot: RenderSnapshot;
+    try {
+      await this.deps.dayItems.prepare?.();
+      snapshot = this.snapshot(dates);
+      result.fingerprint = this.fingerprint(dates, settings, profile, snapshot);
+    } catch (error) {
+      return { ok: false, error: { code: 'unknown', messageKey: 'wallpaperRender.errors.nothingSaved', detail: describeError(error), cause: error } };
+    }
+
+    // Те же данные, что в сохранённом пакете, и файлы на месте — ничего не рисуем.
+    const known = options.knownFingerprint ?? null;
+    if (known !== null && known === result.fingerprint && this.packComplete(profile.id, dates)) {
+      const written = dates.map((date) => this.deps.output.datedPath(profile.id, date));
+      return { ok: true, value: { ...result, written, lockUpdated: true, unchanged: true }, changed: false };
+    }
 
     try {
-      let snapshot: RenderSnapshot;
-      try {
-        await this.deps.dayItems.prepare?.();
-        snapshot = this.snapshot(dates);
-      } catch (error) {
-        return { ok: false, error: { code: 'unknown', messageKey: 'wallpaperRender.errors.nothingSaved', detail: describeError(error), cause: error } };
-      }
       // Последовательно: в памяти одновременно один холст.
       for (const date of dates) {
         let png: ArrayBuffer;
@@ -148,6 +188,9 @@ export class PlannerWallpaperService implements WallpaperService {
           const layout = this.layoutFor(date, settings, profile, snapshot);
           png = await this.deps.renderer.render({ layout, background: settings.background });
         } catch (error) {
+          const background = backgroundErrorCode(error);
+          // Фон недоступен — так же на все даты: прежние PNG не трогаем.
+          if (background !== null) return this.backgroundFailure(background, error);
           result.failed.push(this.failure(date, this.translate('wallpaperRender.errors.render', { date }), error));
           lastError = { code: 'unknown', messageKey: 'wallpaperRender.errors.render', detail: describeError(error) };
           continue;
@@ -155,6 +198,7 @@ export class PlannerWallpaperService implements WallpaperService {
         const written = await this.deps.output.writeDated(profile.id, date, png);
         if (written.ok) {
           result.written.push(this.deps.output.datedPath(profile.id, date));
+          anyChanged ||= written.changed;
         } else {
           result.failed.push({ date, detail: written.error.detail ?? written.error.code });
           lastError = written.error;
@@ -164,11 +208,18 @@ export class PlannerWallpaperService implements WallpaperService {
         if (date === today) todayPng = png;
       }
 
+      // Запасной файл после пакета; сбой не влияет на результат (без файла пакет не считается полным).
+      if (result.written.length > 0) anyChanged = (await this.writeExpired(dates, settings, profile, snapshot)) || anyChanged;
+
       // lock.png — последним: при сбое рендера на сегодня прежний файл не трогается.
       if (todayPng) {
         const lock = await this.deps.output.writeLock(profile.id, todayPng);
-        if (lock.ok) result.lockUpdated = true;
-        else lastError = lock.error;
+        if (lock.ok) {
+          result.lockUpdated = true;
+          anyChanged ||= lock.changed;
+        } else {
+          lastError = lock.error;
+        }
       }
       todayPng = null;
 
@@ -185,7 +236,52 @@ export class PlannerWallpaperService implements WallpaperService {
         error: { ...error, messageKey: error.messageKey ?? 'wallpaperRender.errors.nothingSaved' },
       };
     }
-    return { ok: true, value: result, changed: true };
+    return { ok: true, value: result, changed: anyChanged };
+  }
+
+  /** `lock-expired.png`: `true` — файл изменён. */
+  private async writeExpired(dates: readonly LocalDateString[], settings: WallpaperSettings, profile: WallpaperProfile, snapshot: RenderSnapshot): Promise<boolean> {
+    try {
+      const layout = this.layoutFor(expiredDate(dates), settings, profile, snapshot, true);
+      const png = await this.deps.renderer.render({ layout, background: settings.background });
+      const written = await this.deps.output.writeExpired(profile.id, png);
+      return written.ok && written.changed;
+    } catch {
+      return false;
+    }
+  }
+
+  private backgroundFailure(code: BackgroundErrorCode, error: unknown): OpResult<WallpaperRenderResult> {
+    return {
+      ok: false,
+      error: { code: code === 'missing' ? 'not-found' : 'unknown', messageKey: backgroundErrorKey(code), detail: describeError(error), cause: error },
+    };
+  }
+
+  /** Все файлы пакета на месте (датированные, `lock.png`, `lock-expired.png`). */
+  private packComplete(profileId: string, dates: readonly LocalDateString[]): boolean {
+    const { output } = this.deps;
+    return (
+      dates.every((date) => output.exists(output.datedPath(profileId, date))) &&
+      output.exists(output.lockPath(profileId)) &&
+      output.exists(output.expiredPath(profileId))
+    );
+  }
+
+  /** Хеш входа раскладки на все даты пакета и запасной файл. */
+  private fingerprint(dates: readonly LocalDateString[], settings: WallpaperSettings, profile: WallpaperProfile, snapshot: RenderSnapshot): string {
+    const inputs = [
+      ...dates.map((date) => this.inputFor(date, settings, profile, snapshot)),
+      this.inputFor(expiredDate(dates), settings, profile, snapshot, true),
+    ];
+    const background = settings.background;
+    return packFingerprint(snapshot.today, {
+      zone: this.deps.clock.timeZone(),
+      language: this.deps.format.get().language,
+      background,
+      backgroundStamp: background.kind === 'image' ? (this.deps.backgroundStamp?.(background.path) ?? null) : null,
+      inputs,
+    });
   }
 
   private failure(date: LocalDateString, message: string, error: unknown): WallpaperRenderFailure {
@@ -217,9 +313,12 @@ export class PlannerWallpaperService implements WallpaperService {
     };
   }
 
-  private layoutFor(date: LocalDateString, settings: WallpaperSettings, profile: WallpaperProfile, snapshot: RenderSnapshot) {
-    const input = createLayoutInput({ ...snapshot, date, settings, profile });
-    return (this.deps.layout ?? layoutWallpaper)(input, this.deps.renderer.measurer);
+  private inputFor(date: LocalDateString, settings: WallpaperSettings, profile: WallpaperProfile, snapshot: RenderSnapshot, expired = false): WallpaperLayoutInput {
+    return createLayoutInput({ ...snapshot, date, settings, profile, expired });
+  }
+
+  private layoutFor(date: LocalDateString, settings: WallpaperSettings, profile: WallpaperProfile, snapshot: RenderSnapshot, expired = false) {
+    return (this.deps.layout ?? layoutWallpaper)(this.inputFor(date, settings, profile, snapshot, expired), this.deps.renderer.measurer);
   }
 
   private createStrings(hour12: boolean): WallpaperLayoutStrings {

@@ -31,6 +31,7 @@ export function createDefaultWallpaperSettings(): WallpaperSettings {
     tasksPerQuadrant: 3,
     weekStart: 'auto',
     calendarIds: null,
+    layoutPreset: 'widgets',
   };
 }
 

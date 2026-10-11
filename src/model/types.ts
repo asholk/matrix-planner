@@ -478,6 +478,8 @@ export type ArchiveSetting = { mode: 'never' } | { mode: 'after-days'; days: num
 
 export type WallpaperTemplate = 'matrix' | 'calendar';
 export type WallpaperPalette = 'dark' | 'light' | 'translucent';
+/** Композиция обоев (доработка 007): есть ли ряд виджетов iOS под часами. */
+export type WallpaperLayoutPreset = 'widgets' | 'no-widgets';
 
 /** Кадрирование картинки фона: доли (0–1) и масштаб (≥1). */
 export interface WallpaperCrop {
@@ -504,6 +506,8 @@ export interface WallpaperSettings {
   weekStart: WeekStartSetting;
   /** Календари на обоях; `null` — как в «Показываемых календарях». */
   calendarIds: string[] | null;
+  /** Виджеты под часами: есть (контент с ~31 % высоты) / нет (~27 %). Нет поля — `widgets`. */
+  layoutPreset?: WallpaperLayoutPreset;
 }
 
 /** Специальные элементы списка «Показываемые календари». */
@@ -697,6 +701,14 @@ export interface WallpaperStatusRecord {
   failedAt: IsoInstantString | null;
   /** Устройство, обновившее статус. */
   deviceName: string | null;
+  /** Пользователь отменил команду (`x-cancel`). */
+  cancelledAt?: IsoInstantString | null;
+  /** Текст ошибки быстрой команды (`errorMessage` из `x-error`). */
+  errorMessage?: string | null;
+  /** Запуск, подтверждение которого ожидается (`runId` из ссылки). */
+  runId?: string | null;
+  /** Отпечаток данных сохранённого пакета PNG (хеш входа рендера). */
+  fingerprint?: string | null;
 }
 
 export type CompanionState =
@@ -829,7 +841,8 @@ export type PlannerLink =
   | { action: 'new-task'; quadrant: QuadrantKey | null; date: LocalDateString | null }
   | { action: 'open'; id: ItemId }
   | { action: 'wallpaper-done' }
-  | { action: 'wallpaper-failed' };
+  | { action: 'wallpaper-failed' }
+  | { action: 'wallpaper-cancelled' };
 
 // ---------------------------------------------------------------------------
 // Обои: профиль и раскладка (ТЗ §4.5)
@@ -862,7 +875,19 @@ export interface TextMetrics {
 
 /** Команда рисования для тонкого Canvas 2D renderer. Координаты — пиксели холста. */
 export type DrawCommand =
-  | { op: 'rect'; x: number; y: number; w: number; h: number; radius: number; fill: string; stroke?: string; lineWidth?: number }
+  | {
+      op: 'rect';
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      radius: number;
+      fill: string;
+      stroke?: string;
+      lineWidth?: number;
+      /** Карточка: на фото-фоне под заливкой рисуется матовое стекло (размытый фон). */
+      backdrop?: 'blur';
+    }
   | { op: 'circle'; cx: number; cy: number; r: number; fill: string | null; stroke: string | null; lineWidth: number }
   | { op: 'line'; x1: number; y1: number; x2: number; y2: number; stroke: string; lineWidth: number }
   | {
@@ -915,4 +940,11 @@ export interface WallpaperLayoutInput {
   /** Элементы дней для недели/месяца (заметки исключаются раскладкой). */
   days: DayItemsByDate;
   strings: WallpaperStrings;
+  /** Композиция: виджеты под часами есть/нет; нет поля — `widgets`. */
+  layoutPreset?: WallpaperLayoutPreset;
+  /**
+   * Запасные обои «устарели» (доработка 007, п.5): без выделенного дня и относительных
+   * сроков, сверху плашка «Обои устарели — откройте Obsidian».
+   */
+  expired?: boolean;
 }

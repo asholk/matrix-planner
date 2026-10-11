@@ -121,7 +121,7 @@ function drawMonthCard(ctx: LayoutContext, box: Box, grid: MonthGrid): void {
     const cx = cellX + colW / 2;
     const numberCy = cellTop + 9 * u;
     const inMonth = date.startsWith(monthPrefix);
-    const selected = date === input.date;
+    const selected = !input.expired && date === input.date;
     if (selected) ctx.commands.push({ op: 'circle', cx, cy: numberCy, r: 9 * u, fill: palette.text, stroke: null, lineWidth: 0 });
     emitText(ctx, String(Number(date.slice(8, 10))), cx, numberCy, {
       font: ctx.font(11, selected ? 700 : 600),

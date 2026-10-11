@@ -16,7 +16,7 @@ import type {
 import { QUADRANT_KEYS } from '../model/types';
 import { contentBand } from './profiles';
 import { calendarTemplate } from './calendar-layout';
-import { matrixTemplate } from './matrix-layout';
+import { BLOCK_GAP_PT, emitCard, emitText, matrixTemplate } from './matrix-layout';
 import type {
   Box,
   LayoutContext,
@@ -242,29 +242,73 @@ export function createLayoutContext(
 }
 
 /**
- * Масштаб: ширина профиля → 390 точек; если содержимое не помещается
- * между безопасными зонами, масштаб уменьшается.
+ * Наименьшая доля базового масштаба, до которой содержимое сжимается, чтобы
+ * не заходить в зону уведомлений (ниже — содержимое опускается до абсолютного предела).
+ */
+export const MIN_SOFT_SCALE = 0.75;
+/** Высота плашки «Обои устарели» в точках макета. */
+export const EXPIRED_NOTICE_PT = 30;
+
+/** Полная высота содержимого в точках: шаблон, плашка «устарели» и отступ сверху. */
+export function contentHeightPt(input: WallpaperLayoutInput, template: TemplateLayout, widthPt: number): number {
+  const notice = input.expired ? EXPIRED_NOTICE_PT + BLOCK_GAP_PT : 0;
+  return template.naturalHeight(input, widthPt) + notice + TOP_GAP_PT;
+}
+
+function contentWidthPt(profileWidth: number, unit: number): number {
+  return Math.min(profileWidth / unit - 2 * SIDE_MARGIN_PT, MAX_CONTENT_WIDTH_PT);
+}
+
+/** Наибольший масштаб (не больше `base`), при котором содержимое помещается в `available` пикселей. */
+function fitUnit(input: WallpaperLayoutInput, template: TemplateLayout, base: number, available: number): number {
+  let unit = base;
+  for (let pass = 0; pass < 3; pass++) {
+    const heightPt = contentHeightPt(input, template, contentWidthPt(input.profile.width, unit));
+    if (heightPt * unit <= available) break;
+    unit = available / heightPt;
+  }
+  return unit;
+}
+
+/**
+ * Масштаб и область (доработка 007, композиция как в LockDay): ширина профиля → 390 точек,
+ * верх — под часами (и виджетами), низ — не ниже начала зоны уведомлений (~70 %).
+ * Если не помещается даже при сжатии до `MIN_SOFT_SCALE`, содержимое опускается
+ * до абсолютного предела (84 %) и при необходимости сжимается дальше.
  */
 export function computeScale(input: WallpaperLayoutInput, template: TemplateLayout): {
   unit: number;
   area: Box;
 } {
   const { profile } = input;
-  const band = contentBand(profile);
-  const available = Math.max(1, band.bottom - band.top);
-  let unit = profile.width / BASE_WIDTH_PT;
-  for (let pass = 0; pass < 3; pass++) {
-    const widthPt = Math.min(profile.width / unit - 2 * SIDE_MARGIN_PT, MAX_CONTENT_WIDTH_PT);
-    const heightPt = template.naturalHeight(input, widthPt) + TOP_GAP_PT;
-    if (heightPt * unit <= available) break;
-    unit = available / heightPt;
+  const band = contentBand(profile, input.layoutPreset ?? 'widgets');
+  const base = profile.width / BASE_WIDTH_PT;
+  const soft = fitUnit(input, template, base, Math.max(1, band.softBottom - band.top));
+  let unit = soft;
+  if (soft < base * MIN_SOFT_SCALE) {
+    const hard = fitUnit(input, template, base, Math.max(1, band.bottom - band.top));
+    unit = Math.max(soft, Math.min(base * MIN_SOFT_SCALE, hard));
   }
-  const widthPt = Math.min(profile.width / unit - 2 * SIDE_MARGIN_PT, MAX_CONTENT_WIDTH_PT);
-  const w = widthPt * unit;
+  const w = contentWidthPt(profile.width, unit) * unit;
   return {
     unit,
     area: { x: (profile.width - w) / 2, y: band.top + TOP_GAP_PT * unit, w, h: band.bottom - band.top - TOP_GAP_PT * unit },
   };
+}
+
+/** Плашка «Обои устарели — откройте Obsidian» над шаблоном. */
+function drawExpiredNotice(ctx: LayoutContext, box: Box): void {
+  const u = ctx.unit;
+  emitCard(ctx, box);
+  const color = ctx.accent('#FFD60A');
+  const iconSize = 14 * u;
+  const cy = box.y + box.h / 2;
+  const text = ctx.strings.expiredNotice ?? 'Wallpaper is out of date — open Obsidian';
+  const font = ctx.font(12.5, 600);
+  const textW = Math.min(box.w - 24 * u - iconSize - 6 * u, ctx.measurer.measure(text, font).width);
+  const startX = box.x + (box.w - (iconSize + 6 * u + textW)) / 2;
+  ctx.commands.push({ op: 'icon', name: 'alert-triangle', x: startX, y: cy - iconSize / 2, size: iconSize, color });
+  emitText(ctx, text, startX + iconSize + 6 * u, cy, { font, color, maxWidth: Math.max(0, textW + 1) });
 }
 
 /** Чистая раскладка шаблона → команды рисования. */
@@ -272,7 +316,14 @@ export const layoutWallpaper: WallpaperLayoutFn = (input: WallpaperLayoutInput, 
   const template = TEMPLATES[input.template] ?? matrixTemplate;
   const { unit, area } = computeScale(input, template);
   const ctx = createLayoutContext(input, measurer, unit, resolvePalette(input.palette));
-  template.draw(ctx, area);
+  let templateArea = area;
+  if (input.expired) {
+    const noticeH = EXPIRED_NOTICE_PT * unit;
+    drawExpiredNotice(ctx, { x: area.x, y: area.y, w: area.w, h: noticeH });
+    const shift = noticeH + BLOCK_GAP_PT * unit;
+    templateArea = { ...area, y: area.y + shift, h: area.h - shift };
+  }
+  template.draw(ctx, templateArea);
   return { width: input.profile.width, height: input.profile.height, commands: ctx.commands, overflow: ctx.overflow };
 };
 
@@ -299,6 +350,8 @@ export function createWallpaperStrings(deps: WallpaperStringsDeps): WallpaperLay
   for (let i = 0; i < 7; i++) weekdayShort.push(deps.translate(k(`weekdayShort.d${i}`)));
   const monthNames: string[] = [];
   for (let i = 1; i <= 12; i++) monthNames.push(deps.translate(k(`monthNames.m${i}`)));
+  const monthShort: string[] = [];
+  for (let i = 1; i <= 12; i++) monthShort.push(deps.translate(k(`monthShort.m${i}`)));
   return {
     quadrantTitles,
     weekdayShort,
@@ -308,5 +361,10 @@ export function createWallpaperStrings(deps: WallpaperStringsDeps): WallpaperLay
     yearProgress: (percent: number) => deps.translate(k('yearProgress'), { percent }),
     moreItems: (count: number) => deps.translate(k('moreItems'), { count }),
     daysLeft: (count: number) => deps.translatePlural(k('daysLeft'), count),
+    expiredNotice: deps.translate(k('expired')),
+    formatDueDate: (due: FloatingDateTime) => {
+      const month = monthShort[Number(due.date.slice(5, 7)) - 1] ?? due.date.slice(5, 7);
+      return deps.translate(k('dueDate'), { day: Number(due.date.slice(8, 10)), month });
+    },
   };
 }

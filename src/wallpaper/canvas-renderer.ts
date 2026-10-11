@@ -7,7 +7,8 @@
 import { getIcon } from 'obsidian';
 import type { TextMeasurer, WallpaperRenderer, WallpaperRenderRequest } from '../app/contracts';
 import type { DrawCommand, FontSpec, TextMetrics } from '../model/types';
-import { BackgroundImageCache, loadImage, paintBackground, type DecodedImage, type ImageLease } from './background';
+import type { WallpaperCrop } from '../model/types';
+import { BackgroundImageCache, computeCoverRect, loadImage, paintBackground, type DecodedImage, type ImageLease } from './background';
 
 /** Системный шрифт, близкий к шрифту экрана блокировки. */
 export const SYSTEM_FONT_STACK = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -168,25 +169,102 @@ function strikeOffset(baseline: Extract<DrawCommand, { op: 'text' }>['baseline']
   }
 }
 
-/** Рисует команды на контексте; значки — из заранее загруженной карты. */
+/**
+ * Матовое стекло (доработка 007, п.15): размытая копия фото-фона, растягиваемая
+ * на весь холст под карточками (`rect` с `backdrop: 'blur'`).
+ */
+export interface FrostLayer {
+  source: CanvasImageSource;
+  /** Размер `source`, px. */
+  width: number;
+  height: number;
+  /** Размер холста в координатах команд (профиль). */
+  targetWidth: number;
+  targetHeight: number;
+}
+
+/** Во сколько раз уменьшается фон для размытия (без `ctx.filter`: его нет в WebKit). */
+export const FROST_DOWNSCALE = 12;
+/** Промежуточный размер (доля холста): второе растяжение сглаживает «квадраты». */
+export const FROST_MID_SCALE = 1 / 3;
+
+/**
+ * Размытая копия фона: картинка в режиме cover уменьшается в `FROST_DOWNSCALE` раз,
+ * затем растягивается до трети холста — билинейная интерполяция даёт мягкое размытие.
+ * Вызывающий освобождает холст через `canvases.release`.
+ */
+export function createFrostLayer(
+  canvases: CanvasFactory,
+  image: DecodedImage,
+  crop: WallpaperCrop,
+  width: number,
+  height: number,
+): { layer: FrostLayer; canvas: RenderCanvas } | null {
+  if (!(image.width > 0 && image.height > 0 && width > 0 && height > 0)) return null;
+  const smallW = Math.max(1, Math.round(width / FROST_DOWNSCALE));
+  const smallH = Math.max(1, Math.round(height / FROST_DOWNSCALE));
+  const small = canvases.create(smallW, smallH);
+  try {
+    const sctx = small.getContext('2d');
+    if (!sctx) return null;
+    sctx.imageSmoothingEnabled = true;
+    sctx.imageSmoothingQuality = 'high';
+    const r = computeCoverRect(image.width, image.height, width, height, crop);
+    sctx.drawImage(image.source, r.sx, r.sy, r.sw, r.sh, 0, 0, smallW, smallH);
+    const midW = Math.max(1, Math.round(width * FROST_MID_SCALE));
+    const midH = Math.max(1, Math.round(height * FROST_MID_SCALE));
+    const mid = canvases.create(midW, midH);
+    const mctx = mid.getContext('2d');
+    if (!mctx) {
+      canvases.release(mid);
+      return null;
+    }
+    mctx.imageSmoothingEnabled = true;
+    mctx.imageSmoothingQuality = 'high';
+    mctx.drawImage(small as unknown as CanvasImageSource, 0, 0, smallW, smallH, 0, 0, midW, midH);
+    return {
+      layer: { source: mid as unknown as CanvasImageSource, width: midW, height: midH, targetWidth: width, targetHeight: height },
+      canvas: mid,
+    };
+  } finally {
+    canvases.release(small);
+  }
+}
+
+/** Рисует команды на контексте; значки — из заранее загруженной карты; `frost` — стекло под карточками. */
 export function drawCommands(
   ctx: CanvasRenderingContext2D,
   commands: readonly DrawCommand[],
   icons: ReadonlyMap<string, CanvasImageSource | null> = new Map(),
+  frost: FrostLayer | null = null,
 ): void {
   for (const command of commands) {
     ctx.save();
     try {
-      drawCommand(ctx, command, icons);
+      drawCommand(ctx, command, icons, frost);
     } finally {
       ctx.restore();
     }
   }
 }
 
-function drawCommand(ctx: CanvasRenderingContext2D, command: DrawCommand, icons: ReadonlyMap<string, CanvasImageSource | null>): void {
+function drawCommand(
+  ctx: CanvasRenderingContext2D,
+  command: DrawCommand,
+  icons: ReadonlyMap<string, CanvasImageSource | null>,
+  frost: FrostLayer | null,
+): void {
   switch (command.op) {
     case 'rect': {
+      if (frost && command.backdrop === 'blur') {
+        // Размытый фон только внутри скруглённого прямоугольника карточки.
+        ctx.save();
+        roundRectPath(ctx, command.x, command.y, command.w, command.h, command.radius);
+        ctx.clip();
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(frost.source, 0, 0, frost.width, frost.height, 0, 0, frost.targetWidth, frost.targetHeight);
+        ctx.restore();
+      }
       roundRectPath(ctx, command.x, command.y, command.w, command.h, command.radius);
       ctx.fillStyle = command.fill;
       ctx.fill();
@@ -321,6 +399,7 @@ export class CanvasWallpaperRenderer implements WallpaperRenderer {
   }
 
   private async prepare(request: WallpaperRenderRequest): Promise<PreparedResources> {
+    // Недоступная картинка фона — `WallpaperBackgroundError` (п.8): без тихой тёмной заливки.
     const lease = request.background.kind === 'image' ? await this.deps.images.acquire(request.background.path) : null;
     const icons = new Map<string, CanvasImageSource | null>();
     for (const command of request.layout.commands) {
@@ -350,6 +429,15 @@ export class CanvasWallpaperRenderer implements WallpaperRenderer {
     ctx.setTransform(canvas.width / width, 0, 0, canvas.height / height, 0, 0);
     ctx.clearRect(0, 0, width, height);
     paintBackground(ctx, request.background, resources.image, width, height);
-    drawCommands(ctx, request.layout.commands, resources.icons);
+    const background = request.background;
+    const frost =
+      background.kind === 'image' && resources.image && request.layout.commands.some((c) => c.op === 'rect' && c.backdrop === 'blur')
+        ? createFrostLayer(this.deps.canvases, resources.image, background.crop, width, height)
+        : null;
+    try {
+      drawCommands(ctx, request.layout.commands, resources.icons, frost?.layer ?? null);
+    } finally {
+      if (frost) this.deps.canvases.release(frost.canvas);
+    }
   }
 }

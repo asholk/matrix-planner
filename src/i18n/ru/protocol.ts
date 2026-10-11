@@ -31,6 +31,16 @@ export const ruProtocol = {
     failedShortcut: 'Не удалось запустить быструю команду',
     failedCallback: 'Не удалось обновить экран блокировки',
     howToSetUp: 'Как настроить',
+    readyAction: 'Обои готовы · Установить',
+    readyHint: 'Нажмите, чтобы установить обои на экран блокировки',
+    cancelled: 'Установка обоев отменена',
+    failedRenderReason: 'Не удалось нарисовать обои: {reason}',
+    failedInstallReason: 'Не удалось установить обои: {reason}',
+    background: {
+      missing: 'файл фона не найден',
+      read: 'файл фона не читается',
+      decode: 'файл фона повреждён или в неподдерживаемом формате',
+    },
     status: {
       confirmed: 'Обои обновлены {date} в {time}',
       notConfirmedSince: 'Нет подтверждённого обновления с {date}',

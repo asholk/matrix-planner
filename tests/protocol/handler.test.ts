@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TaskFormRequest } from '../../src/app/contracts';
 import type { PlannerItem, PlannerTabId } from '../../src/model/types';
-import { PlannerProtocolHandler } from '../../src/protocol/handler';
+import { PlannerProtocolHandler, type WallpaperCallbackContext, type WallpaperCallbackResult } from '../../src/protocol/handler';
 
 const ID = '01JABCDEFGHJKMNPQRSTVWXYZ0';
 
@@ -11,7 +11,8 @@ function setup(options: { ready?: boolean; known?: string[] } = {}) {
   const known = new Set(options.known ?? []);
   const messages: string[] = [];
   const calls: string[] = [];
-  const callbacks: Array<'done' | 'failed'> = [];
+  const callbacks: WallpaperCallbackResult[] = [];
+  const contexts: Array<WallpaperCallbackContext | undefined> = [];
   const callbackProfiles: Array<string | null | undefined> = [];
   const forms: TaskFormRequest[] = [];
   const handler = new PlannerProtocolHandler({
@@ -35,11 +36,12 @@ function setup(options: { ready?: boolean; known?: string[] } = {}) {
       onWallpaperCallback: async (result, context) => {
         callbacks.push(result);
         callbackProfiles.push(context?.profileId);
+        contexts.push(context);
       },
     },
     translate: (key) => key,
   });
-  return { handler, messages, calls, callbacks, callbackProfiles, forms, resolveReady: () => resolveReady() };
+  return { handler, messages, calls, callbacks, callbackProfiles, contexts, forms, resolveReady: () => resolveReady() };
 }
 
 describe('PlannerProtocolHandler', () => {
@@ -119,6 +121,21 @@ describe('PlannerProtocolHandler', () => {
     await handler.handle({ view: 'calendar' });
     expect(s.messages).toEqual(['protocol.errors.failed']);
     expect(showTab).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes x-cancel, runId and errorMessage from Shortcuts', async () => {
+    const s = setup();
+    await s.handler.handle({ action: 'planner', do: 'wallpaper-cancelled', vault: 'V', profile: 'iphone-1179x2556', run: 'r1' });
+    await s.handler.handle({ action: 'planner', do: 'wallpaper-failed', vault: 'V', run: 'r2', errorMessage: ' Нет доступа к папке ' });
+    // Без `run` в ссылке — результат команды (`result`, команда возвращает runId).
+    await s.handler.handle({ action: 'planner', do: 'wallpaper-done', vault: 'V', result: 'r3' });
+    expect(s.callbacks).toEqual(['cancelled', 'failed', 'done']);
+    expect(s.contexts).toEqual([
+      { profileId: 'iphone-1179x2556', runId: 'r1', errorMessage: null },
+      { profileId: null, runId: 'r2', errorMessage: 'Нет доступа к папке' },
+      { profileId: null, runId: 'r3', errorMessage: null },
+    ]);
+    expect(s.messages).toEqual([]);
   });
 
   it('ignores wallpaper callbacks without a tracker', async () => {

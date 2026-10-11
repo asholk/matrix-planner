@@ -18,6 +18,7 @@ import {
   setCrop,
   setGradient,
   setImage,
+  setLayoutPreset,
   setPalette,
   setProfile,
   setSolidColor,
@@ -244,5 +245,20 @@ describe('параметры', () => {
     const draft = useExplicitCalendars(createDraft(settings()), VISIBLE, CALENDARS);
     expect(draft.current.calendarIds).toEqual(['work', 'bday']);
     expect(isDirty(draft)).toBe(true);
+  });
+});
+
+describe('композиция «виджеты под часами» (доработка 007)', () => {
+  it('нет поля в настройках — «есть виджеты»', () => {
+    const draft = createDraft(settings());
+    expect(draft.current.layoutPreset).toBe('widgets');
+  });
+
+  it('смена композиции делает черновик изменённым и попадает в настройки', () => {
+    const draft = setLayoutPreset(createDraft(settings({ layoutPreset: 'widgets' })), 'no-widgets');
+    expect(changedFields(draft)).toEqual(['layoutPreset']);
+    expect(isDirty(draft)).toBe(true);
+    expect(applyDraft(settings(), draft).layoutPreset).toBe('no-widgets');
+    expect(isDirty(setLayoutPreset(draft, 'widgets'))).toBe(false);
   });
 });

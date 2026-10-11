@@ -6,12 +6,12 @@
  * поэтому любая обработка ждёт `index.whenReady()`. Ссылки обрабатываются строго по очереди.
  */
 
-import type { NoteIndex, Notifier, PlannerActions, ProtocolHandler, WallpaperStatusTracker } from '../app/contracts';
+import type { NoteIndex, Notifier, PlannerActions, ProtocolHandler } from '../app/contracts';
 import { registerDictionary, t } from '../i18n';
 import { enProtocol } from '../i18n/en/protocol';
 import { ruProtocol } from '../i18n/ru/protocol';
 import type { PlannerLink } from '../model/types';
-import { PROFILE_PARAM } from './links';
+import { ERROR_MESSAGE_PARAM, PROFILE_PARAM, RESULT_PARAM, RUN_PARAM } from './links';
 import { parseLinkParams } from './parameters';
 
 registerDictionary('ru', 'protocol', ruProtocol);
@@ -30,20 +30,35 @@ export interface ProtocolHandlerDeps {
   translate?: (key: string) => string;
 }
 
-/** Контекст возврата быстрой команды: профиль из ссылки `x-success`/`x-error`. */
+/** Контекст возврата быстрой команды: профиль, запуск и текст ошибки из ссылки `x-success`/`x-cancel`/`x-error`. */
 export interface WallpaperCallbackContext {
   profileId: string | null;
+  /** Запуск из ссылки (`run`) или результат команды (`result`); `null` — старая ссылка. */
+  runId?: string | null;
+  /** `errorMessage`, который «Быстрые команды» дописывают к `x-error`. */
+  errorMessage?: string | null;
 }
+
+export type WallpaperCallbackResult = 'done' | 'failed' | 'cancelled';
 
 export interface WallpaperCallbackReceiver {
-  onWallpaperCallback(result: Parameters<WallpaperStatusTracker['onWallpaperCallback']>[0], context?: WallpaperCallbackContext): Promise<void>;
+  onWallpaperCallback(result: WallpaperCallbackResult, context?: WallpaperCallbackContext): Promise<void>;
 }
 
-/** Профиль из ссылки возврата; пустой — `null` (трекер возьмёт текущий). */
-function callbackContext(params: Readonly<Record<string, string>>): WallpaperCallbackContext {
-  const raw = params[PROFILE_PARAM];
-  const profileId = typeof raw === 'string' ? raw.trim() : '';
-  return { profileId: profileId === '' ? null : profileId };
+function paramText(params: Readonly<Record<string, string>>, key: string, max = 500): string | null {
+  const raw = params[key];
+  if (typeof raw !== 'string') return null;
+  const value = raw.trim();
+  return value === '' ? null : value.slice(0, max);
+}
+
+/** Контекст из ссылки возврата; пустой профиль — `null` (трекер возьмёт текущий). */
+export function callbackContext(params: Readonly<Record<string, string>>): WallpaperCallbackContext {
+  return {
+    profileId: paramText(params, PROFILE_PARAM),
+    runId: paramText(params, RUN_PARAM, 100) ?? paramText(params, RESULT_PARAM, 100),
+    errorMessage: paramText(params, ERROR_MESSAGE_PARAM),
+  };
 }
 
 export class PlannerProtocolHandler implements ProtocolHandler {
@@ -106,6 +121,9 @@ export class PlannerProtocolHandler implements ProtocolHandler {
         return;
       case 'wallpaper-failed':
         await wallpaperStatus?.onWallpaperCallback('failed', callbackContext(params));
+        return;
+      case 'wallpaper-cancelled':
+        await wallpaperStatus?.onWallpaperCallback('cancelled', callbackContext(params));
         return;
     }
   }

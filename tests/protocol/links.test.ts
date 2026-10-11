@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPlannerUrl, buildShortcutRunUrl, createLinkBuilder, parsePlannerUrl, parseQuery } from '../../src/protocol/links';
+import { buildPlannerUrl, buildShortcutRunUrl, createLinkBuilder, parsePlannerUrl, parseQuery, shortcutInputText } from '../../src/protocol/links';
 
 const ID = '01JABCDEFGHJKMNPQRSTVWXYZ0';
 
@@ -46,15 +46,17 @@ describe('buildShortcutRunUrl', () => {
     const vault = 'Мои заметки & план?';
     const url = buildShortcutRunUrl(vault, 'Обои Планировщика');
     expect(url.startsWith('shortcuts://x-callback-url/run-shortcut?name=')).toBe(true);
-    // Внешний запрос содержит ровно три параметра — внутренние `&`/`?` закодированы.
+    // Внешний запрос: name, x-success, x-cancel, x-error — внутренние `&`/`?` закодированы.
     const query = url.slice(url.indexOf('?') + 1);
-    expect(query.split('&')).toHaveLength(3);
+    expect(query.split('&')).toHaveLength(4);
     expect(url.split('?')).toHaveLength(2);
 
     const outer = queryOf(url);
     expect(outer.name).toBe('Обои Планировщика');
     expect(outer['x-success']).toBe(buildPlannerUrl(vault, { action: 'wallpaper-done' }));
     expect(outer['x-error']).toBe(buildPlannerUrl(vault, { action: 'wallpaper-failed' }));
+    expect(outer['x-cancel']).toBe(buildPlannerUrl(vault, { action: 'wallpaper-cancelled' }));
+    expect(outer.input).toBeUndefined();
 
     const success = parsePlannerUrl(outer['x-success']);
     const error = parsePlannerUrl(outer['x-error']);
@@ -74,6 +76,27 @@ describe('buildShortcutRunUrl', () => {
     }
     const viaBuilder = createLinkBuilder(() => 'Хранилище').shortcutRunUrl('A', { profileId: 'iphone-1179x2556' });
     expect(viaBuilder).toBe(buildShortcutRunUrl('Хранилище', 'A', { profileId: 'iphone-1179x2556' }));
+  });
+
+  it('passes profile, runId and expected file as text input and runId into callbacks', () => {
+    const url = buildShortcutRunUrl('Хранилище', 'A', { profileId: 'iphone-1179x2556', runId: 'mf3k2-0a1b', expectedFile: 'lock-2026-10-11.png' });
+    const outer = queryOf(url);
+    expect(Object.keys(outer)).toEqual(['name', 'input', 'text', 'x-success', 'x-cancel', 'x-error']);
+    expect(outer.input).toBe('text');
+    expect(JSON.parse(outer.text)).toEqual({ profile: 'iphone-1179x2556', runId: 'mf3k2-0a1b', file: 'lock-2026-10-11.png' });
+    expect(shortcutInputText({ profileId: 'p' })).toBe('{"profile":"p","runId":null,"file":null}');
+    expect(shortcutInputText({})).toBeNull();
+    for (const callback of [outer['x-success'], outer['x-cancel'], outer['x-error']]) {
+      const parsed = parsePlannerUrl(callback);
+      expect(parsed.ok && parsed.params.run).toBe('mf3k2-0a1b');
+      expect(parsed.ok && parsed.params.profile).toBe('iphone-1179x2556');
+    }
+    // Shortcuts дописывает errorMessage к x-error — разбор его сохраняет.
+    const failed = parsePlannerUrl(`${outer['x-error']}&errorMessage=${encodeURIComponent('Нет файла')}`);
+    expect(failed.ok && failed.params.errorMessage).toBe('Нет файла');
+    expect(failed.ok && failed.result).toEqual({ ok: true, link: { action: 'wallpaper-failed' } });
+    const cancelled = parsePlannerUrl(outer['x-cancel']);
+    expect(cancelled.ok && cancelled.result).toEqual({ ok: true, link: { action: 'wallpaper-cancelled' } });
   });
 
   it('encodes & and ? in shortcut name', () => {

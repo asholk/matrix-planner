@@ -31,8 +31,15 @@ import type { WallpaperLayoutStrings } from './types';
 
 /** Число дат в пакете (сегодня и шесть следующих). */
 export const WALLPAPER_DAYS = 7;
-/** Файл на сегодня, который берёт быстрая команда при отсутствии датированного. */
+/** Файл на день отрисовки (совместимость со старыми командами: новая берёт `lock-expired.png`). */
 export const LOCK_FILE_NAME = 'lock.png';
+/** Запасной файл после последней даты пакета: «Обои устарели — откройте Obsidian». */
+export const EXPIRED_FILE_NAME = 'lock-expired.png';
+/**
+ * Версия шаблонов обоев в отпечатке пакета: увеличивать при изменении рисования,
+ * чтобы прежние PNG с тем же входом были перерисованы.
+ */
+export const WALLPAPER_TEMPLATE_VERSION = 2;
 
 const LOCK_DATED_RE = /^lock-(\d{4}-\d{2}-\d{2})\.png$/;
 
@@ -120,10 +127,16 @@ export interface LayoutInputSource {
   strings: WallpaperLayoutStrings;
 }
 
-/** Вход раскладки на одну дату пакета. */
-export function createLayoutInput(source: LayoutInputSource): WallpaperLayoutInput {
+/** Дата запасного файла `lock-expired.png`: первый день после пакета. */
+export function expiredDate(dates: readonly LocalDateString[]): LocalDateString {
+  const last = dates[dates.length - 1];
+  return addDays(last, 1);
+}
+
+/** Вход раскладки на одну дату пакета (`expired` — шаблон «Обои устарели»). */
+export function createLayoutInput(source: LayoutInputSource & { expired?: boolean }): WallpaperLayoutInput {
   const { settings } = source;
-  return {
+  const input: WallpaperLayoutInput = {
     template: settings.template,
     palette: settings.palette,
     profile: source.profile,
@@ -135,5 +148,62 @@ export function createLayoutInput(source: LayoutInputSource): WallpaperLayoutInp
     tasksByQuadrant: groupTasksByQuadrant(source.tasks, nowForDate(source.date, source.today, source.now)),
     days: source.days,
     strings: source.strings,
+    layoutPreset: settings.layoutPreset,
   };
+  if (source.expired) input.expired = true;
+  return input;
+}
+
+// ---------------------------------------------------------------------------
+// Отпечаток пакета (п. 12 доработки 007)
+// ---------------------------------------------------------------------------
+
+/** Сериализация с упорядоченными ключами; `Map`/`Set` — как массивы, функции пропускаются. */
+export function stableStringify(value: unknown): string {
+  const seen = new WeakSet<object>();
+  const walk = (v: unknown): unknown => {
+    if (v === null || typeof v !== 'object') return typeof v === 'function' || typeof v === 'symbol' ? undefined : v;
+    if (seen.has(v)) return '[cycle]';
+    seen.add(v);
+    try {
+      if (v instanceof Map) return [...v.entries()].map(([k, item]) => [walk(k), walk(item)]);
+      if (v instanceof Set) return [...v.values()].map(walk);
+      if (Array.isArray(v)) return v.map((item) => walk(item) ?? null);
+      const out: Record<string, unknown> = {};
+      for (const key of Object.keys(v).sort()) {
+        const item = walk((v as Record<string, unknown>)[key]);
+        if (item !== undefined) out[key] = item;
+      }
+      return out;
+    } finally {
+      seen.delete(v);
+    }
+  };
+  return JSON.stringify(walk(value)) ?? '';
+}
+
+/** Два независимых FNV-1a (32 бита) → 16 шестнадцатеричных знаков. */
+export function hashString(text: string): string {
+  let a = 0x811c9dc5;
+  let b = 0x01000193 ^ 0x5bd1e995;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193) >>> 0;
+    b = Math.imul(b ^ c ^ (i & 0xff), 0x01000193) >>> 0;
+  }
+  return a.toString(16).padStart(8, '0') + b.toString(16).padStart(8, '0');
+}
+
+/** Отпечаток данных пакета: `v<версия шаблона>-<дата>-<хеш входа>`. */
+export function packFingerprint(today: LocalDateString, input: unknown): string {
+  return `v${WALLPAPER_TEMPLATE_VERSION}-${today}-${hashString(stableStringify(input))}`;
+}
+
+/** Байты двух PNG совпадают (тогда файл не переписывается). */
+export function sameBytes(a: ArrayBuffer, b: ArrayBuffer): boolean {
+  if (a.byteLength !== b.byteLength) return false;
+  const x = new Uint8Array(a);
+  const y = new Uint8Array(b);
+  for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+  return true;
 }

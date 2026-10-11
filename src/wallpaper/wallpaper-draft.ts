@@ -10,6 +10,7 @@ import type {
   VisibleCalendarsSetting,
   WallpaperBackground,
   WallpaperCrop,
+  WallpaperLayoutPreset,
   WallpaperPalette,
   WallpaperProfile,
   WallpaperProfileSetting,
@@ -20,7 +21,9 @@ import type {
 import { KNOWN_PROFILES, parseProfileId } from './profiles';
 
 /** Поля, которые меняет редактор (название быстрой команды — только в настройках). */
-export type EditableWallpaperSettings = Omit<WallpaperSettings, 'shortcutName'>;
+export type EditableWallpaperSettings = Omit<WallpaperSettings, 'shortcutName' | 'layoutPreset'> & {
+  layoutPreset: WallpaperLayoutPreset;
+};
 
 export interface WallpaperDraft {
   readonly original: Readonly<EditableWallpaperSettings>;
@@ -49,6 +52,9 @@ export const TEMPLATE_FILTERS: readonly TemplateFilter[] = ['all', 'calendar', '
 export const PALETTES: readonly WallpaperPalette[] = ['dark', 'light', 'translucent'];
 
 export const BACKGROUND_KINDS: readonly BackgroundKind[] = ['image', 'solid', 'gradient'];
+
+/** Композиции «виджеты под часами есть / нет». */
+export const LAYOUT_PRESETS: readonly WallpaperLayoutPreset[] = ['widgets', 'no-widgets'];
 
 /** Однотонные фоны для быстрого выбора. */
 export const SOLID_PRESETS: readonly string[] = ['#1C1C1E', '#2C3E50', '#3A4A5C', '#5B6B73', '#E5E5EA', '#F2E8DA'];
@@ -93,6 +99,7 @@ function pickEditable(settings: Readonly<WallpaperSettings> | Readonly<EditableW
     tasksPerQuadrant: settings.tasksPerQuadrant,
     weekStart: settings.weekStart,
     calendarIds: settings.calendarIds === null ? null : [...settings.calendarIds],
+    layoutPreset: settings.layoutPreset === 'no-widgets' ? 'no-widgets' : 'widgets',
   };
 }
 
@@ -140,6 +147,7 @@ export function changedFields(draft: WallpaperDraft): DraftField[] {
   if (o.tasksPerQuadrant !== c.tasksPerQuadrant) changed.push('tasksPerQuadrant');
   if (o.weekStart !== c.weekStart) changed.push('weekStart');
   if (!sameIds(o.calendarIds, c.calendarIds)) changed.push('calendarIds');
+  if (o.layoutPreset !== c.layoutPreset) changed.push('layoutPreset');
   return changed;
 }
 
@@ -170,6 +178,11 @@ export function setTemplate(draft: WallpaperDraft, template: WallpaperTemplate):
 
 export function setPalette(draft: WallpaperDraft, palette: WallpaperPalette): WallpaperDraft {
   return withCurrent(draft, { palette });
+}
+
+/** Композиция: виджеты под часами есть / нет. */
+export function setLayoutPreset(draft: WallpaperDraft, layoutPreset: WallpaperLayoutPreset): WallpaperDraft {
+  return withCurrent(draft, { layoutPreset: layoutPreset === 'no-widgets' ? 'no-widgets' : 'widgets' });
 }
 
 export function templateInfo(id: WallpaperTemplate): TemplateInfo {

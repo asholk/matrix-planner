@@ -50,6 +50,7 @@ describe('parseLinkParams', () => {
   it('parses wallpaper callbacks and rejects unknown actions', () => {
     expect(parseLinkParams({ action: 'wallpaper-done', vault: 'V' })).toEqual({ ok: true, link: { action: 'wallpaper-done' } });
     expect(parseLinkParams({ action: 'wallpaper-failed' })).toEqual({ ok: true, link: { action: 'wallpaper-failed' } });
+    expect(parseLinkParams({ action: 'planner', do: 'wallpaper-cancelled' })).toEqual({ ok: true, link: { action: 'wallpaper-cancelled' } });
     expect(parseLinkParams({ action: 'delete', id: ID })).toEqual({ ok: false, messageKey: 'protocol.errors.unknownAction' });
   });
 
@@ -73,6 +74,7 @@ describe('linkToParams', () => {
       { action: 'open', id: ID },
       { action: 'wallpaper-done' },
       { action: 'wallpaper-failed' },
+      { action: 'wallpaper-cancelled' },
     ] as const;
     for (const link of links) {
       expect(parseLinkParams(Object.fromEntries(linkToParams(link)))).toEqual({ ok: true, link });

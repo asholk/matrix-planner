@@ -32,7 +32,7 @@ import {
   resolvePalette,
 } from '../../src/wallpaper/layout';
 import { monthGrid, yearProgress } from '../../src/wallpaper/calendar-layout';
-import { contentBand, findProfileBySize } from '../../src/wallpaper/profiles';
+import { KNOWN_PROFILES, contentBand, findProfileBySize } from '../../src/wallpaper/profiles';
 import type { WallpaperLayoutStrings } from '../../src/wallpaper/types';
 
 // ---------------------------------------------------------------------------
@@ -192,7 +192,6 @@ function profileOf(id: string): WallpaperProfile {
   return profile;
 }
 
-const PROFILES = fixtures.profiles.map((p) => profileOf(p.id));
 const PALETTES: WallpaperPalette[] = ['dark', 'light', 'translucent'];
 const TEMPLATES: WallpaperTemplate[] = ['matrix', 'calendar'];
 
@@ -263,32 +262,73 @@ function horizontalExtent(c: DrawCommand, layout: WallpaperLayout): [number, num
 // Безопасные зоны и размеры
 // ---------------------------------------------------------------------------
 
-describe('wallpaper layout: safe zones and sizes', () => {
+describe('wallpaper layout: safe zones and sizes (composition as in LockDay)', () => {
+  // 2026-08 и 2026-03 — сетка месяца на 6 недель (неделя с понедельника), 2026-10 — на 5.
+  const DATES = [fixtures.date, '2026-08-15', '2026-03-31'];
+  const PRESETS = ['widgets', 'no-widgets'] as const;
   for (const template of TEMPLATES) {
-    for (const profile of PROFILES) {
-      for (const palette of PALETTES) {
-        for (const date of [fixtures.date, '2026-08-15']) {
-          it(`${template} / ${profile.id} / ${palette} / ${date}: content between 38% and 88%`, () => {
-            const layout = layoutWallpaper(makeInput({ template, profile, palette, date }), measurer);
+    for (const profile of KNOWN_PROFILES) {
+      for (const layoutPreset of PRESETS) {
+        for (const date of DATES) {
+          it(`${template} / ${profile.id} / ${layoutPreset} / ${date}: content between the clock and 84%`, () => {
+            const layout = layoutWallpaper(makeInput({ template, profile, date, layoutPreset }), measurer);
             expect(layout.width).toBe(profile.width);
             expect(layout.height).toBe(profile.height);
             expect(layout.commands.length).toBeGreaterThan(20);
-            const band = contentBand(profile);
-            expect(band.top).toBeGreaterThanOrEqual(profile.height * 0.38);
-            expect(band.bottom).toBeLessThanOrEqual(profile.height * 0.88);
+            const band = contentBand(profile, layoutPreset);
+            const top = layoutPreset === 'widgets' ? 0.31 : 0.27;
+            expect(band.top).toBeGreaterThanOrEqual(profile.height * top - 1);
+            expect(band.top).toBeLessThanOrEqual(profile.height * top + 1);
+            expect(band.bottom).toBeLessThanOrEqual(profile.height * 0.84);
             for (const c of layout.commands) {
-              const [top, bottom] = verticalExtent(c);
-              expect(top).toBeGreaterThanOrEqual(band.top - 0.5);
-              expect(bottom).toBeLessThanOrEqual(band.bottom + 0.5);
+              const [cTop, cBottom] = verticalExtent(c);
+              expect(cTop).toBeGreaterThanOrEqual(band.top - 0.5);
+              expect(cBottom).toBeLessThanOrEqual(profile.height * 0.84 + 0.5);
               const [left, right] = horizontalExtent(c, layout);
               expect(left).toBeGreaterThanOrEqual(-0.5);
               expect(right).toBeLessThanOrEqual(profile.width + 0.5);
             }
+            // Первая карточка (лента недели / прогресс года) начинается сразу под часами (виджетами).
+            const first = layout.commands.find((c) => c.op === 'rect');
+            expect(first && first.op === 'rect' ? first.y / profile.height : 0).toBeLessThan(top + 0.01);
           });
         }
       }
     }
   }
+
+  it('matrix keeps the iOS notification area free on modern iPhones (bottom ≤ 70%)', () => {
+    for (const profile of KNOWN_PROFILES.filter((p) => p.height / p.width > 2)) {
+      for (const layoutPreset of PRESETS) {
+        const layout = layoutWallpaper(makeInput({ profile, layoutPreset }), measurer);
+        const bottom = Math.max(...layout.commands.map((c) => verticalExtent(c)[1]));
+        expect(bottom / profile.height).toBeLessThanOrEqual(0.7 + 1e-3);
+      }
+    }
+  });
+
+  it('calendar with a 6-week month fits by shrinking, not by cutting', () => {
+    for (const profile of KNOWN_PROFILES) {
+      const layout = layoutWallpaper(makeInput({ template: 'calendar', profile, date: '2026-08-15' }), measurer);
+      // Все 42 дня сетки нарисованы.
+      const numbers = textValues(layout).filter((t) => /^\d+$/.test(t));
+      expect(numbers.length).toBeGreaterThanOrEqual(42);
+      const bottom = Math.max(...layout.commands.map((c) => verticalExtent(c)[1]));
+      expect(bottom).toBeLessThanOrEqual(profile.height * 0.84 + 0.5);
+    }
+  });
+
+  it('without widgets the content starts ~4% higher', () => {
+    const profile = profileOf('iphone-1179x2556');
+    const firstY = (preset: 'widgets' | 'no-widgets') => {
+      const rect = layoutWallpaper(makeInput({ profile, layoutPreset: preset }), measurer).commands.find((c) => c.op === 'rect');
+      return rect && rect.op === 'rect' ? rect.y / profile.height : 0;
+    };
+    expect(firstY('widgets') - firstY('no-widgets')).toBeCloseTo(0.04, 2);
+    // Как на снимке LockDay: лента недели с ~31 %.
+    expect(firstY('widgets')).toBeGreaterThan(0.305);
+    expect(firstY('widgets')).toBeLessThan(0.32);
+  });
 
   it('scales with the device: larger screen gives larger fonts', () => {
     const small = layoutWallpaper(makeInput({ profile: profileOf('iphone-1080x2340') }), measurer);
@@ -307,6 +347,59 @@ describe('wallpaper layout: safe zones and sizes', () => {
       expect(top).toBeGreaterThanOrEqual(band.top - 0.5);
       expect(bottom).toBeLessThanOrEqual(band.bottom + 0.5);
     }
+  });
+
+  it('marks cards for the frosted glass backdrop', () => {
+    const layout = layoutWallpaper(makeInput(), measurer);
+    const cards = layout.commands.filter((c) => c.op === 'rect' && c.backdrop === 'blur');
+    // Лента недели и четыре квадранта.
+    expect(cards).toHaveLength(5);
+  });
+});
+
+describe('expired wallpaper (fallback file after 7 days)', () => {
+  const palette = resolvePalette('dark');
+  const selectedCircles = (layout: WallpaperLayout) => layout.commands.filter((c) => c.op === 'circle' && c.fill === palette.text);
+
+  it('matrix: notice on top, no selected day, no relative due labels', () => {
+    const normal = layoutWallpaper(makeInput(), measurer);
+    expect(selectedCircles(normal)).toHaveLength(1);
+    const layout = layoutWallpaper(makeInput({ expired: true }), measurer);
+    const values = textValues(layout);
+    expect(values).toContain('Обои устарели — откройте Obsidian');
+    expect(selectedCircles(layout)).toHaveLength(0);
+    expect(values.some((v) => /Сегодня|Завтра|Вчера/.test(v))).toBe(false);
+    expect(values).toContain('11 окт.');
+    expect(values).toContain('16 окт.');
+    // Плашка — над лентой недели.
+    const notice = texts(layout).find((c) => c.text.startsWith('Обои устарели'));
+    const firstNumber = texts(layout).find((c) => c.text === '5');
+    expect(notice && firstNumber ? notice.y < firstNumber.y : false).toBe(true);
+    expect(layout.commands.some((c) => c.op === 'icon' && c.name === 'alert-triangle')).toBe(true);
+  });
+
+  it('calendar: notice and no selected day; still within the safe band', () => {
+    const profile = profileOf('iphone-1179x2556');
+    const layout = layoutWallpaper(makeInput({ template: 'calendar', expired: true, date: '2026-08-15', profile }), measurer);
+    expect(textValues(layout)).toContain('Обои устарели — откройте Obsidian');
+    expect(selectedCircles(layout)).toHaveLength(0);
+    for (const c of layout.commands) expect(verticalExtent(c)[1]).toBeLessThanOrEqual(profile.height * 0.84 + 0.5);
+  });
+
+  it('English strings', () => {
+    const en = createWallpaperStrings({
+      translate: (key, params) => {
+        const [module, ...path] = key.split('.');
+        const dict: Record<string, Dict> = { wallpaperLayout: enWallpaperLayout };
+        const template = dict[module] ? lookup(dict[module], path) : undefined;
+        if (template === undefined) return key;
+        return template.replace(/\{(\w+)\}/g, (m, name: string) => (params?.[name] === undefined ? m : String(params[name])));
+      },
+      translatePlural: (key) => key,
+      formatDue: () => '',
+    });
+    expect(en.expiredNotice).toBe('Wallpaper is out of date — open Obsidian');
+    expect(en.formatDueDate?.({ date: '2026-10-16', time: '17:00' })).toBe('Oct 16');
   });
 });
 

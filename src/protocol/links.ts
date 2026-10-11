@@ -22,13 +22,30 @@ function toQuery(pairs: ReadonlyArray<readonly [string, string]>): string {
 
 /** Параметр ссылок возврата быстрой команды: профиль, для которого она запущена. */
 export const PROFILE_PARAM = 'profile';
+/** Параметр ссылок возврата: идентификатор запуска (подтверждение принимается только для него). */
+export const RUN_PARAM = 'run';
+/** Текст ошибки, который «Быстрые команды» дописывают к `x-error`. */
+export const ERROR_MESSAGE_PARAM = 'errorMessage';
+/** Результат команды, который «Быстрые команды» дописывают к `x-success` (команда возвращает `runId`). */
+export const RESULT_PARAM = 'result';
 
-/** Привязка запуска быстрой команды к профилю обоев. */
+/** Привязка запуска быстрой команды к профилю обоев и запуску. */
 export interface ShortcutRunOptions {
   profileId?: string | null;
+  /** Идентификатор запуска: в ссылки возврата и во вход команды. */
+  runId?: string | null;
+  /** Ожидаемый файл на сегодня (`lock-ГГГГ-ММ-ДД.png`) — подсказка команде. */
+  expectedFile?: string | null;
 }
 
-/** `LinkBuilder`, ссылка запуска которого может нести профиль. */
+/** Вход быстрой команды (`input=text&text=<JSON>`): команда берёт из него папку профиля. */
+export interface ShortcutInput {
+  profile: string;
+  runId: string | null;
+  file: string | null;
+}
+
+/** `LinkBuilder`, ссылка запуска которого может нести профиль и запуск. */
 export interface ProfileLinkBuilder extends LinkBuilder {
   shortcutRunUrl(shortcutName: string, options?: ShortcutRunOptions): string;
 }
@@ -38,19 +55,32 @@ export function buildPlannerUrl(vaultName: string, link: PlannerLink, extra: Rea
   return `${PLANNER_URL_PREFIX}?${toQuery([['vault', vaultName], ...linkToParams(link), ...extra])}`;
 }
 
+/** JSON входа команды или `null`, если профиль не задан. */
+export function shortcutInputText(options: ShortcutRunOptions): string | null {
+  if (!options.profileId) return null;
+  const input: ShortcutInput = { profile: options.profileId, runId: options.runId ?? null, file: options.expectedFile ?? null };
+  return JSON.stringify(input);
+}
+
 /**
- * `shortcuts://x-callback-url/run-shortcut?name=…&x-success=…&x-error=…`.
+ * `shortcuts://x-callback-url/run-shortcut?name=…&input=text&text=…&x-success=…&x-cancel=…&x-error=…`.
  * Ссылки возврата целиком кодируются как значения параметров, поэтому их
  * собственные `?`/`&`/`=` и уже закодированное название хранилища не смешиваются с внешними.
  */
 export function buildShortcutRunUrl(vaultName: string, shortcutName: string, options: ShortcutRunOptions = {}): string {
   // Профиль запуска: подтверждение пишется в него, даже если профиль сменили до возврата.
-  const extra: Array<[string, string]> = options.profileId ? [[PROFILE_PARAM, options.profileId]] : [];
-  return `${SHORTCUT_RUN_PREFIX}?${toQuery([
-    ['name', shortcutName],
+  const extra: Array<[string, string]> = [];
+  if (options.profileId) extra.push([PROFILE_PARAM, options.profileId]);
+  if (options.runId) extra.push([RUN_PARAM, options.runId]);
+  const input = shortcutInputText(options);
+  const pairs: Array<[string, string]> = [['name', shortcutName]];
+  if (input !== null) pairs.push(['input', 'text'], ['text', input]);
+  pairs.push(
     ['x-success', buildPlannerUrl(vaultName, { action: 'wallpaper-done' }, extra)],
+    ['x-cancel', buildPlannerUrl(vaultName, { action: 'wallpaper-cancelled' }, extra)],
     ['x-error', buildPlannerUrl(vaultName, { action: 'wallpaper-failed' }, extra)],
-  ])}`;
+  );
+  return `${SHORTCUT_RUN_PREFIX}?${toQuery(pairs)}`;
 }
 
 /**

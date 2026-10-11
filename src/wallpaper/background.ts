@@ -7,8 +7,44 @@
 import type { Vault } from 'obsidian';
 import type { VaultPath, WallpaperBackground, WallpaperCrop } from '../model/types';
 
-/** Цвет вместо картинки, которую не удалось прочитать или декодировать. */
+/** Подложка под картинку (прозрачные области PNG). */
 export const FALLBACK_BACKGROUND_COLOR = '#1C1C1E';
+
+/** Причина недоступности картинки фона. */
+export type WallpaperBackgroundErrorReason = 'missing' | 'read' | 'decode';
+
+/**
+ * Картинка фона недоступна (доработка 007, п.8): renderer не рисует тёмную заливку
+ * вместо фото, а бросает эту ошибку — пакет сохраняет прежние PNG, редактор
+ * показывает причину у раздела «Фон».
+ */
+export class WallpaperBackgroundError extends Error {
+  readonly name = 'WallpaperBackgroundError';
+
+  constructor(
+    /** Причина (поле `code` читает `render-service.backgroundErrorCode`). */
+    readonly code: WallpaperBackgroundErrorReason,
+    readonly path: VaultPath,
+    readonly detail: string | null = null,
+  ) {
+    super(`wallpaper background ${code}: ${path}${detail ? ` (${detail})` : ''}`);
+  }
+}
+
+/** Ошибка фона, в том числе обёрнутая (`cause`) сервисом рендера. */
+export function findBackgroundError(error: unknown): WallpaperBackgroundError | null {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth++) {
+    if (current instanceof WallpaperBackgroundError) return current;
+    if (typeof current === 'object' && (current as { name?: unknown }).name === 'WallpaperBackgroundError') {
+      const record = current as { code?: unknown; path?: unknown; detail?: unknown };
+      const code = record.code === 'missing' || record.code === 'read' || record.code === 'decode' ? record.code : 'decode';
+      return new WallpaperBackgroundError(code, typeof record.path === 'string' ? record.path : '', typeof record.detail === 'string' ? record.detail : null);
+    }
+    current = typeof current === 'object' ? (current as { cause?: unknown }).cause : null;
+  }
+  return null;
+}
 
 /** Декодированная картинка, готовая к `drawImage`. */
 export interface DecodedImage {
@@ -204,6 +240,10 @@ export function paintBackground(
   }
 }
 
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /** Выданная потребителю картинка; `release()` — потребитель закончил рисовать. */
 export interface ImageLease {
   image: DecodedImage;
@@ -212,7 +252,7 @@ export interface ImageLease {
 
 interface CacheEntry {
   key: string;
-  pending: Promise<DecodedImage | null>;
+  pending: Promise<DecodedImage>;
   /** Число незавершённых потребителей (рендер пакета, предпросмотр). */
   refs: number;
   /** Запись — текущая в кэше (держится до `release()` или смены файла). */
@@ -239,8 +279,11 @@ export class BackgroundImageCache {
     private readonly decode: ImageDecoder = decodeImageInBrowser,
   ) {}
 
-  /** `null` — файла нет или он не декодируется (рисуется запасной фон). Выданную картинку вернуть `lease.release()`. */
-  async acquire(path: VaultPath): Promise<ImageLease | null> {
+  /**
+   * Картинка фона; выданную вернуть `lease.release()`. Файла нет, он не читается
+   * или не декодируется — `WallpaperBackgroundError` (сбой не кэшируется).
+   */
+  async acquire(path: VaultPath): Promise<ImageLease> {
     let version: string | null = null;
     try {
       version = (await this.reader.version?.(path)) ?? null;
@@ -255,13 +298,15 @@ export class BackgroundImageCache {
       this.current = entry;
     }
     entry.refs += 1;
-    const image = await entry.pending;
-    if (!image) {
-      // Отсутствие не кэшируется: файл могут добавить, пока открыт предпросмотр.
+    let image: DecodedImage;
+    try {
+      image = await entry.pending;
+    } catch (error) {
+      // Сбой не кэшируется: файл могут добавить или заменить, пока открыт предпросмотр.
       entry.refs -= 1;
       if (this.current === entry) this.current = null;
       entry.retained = false;
-      return null;
+      throw error;
     }
     const owner = entry;
     let returned = false;
@@ -298,18 +343,31 @@ export class BackgroundImageCache {
     if (entry.freed || entry.retained || entry.refs > 0) return;
     entry.freed = true;
     void entry.pending.then(
-      (image) => image?.release(),
+      (image) => image.release(),
       () => undefined,
     );
   }
 
-  private async readAndDecode(path: VaultPath): Promise<DecodedImage | null> {
+  private async readAndDecode(path: VaultPath): Promise<DecodedImage> {
+    let data: ArrayBuffer | null;
     try {
-      const data = await this.reader.read(path);
-      return data ? await this.decode(data, mimeFromPath(path)) : null;
-    } catch {
-      return null;
+      data = await this.reader.read(path);
+    } catch (error) {
+      throw new WallpaperBackgroundError('read', path, describe(error));
     }
+    if (!data) throw new WallpaperBackgroundError('missing', path);
+    if (data.byteLength === 0) throw new WallpaperBackgroundError('decode', path, 'empty file');
+    let image: DecodedImage;
+    try {
+      image = await this.decode(data, mimeFromPath(path));
+    } catch (error) {
+      throw new WallpaperBackgroundError('decode', path, describe(error));
+    }
+    if (!(image.width > 0 && image.height > 0)) {
+      image.release();
+      throw new WallpaperBackgroundError('decode', path, 'empty image');
+    }
+    return image;
   }
 }
 

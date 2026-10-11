@@ -171,6 +171,11 @@ class EventFormView {
   private readonly cleanups: Array<() => void> = [];
   /** Черновик при открытии (для «Сбросить изменения?»). */
   private baseline: EventDraftState;
+  /**
+   * Пользователь что-то трогал в форме. Без этого «Сбросить изменения?» не спрашиваем: черновик может
+   * поменяться сам (подстановка календаря, нормализация времени из шкалы), а это не правка пользователя.
+   */
+  private touched = false;
 
   constructor(
     private readonly deps: EventFormDeps,
@@ -186,12 +191,13 @@ class EventFormView {
 
   /** Выбор в группе (цвет, календарь, повтор, значок, «Весь день») — отклик `select`. */
   private select(apply: () => void): void {
+    this.touched = true;
     this.haptic('select');
     apply();
   }
 
   isDirty(): boolean {
-    if (this.deleting || this.controller.isSaved()) return false;
+    if (this.deleting || this.controller.isSaved() || !this.touched) return false;
     return isEventDraftDirty(this.state, this.baseline);
   }
 
@@ -206,6 +212,13 @@ class EventFormView {
   mount(contentEl: HTMLElement, sheet: SheetHandle): void {
     this.sheet = sheet;
     contentEl.addClass('mp-task-form', 'mp-event-form');
+    const markTouched = (): void => {
+      this.touched = true;
+    };
+    for (const type of ['input', 'change', 'click'] as const) {
+      contentEl.addEventListener(type, markTouched, true);
+      this.cleanups.push(() => contentEl.removeEventListener(type, markTouched, true));
+    }
     this.renderText(contentEl.createDiv({ cls: 'mp-form-card' }));
     this.scheduleEl = contentEl.createDiv({ cls: 'mp-form-card mp-event-form-schedule' });
     this.styleEl = contentEl.createDiv({ cls: 'mp-form-card mp-event-form-style' });
@@ -321,6 +334,7 @@ class EventFormView {
     });
     title.value = this.state.title;
     title.addEventListener('input', () => {
+      this.touched = true;
       title.removeAttribute('aria-invalid');
       this.update((s) => setTitle(s, title.value));
     });
@@ -334,7 +348,10 @@ class EventFormView {
       attr: { placeholder: t('events.fields.body'), 'aria-label': t('events.fields.body'), rows: '2' },
     });
     body.value = this.state.body;
-    body.addEventListener('input', () => this.update((s) => setBody(s, body.value)));
+    body.addEventListener('input', () => {
+      this.touched = true;
+      this.update((s) => setBody(s, body.value));
+    });
     this.bodyInput = body;
     this.bodyStatusEl = card.createDiv({ cls: 'mp-task-form-status', attr: { 'aria-live': 'polite' } });
     this.syncBody(null);
@@ -345,7 +362,10 @@ class EventFormView {
       attr: { type: 'url', placeholder: t('events.fields.url'), 'aria-label': t('events.fields.url'), inputmode: 'url' },
     });
     url.value = this.state.url;
-    url.addEventListener('input', () => this.update((s) => setUrl(s, url.value)));
+    url.addEventListener('input', () => {
+      this.touched = true;
+      this.update((s) => setUrl(s, url.value));
+    });
   }
 
   private syncIcon(): void {
@@ -467,6 +487,7 @@ class EventFormView {
       });
       input.value = time;
       input.addEventListener('change', () => {
+        this.touched = true;
         if (input.value === '') {
           input.value = which === 'start' ? this.state.startTime : this.state.endTime;
           return;

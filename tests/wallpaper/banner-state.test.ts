@@ -6,6 +6,7 @@ import { PlannerWallpaperStatusTracker } from '../../src/protocol/wallpaper-stat
 import {
   bannerViewModel,
   bannerViewModelOf,
+  isBannerHidden,
   statusNeedsAttention,
   statusTextOf,
   type WallpaperStatusTrackerExt,
@@ -136,14 +137,40 @@ describe('баннер и статус по трекеру', () => {
     tracker.markDataChanged();
     expect(bannerViewModelOf(tracker).subtitle).toBe('Есть изменения. Нажмите, чтобы перенести их на экран блокировки');
     await tracker.run();
+    // Рендер дольше жеста: команда не открывается сама — «Обои готовы · Установить».
+    expect(launches).toEqual([]);
+    const ready = bannerViewModelOf(tracker);
+    expect(ready.title).toBe('Обои готовы · Установить');
+    expect(ready.tone).toBe('success');
+    expect(isBannerHidden(tracker.getState(), 'update')).toBe(false);
+    await tracker.run();
     expect(launches).toEqual(['Обои Планировщика']);
     expect(tracker.getState().kind).toBe('launched');
     expect(statusTextOf(tracker)).toBe('Нет подтверждённого обновления');
     expect(statusNeedsAttention(tracker)).toBe(true);
   });
 
+  it('x-cancel: баннер снова «Есть изменения…», без ошибки и «Как настроить»', async () => {
+    const { tracker } = setup({ isIos: true });
+    await tracker.run();
+    await tracker.run();
+    await tracker.onWallpaperCallback('cancelled');
+    const model = bannerViewModelOf(tracker);
+    expect(model.subtitle).toBe('Есть изменения. Нажмите, чтобы перенести их на экран блокировки');
+    expect(model.tone).toBe('attention');
+    expect(model.helpLabel).toBeNull();
+    expect(isBannerHidden(tracker.getState(), 'update')).toBe(false);
+  });
+
+  it('x-error с errorMessage: причина в тексте баннера', async () => {
+    const { tracker } = setup({ isIos: true });
+    await tracker.onWallpaperCallback('failed', { profileId: null, errorMessage: 'Файл не найден' });
+    expect(bannerViewModelOf(tracker).subtitle).toBe('Не удалось установить обои: Файл не найден');
+  });
+
   it('после x-success: «Обои обновлены 10 окт. в 13:32»', async () => {
     const { tracker } = setup({ isIos: true });
+    await tracker.run();
     await tracker.run();
     await tracker.onWallpaperCallback('done');
     expect(bannerViewModelOf(tracker).subtitle).toBe('Экран блокировки обновлён');

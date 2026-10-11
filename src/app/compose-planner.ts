@@ -8,7 +8,7 @@
  * регистрируются в `Plugin`, поэтому выгрузка плагина освобождает их без кода в `onunload`.
  */
 
-import { Setting, type ObsidianProtocolData, type Plugin, type TAbstractFile } from 'obsidian';
+import { Setting, TFile, type ObsidianProtocolData, type Plugin, type TAbstractFile } from 'obsidian';
 import type {
   CoreServices,
   PlannerActions,
@@ -136,12 +136,14 @@ function wallpaperInputsChanged(next: Readonly<PlannerSettings>, previous: Reado
 }
 
 /**
- * Отклик на итог обновления экрана блокировки (доработка 006, §10): успех — `success`,
- * ошибка — `error`. Срабатывает только при переходе из «Обновление…»/«Команда запущена».
+ * Отклик на итог обновления экрана блокировки (доработка 006, §10; 007): успех — `success`,
+ * ошибка — `error`, отмена команды (`x-cancel`) — `warning`. Срабатывает только при переходе из «Обновление…»/«Команда запущена».
  */
 export function wallpaperHapticFor(previous: WallpaperBannerState['kind'], next: WallpaperBannerState['kind']): HapticKind | null {
   if (previous === next) return null;
   if (previous !== 'rendering' && previous !== 'launched') return null;
+  // Пользователь отменил команду — предупреждение, не ошибка.
+  if (next === 'cancelled') return previous === 'launched' ? 'warning' : null;
   if (next === 'confirmed' || next === 'saved') return 'success';
   if (next === 'failed') return 'error';
   return null;
@@ -207,7 +209,7 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
   // Трекер обращается к сервису только из лямбд (вызов — после сборки).
   const wallpaperStatus: PlannerWallpaperStatusTracker = new PlannerWallpaperStatusTracker({
     wallpaper: {
-      renderAll: () => wallpaper.renderAll(),
+      renderAll: (options) => wallpaper.renderAll(options),
       resolveProfile: (draft) => wallpaper.resolveProfile(draft),
     },
     companion,
@@ -217,7 +219,9 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
     notifier,
     format: core.format,
     getShortcutName: () => settings.get().wallpaper.shortcutName,
+    log: (message, detail) => ctx.log(message, detail),
   });
+  plugin.register(() => wallpaperStatus.dispose());
   const wallpaper: PlannerWallpaperService = new PlannerWallpaperService({
     settings,
     index,
@@ -227,6 +231,11 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
     clock,
     format: core.format,
     getDataRevision: () => wallpaperStatus.getDataRevision(),
+    // Замена картинки фона под тем же путём меняет отпечаток пакета.
+    backgroundStamp: (path) => {
+      const file = app.vault.getAbstractFileByPath(path);
+      return file instanceof TFile ? `${file.stat.mtime}:${file.stat.size}` : null;
+    },
     getScreen: overrides.getScreen ? () => overrides.getScreen?.() ?? null : undefined,
   });
 
@@ -343,13 +352,28 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
   // Интервал проверяется раз в минуту: смена настройки не требует перерегистрации таймера.
   plugin.registerInterval(window.setInterval(() => syncScheduler.tick(), 60_000));
   // На iPhone приложение в фоне замирает вместе с таймерами: ожидающее отправляется сразу.
+  // Обои: уход в фон — подготовить пакет сразу; возврат — пересчитать свежесть (смена суток, зоны).
   if (typeof document !== 'undefined') {
     plugin.registerDomEvent(document, 'visibilitychange', () => {
-      if (document.visibilityState === 'hidden') void syncScheduler.flush();
-      else syncScheduler.tick();
+      if (document.visibilityState === 'hidden') {
+        void syncScheduler.flush();
+        if (tracking) wallpaperStatus.onHidden();
+      } else {
+        syncScheduler.tick();
+        if (tracking) wallpaperStatus.refresh();
+      }
     });
   }
-  plugin.registerDomEvent(window, 'pagehide', () => void syncScheduler.flush());
+  plugin.registerDomEvent(window, 'pagehide', () => {
+    void syncScheduler.flush();
+    if (tracking) wallpaperStatus.onHidden();
+  });
+  // Смена суток при открытом Obsidian: раз в минуту (пересчёт дешёвый, без рендера при свежем пакете).
+  plugin.registerInterval(
+    window.setInterval(() => {
+      if (tracking && !ctx.isUnloaded()) wallpaperStatus.refresh();
+    }, 60_000),
+  );
   // Ошибка отправки изменений — отклик `error` (уведомление показывает движок).
   let lastSyncStatus: CalendarSyncStatus = syncEngine.getStatus();
   plugin.register(
@@ -434,6 +458,8 @@ export async function composePlanner(ctx: CoreContext, overrides: PlannerOverrid
         .finally(() => {
           tracking = !ctx.isUnloaded();
           resolve();
+          // Свежесть пакета после перезапуска: отпечаток из companion.json, при расхождении — фоновая подготовка.
+          if (tracking) wallpaperStatus.refresh();
           // Первая синхронизация календаря — после готовности индекса.
           if (tracking && settings.get().calendarSync.enabled) void syncScheduler.run();
         });

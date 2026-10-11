@@ -6,6 +6,7 @@
 import type { TextMeasurer } from '../app/contracts';
 import type {
   DrawCommand,
+  FloatingDateTime,
   FontSpec,
   WallpaperLayoutInput,
   WallpaperPalette,
@@ -58,6 +59,10 @@ export interface PillColors {
 export interface WallpaperStringsExtra {
   /** «Осталось 83 дня». */
   daysLeft?: (count: number) => string;
+  /** «Обои устарели — откройте Obsidian» (вход раскладки `expired`). */
+  expiredNotice?: string;
+  /** Срок без относительных слов («16 окт.») для устаревших обоев. */
+  formatDueDate?: (due: FloatingDateTime) => string;
 }
 
 export type WallpaperLayoutStrings = WallpaperStrings & WallpaperStringsExtra;

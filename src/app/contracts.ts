@@ -441,13 +441,23 @@ export interface WallpaperRenderResult {
   lockUpdated: boolean;
   /** Ревизия данных, на которой выполнен рендер (для «есть изменения»). */
   dataRevision: number;
+  /** Отпечаток данных пакета (хеш входа рендера); хранится в `companion.json`. */
+  fingerprint?: string;
+  /** Отпечаток совпал с сохранённым и файлы на месте: рендер и запись пропущены. */
+  unchanged?: boolean;
+}
+
+/** Параметры пакета обоев. */
+export interface WallpaperRenderOptions {
+  /** Отпечаток сохранённого пакета: при совпадении и наличии файлов рендер пропускается. */
+  knownFingerprint?: string | null;
 }
 
 export interface WallpaperService {
   /** Профиль по настройкам или размеру экрана. */
   resolveProfile(settings?: WallpaperSettings): WallpaperProfile;
   /** Пакет на 7 дат (сегодня…+6) + `lock.png`; очистка старых своих файлов профиля. */
-  renderAll(): Promise<OpResult<WallpaperRenderResult>>;
+  renderAll(options?: WallpaperRenderOptions): Promise<OpResult<WallpaperRenderResult>>;
   /** Предпросмотр по черновику настроек на дату. */
   renderPreview(canvas: HTMLCanvasElement, draft: WallpaperSettings, date: LocalDateString): Promise<void>;
   /** Путь последнего `lock.png` текущего профиля или `null`. */
@@ -461,8 +471,10 @@ export type WallpaperBannerState =
   | { kind: 'rendering' }
   | { kind: 'saved'; at: string } // PNG сохранены (desktop/Android — финальное состояние)
   | { kind: 'launched'; at: string } // команда запущена, подтверждения нет
+  | { kind: 'ready'; at: string } // PNG готовы, жест истёк или подготовлены в фоне: «Установить»
+  | { kind: 'cancelled'; at: string } // x-cancel: изменения не перенесены, без ошибки
   | { kind: 'confirmed'; at: string } // x-success
-  | { kind: 'failed'; reason: 'render' | 'shortcut' | 'callback-error' };
+  | { kind: 'failed'; reason: 'render' | 'shortcut' | 'callback-error'; message?: string | null };
 
 /** Тексты баннера по состоянию (S2.T5 `describeBanner`). */
 export interface BannerDescription {
@@ -491,7 +503,7 @@ export interface WallpaperStatusTracker {
   markDataChanged(): void;
   /** Нажатие баннера: рендер → (iOS) запуск быстрой команды. */
   run(): Promise<void>;
-  onWallpaperCallback(result: 'done' | 'failed'): Promise<void>;
+  onWallpaperCallback(result: 'done' | 'failed' | 'cancelled'): Promise<void>;
   onChange(listener: (state: WallpaperBannerState) => void): Unsubscribe;
 }
 

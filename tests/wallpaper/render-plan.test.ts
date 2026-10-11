@@ -5,9 +5,16 @@ import { defaultMatrixConfig } from '../../src/model/defaults';
 import type { QuadrantKey, Task, WallpaperProfile } from '../../src/model/types';
 import { createDefaultWallpaperSettings } from '../../src/settings/defaults';
 import {
+  EXPIRED_FILE_NAME,
   LOCK_FILE_NAME,
   WALLPAPER_DAYS,
+  WALLPAPER_TEMPLATE_VERSION,
   createLayoutInput,
+  expiredDate,
+  hashString,
+  packFingerprint,
+  sameBytes,
+  stableStringify,
   datedFileName,
   formatWallpaperDue,
   nowForDate,
@@ -186,6 +193,8 @@ describe('createLayoutInput', () => {
     expect(input.date).toBe('2026-10-12');
     expect(input.weekStart).toBe(0);
     expect(input.tasksPerQuadrant).toBe(2);
+    expect(input.expired).toBeUndefined();
+    expect(input.layoutPreset).toBe(settings.layoutPreset);
     expect(resolveWallpaperWeekStart('auto', 1)).toBe(1);
     expect(resolveWallpaperWeekStart('monday', 0)).toBe(1);
   });
@@ -217,5 +226,59 @@ describe('createLayoutInput', () => {
     expect(later.tasksByQuadrant.do.map((t) => t.id)).toEqual(['soon', 'later']);
     expect(nowForDate('2026-10-12', '2026-10-10', base.now)).toEqual({ date: '2026-10-12', time: '00:00' });
     expect(nowForDate('2026-10-10', '2026-10-10', base.now)).toBe(base.now);
+  });
+});
+
+describe('lock-expired.png and pack fingerprint (007)', () => {
+  it('expired file is the day after the last pack date', () => {
+    expect(EXPIRED_FILE_NAME).toBe('lock-expired.png');
+    expect(expiredDate(planRenderDates('2026-12-29'))).toBe('2027-01-05');
+  });
+
+  it('marks the expired layout input', () => {
+    const input = createLayoutInput({
+      date: '2026-10-17',
+      today: '2026-10-10',
+      now: { date: '2026-10-10', time: '09:00' },
+      settings: createDefaultWallpaperSettings(),
+      profile: { id: 'p', label: 'p', width: 10, height: 20, safeTop: 0.38, safeBottom: 0.88 },
+      weekStart: 1,
+      hour12: false,
+      matrix: defaultMatrixConfig('ru'),
+      tasks: [],
+      days: new Map(),
+      strings: {} as WallpaperLayoutStrings,
+      expired: true,
+    });
+    expect(input.expired).toBe(true);
+  });
+
+  it('stableStringify ignores key order and functions, handles Map and Set', () => {
+    expect(stableStringify({ b: 1, a: [1, { d: 2, c: () => 1 }] })).toBe(stableStringify({ a: [1, { c: () => 2, d: 2 }], b: 1 }));
+    expect(stableStringify(new Map([['x', new Set([1, 2])]]))).toBe('[["x",[1,2]]]');
+    const cyclic: Record<string, unknown> = { a: 1 };
+    cyclic['self'] = cyclic;
+    expect(stableStringify(cyclic)).toBe('{"a":1,"self":"[cycle]"}');
+  });
+
+  it('hashString is stable and sensitive', () => {
+    expect(hashString('abc')).toMatch(/^[0-9a-f]{16}$/);
+    expect(hashString('abc')).toBe(hashString('abc'));
+    expect(hashString('abc')).not.toBe(hashString('abd'));
+    expect(hashString('')).not.toBe(hashString(' '));
+  });
+
+  it('packFingerprint carries the template version and date', () => {
+    const fp = packFingerprint('2026-10-10', { a: 1 });
+    expect(fp.startsWith(`v${WALLPAPER_TEMPLATE_VERSION}-2026-10-10-`)).toBe(true);
+    expect(packFingerprint('2026-10-11', { a: 1 })).not.toBe(fp);
+    expect(packFingerprint('2026-10-10', { a: 2 })).not.toBe(fp);
+  });
+
+  it('sameBytes compares PNG bytes', () => {
+    const a = new Uint8Array([1, 2, 3]).buffer;
+    expect(sameBytes(a, new Uint8Array([1, 2, 3]).buffer)).toBe(true);
+    expect(sameBytes(a, new Uint8Array([1, 2, 4]).buffer)).toBe(false);
+    expect(sameBytes(a, new Uint8Array([1, 2]).buffer)).toBe(false);
   });
 });

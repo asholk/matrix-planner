@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fixtures from '../../fixtures/wallpaper.json';
 import {
   KNOWN_PROFILES,
+  NOTIFICATIONS_TOP,
   SAFE_BOTTOM,
   SAFE_TOP,
   contentBand,
@@ -73,16 +74,25 @@ describe('wallpaper profiles', () => {
     expect(parseProfileId('iphone-axb')).toBeNull();
   });
 
-  it('safe zones: content between 38% and 88% of height', () => {
-    expect(SAFE_TOP).toBe(0.38);
-    expect(SAFE_BOTTOM).toBe(0.88);
-    for (const p of fixtures.profiles) {
-      const profile = findProfileBySize(p.width, p.height);
-      if (!profile) throw new Error(p.id);
+  it('safe zones: content from 31% (27% without widgets), notifications from 70%, hard limit 84%', () => {
+    expect(SAFE_TOP).toBe(0.31);
+    expect(SAFE_BOTTOM).toBe(0.84);
+    expect(NOTIFICATIONS_TOP).toBe(0.7);
+    for (const profile of KNOWN_PROFILES) {
       const band = contentBand(profile);
-      expect(band.top).toBeGreaterThanOrEqual(profile.height * 0.38);
-      expect(band.bottom).toBeLessThanOrEqual(profile.height * 0.88);
-      expect(band.bottom).toBeGreaterThan(band.top);
+      expect(band.top).toBe(Math.ceil(profile.height * 0.31));
+      expect(band.softBottom).toBe(Math.floor(profile.height * 0.7));
+      expect(band.bottom).toBe(Math.floor(profile.height * 0.84));
+      const low = contentBand(profile, 'no-widgets');
+      expect(low.top).toBe(Math.ceil(profile.height * 0.27));
+      expect(low.bottom).toBe(band.bottom);
     }
+  });
+
+  it('soft bottom never goes above the content top', () => {
+    const odd = { ...KNOWN_PROFILES[0], safeTop: 0.75, safeBottom: 0.9 };
+    const band = contentBand(odd);
+    expect(band.softBottom).toBeGreaterThanOrEqual(band.top);
+    expect(band.softBottom).toBeLessThanOrEqual(band.bottom);
   });
 });

@@ -155,3 +155,22 @@ describe('форма заметки (006, §6, §9)', () => {
     expect(fake.handle.submit).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('форма события со шкалы: «Сбросить изменения?» только после правки пользователя (007)', () => {
+  it('открыта долгим нажатием на шкале и закрыта без правок — не спрашивает', () => {
+    const fake = fakeSheets();
+    openEventForm(eventDeps(fake.sheets, []), { mode: 'create', date: '2026-10-14', time: '14:15' } as never);
+    // Подстановка без участия пользователя (например, календарь после загрузки) не делает форму изменённой.
+    expect(fake.options().isDirty?.()).toBe(false);
+  });
+
+  it('после ввода в название — спрашивает', () => {
+    const fake = fakeSheets();
+    openEventForm(eventDeps(fake.sheets, []), { mode: 'create', date: '2026-10-14', time: '14:15' } as never);
+    const title = fake.content.findAllByClass('mp-task-form-title')[0];
+    if (!title) throw new Error('нет названия');
+    title.value = 'Йога';
+    title.dispatch('input');
+    expect(fake.options().isDirty?.()).toBe(true);
+  });
+});

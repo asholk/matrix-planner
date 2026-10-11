@@ -1,6 +1,7 @@
 /**
- * Файлы обоев в `<корень>/Обои/<профиль>/`: `lock-ГГГГ-ММ-ДД.png` и `lock.png`.
- * Запись — `NoteRepository.writeBinary` (создание или замена), удаление — `trash`.
+ * Файлы обоев в `<корень>/Обои/<профиль>/`: `lock-ГГГГ-ММ-ДД.png`, `lock.png` и `lock-expired.png`.
+ * Запись — `NoteRepository.writeBinary` (создание или замена; файл с теми же байтами
+ * не переписывается), удаление — `trash`.
  * Очистка трогает только свои датированные файлы профиля; прочие файлы
  * (например `shortcut-last-run.txt` быстрой команды) не меняются.
  */
@@ -8,7 +9,7 @@
 import type { NoteRepository } from '../app/contracts';
 import { compareDates } from '../model/dates';
 import type { LocalDateString, OpResult, VaultPath } from '../model/types';
-import { LOCK_FILE_NAME, datedFileName, parseDatedFileName } from './render-plan';
+import { EXPIRED_FILE_NAME, LOCK_FILE_NAME, datedFileName, parseDatedFileName, sameBytes } from './render-plan';
 
 export type OutputRepositoryDeps = Pick<NoteRepository, 'paths' | 'exists' | 'writeBinary' | 'listFolder' | 'trash'> &
   Partial<Pick<NoteRepository, 'readBinary'>>;
@@ -42,19 +43,38 @@ export class WallpaperOutputRepository {
     return this.repository.exists(path);
   }
 
+  expiredPath(profileId: string): VaultPath {
+    return `${this.folder(profileId)}/${EXPIRED_FILE_NAME}`;
+  }
+
   writeDated(profileId: string, date: LocalDateString, png: ArrayBuffer): Promise<OpResult> {
-    return this.repository.writeBinary(this.datedPath(profileId, date), png);
+    return this.writeIfChanged(this.datedPath(profileId, date), png);
   }
 
   writeLock(profileId: string, png: ArrayBuffer): Promise<OpResult> {
-    return this.repository.writeBinary(this.lockPath(profileId), png);
+    return this.writeIfChanged(this.lockPath(profileId), png);
   }
 
-  /** Читает `lock.png` профиля. */
-  readLock(profileId: string): Promise<OpResult<ArrayBuffer>> {
-    const path = this.lockPath(profileId);
+  writeExpired(profileId: string, png: ArrayBuffer): Promise<OpResult> {
+    return this.writeIfChanged(this.expiredPath(profileId), png);
+  }
+
+  /** Читает файл профиля. */
+  read(path: VaultPath): Promise<OpResult<ArrayBuffer>> {
     if (!this.repository.readBinary) return Promise.resolve({ ok: false, error: { code: 'unsupported', detail: path } });
     return this.repository.readBinary(path);
+  }
+
+  /**
+   * Запись, если байты отличаются от файла в хранилище (`changed: false` — пропущено):
+   * одинаковые PNG не попадают в синхронизацию и не меняют время файла.
+   */
+  async writeIfChanged(path: VaultPath, png: ArrayBuffer): Promise<OpResult> {
+    if (this.repository.readBinary && this.repository.exists(path)) {
+      const current = await this.repository.readBinary(path).catch(() => null);
+      if (current?.ok && sameBytes(current.value, png)) return { ok: true, value: undefined, changed: false };
+    }
+    return this.repository.writeBinary(path, png);
   }
 
   /** Удаляет датированный файл (например, устаревший файл на сегодня, если новый не записался). */

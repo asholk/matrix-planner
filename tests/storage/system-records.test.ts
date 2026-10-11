@@ -207,6 +207,10 @@ describe('storage/system-records: companion.json', () => {
       confirmedAt: '2026-10-10T10:32:09.000Z',
       failedAt: null,
       deviceName: 'iPhone Александра',
+      cancelledAt: null,
+      errorMessage: null,
+      runId: null,
+      fingerprint: null,
     });
     expect(state.wallpapers['ipad-2048x2732']?.failedAt).toBe('2026-10-09T21:00:04.000Z');
     expect(ctx.companion.getState()).toBe(state);
@@ -256,7 +260,44 @@ describe('storage/system-records: companion.json', () => {
       confirmedAt: '2026-10-10T10:01:00.000Z',
       failedAt: null,
       deviceName: null,
+      cancelledAt: null,
+      errorMessage: null,
+      runId: null,
+      fingerprint: null,
     });
+  });
+
+  it('007: cancelled_at, error_message, run_id и fingerprint пишутся и читаются', async () => {
+    await ctx.companion.updateWallpaperStatus(PROFILE, { savedAt: '2026-10-10T10:00:00.000Z', fingerprint: 'v2-2026-10-10-0123456789abcdef' });
+    await ctx.companion.updateWallpaperStatus(PROFILE, { launchedAt: '2026-10-10T10:00:01.000Z', runId: 'mf3k2-0a1b' });
+    await ctx.companion.updateWallpaperStatus(PROFILE, { failedAt: '2026-10-10T10:00:05.000Z', errorMessage: 'Нет доступа к папке', runId: null });
+    await ctx.companion.updateWallpaperStatus(PROFILE, { cancelledAt: '2026-10-10T10:02:00.000Z' });
+    expect(readJson(ctx.app, COMPANION)).toEqual({
+      version: 1,
+      wallpapers: {
+        [PROFILE]: {
+          saved_at: '2026-10-10T10:00:00.000Z',
+          fingerprint: 'v2-2026-10-10-0123456789abcdef',
+          launched_at: '2026-10-10T10:00:01.000Z',
+          run_id: null,
+          failed_at: '2026-10-10T10:00:05.000Z',
+          error_message: 'Нет доступа к папке',
+          cancelled_at: '2026-10-10T10:02:00.000Z',
+        },
+      },
+    });
+    const state = ctx.companion.getState();
+    const record = state.status === 'ok' ? state.wallpapers[PROFILE] : null;
+    expect(record).toMatchObject({
+      fingerprint: 'v2-2026-10-10-0123456789abcdef',
+      runId: null,
+      errorMessage: 'Нет доступа к папке',
+      cancelledAt: '2026-10-10T10:02:00.000Z',
+    });
+    const bad = await ctx.companion.updateWallpaperStatus(PROFILE, { cancelledAt: 'вчера' });
+    expect(!bad.ok && bad.error.code).toBe('invalid');
+    const badText = await ctx.companion.updateWallpaperStatus(PROFILE, { runId: 5 as unknown as string });
+    expect(!badText.ok && badText.error.code).toBe('invalid');
   });
 
   it('повторная запись того же значения — changed: false', async () => {
@@ -317,7 +358,20 @@ describe('storage/system-records: companion.json', () => {
       status: 'ok',
       primaryDevice: null,
       lastUpdate: null,
-      wallpapers: { a: { profileId: 'a', savedAt: null, launchedAt: null, confirmedAt: null, failedAt: null, deviceName: null } },
+      wallpapers: {
+        a: {
+          profileId: 'a',
+          savedAt: null,
+          launchedAt: null,
+          confirmedAt: null,
+          failedAt: null,
+          deviceName: null,
+          cancelledAt: null,
+          errorMessage: null,
+          runId: null,
+          fingerprint: null,
+        },
+      },
     });
     expect(parseCompanion([]).status).toBe('corrupt');
   });

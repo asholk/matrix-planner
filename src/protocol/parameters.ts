@@ -23,7 +23,7 @@ export const ACTION_PARAM = 'do';
 
 export const PLANNER_VIEWS: readonly PlannerTabId[] = ['tasks', 'calendar', 'lockscreen'];
 
-export const LINK_ACTIONS = ['new-task', 'open', 'wallpaper-done', 'wallpaper-failed'] as const;
+export const LINK_ACTIONS = ['new-task', 'open', 'wallpaper-done', 'wallpaper-failed', 'wallpaper-cancelled'] as const;
 export type LinkAction = (typeof LINK_ACTIONS)[number];
 
 /** Ключи i18n ошибок разбора (словарь `protocol`). */
@@ -99,6 +99,8 @@ export function parseLinkParams(params: Readonly<Record<string, string | undefin
       return { ok: true, link: { action: 'wallpaper-done' } };
     case 'wallpaper-failed':
       return { ok: true, link: { action: 'wallpaper-failed' } };
+    case 'wallpaper-cancelled':
+      return { ok: true, link: { action: 'wallpaper-cancelled' } };
   }
 }
 
@@ -119,5 +121,7 @@ export function linkToParams(link: PlannerLink): Array<[string, string]> {
       return [[ACTION_PARAM, 'wallpaper-done']];
     case 'wallpaper-failed':
       return [[ACTION_PARAM, 'wallpaper-failed']];
+    case 'wallpaper-cancelled':
+      return [[ACTION_PARAM, 'wallpaper-cancelled']];
   }
 }

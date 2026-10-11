@@ -232,8 +232,15 @@ const WALLPAPER_FIELDS: ReadonlyArray<[keyof WallpaperStatusPatch, string]> = [
   ['launchedAt', 'launched_at'],
   ['confirmedAt', 'confirmed_at'],
   ['failedAt', 'failed_at'],
+  ['cancelledAt', 'cancelled_at'],
   ['deviceName', 'device_name'],
+  ['errorMessage', 'error_message'],
+  ['runId', 'run_id'],
+  ['fingerprint', 'fingerprint'],
 ];
+
+/** Строковые поля статуса (остальные — время ISO 8601). */
+const TEXT_FIELDS = new Set<keyof WallpaperStatusPatch>(['deviceName', 'errorMessage', 'runId', 'fingerprint']);
 
 function isValidProfileId(profileId: unknown): profileId is string {
   return typeof profileId === 'string' && profileId.trim() !== '' && !RESERVED_KEYS.has(profileId);
@@ -246,7 +253,11 @@ function parseWallpaperStatus(profileId: string, raw: Record<string, unknown>): 
     launchedAt: isoOrNull(raw['launched_at']),
     confirmedAt: isoOrNull(raw['confirmed_at']),
     failedAt: isoOrNull(raw['failed_at']),
+    cancelledAt: isoOrNull(raw['cancelled_at']),
     deviceName: stringOrNull(raw['device_name']),
+    errorMessage: stringOrNull(raw['error_message']),
+    runId: stringOrNull(raw['run_id']),
+    fingerprint: stringOrNull(raw['fingerprint']),
   };
 }
 
@@ -268,12 +279,12 @@ export function parseCompanion(value: unknown): CompanionState {
   };
 }
 
-/** Проверка патча: время — ISO 8601 со смещением или `null`, имя устройства — строка или `null`. */
+/** Проверка патча: время — ISO 8601 со смещением или `null`, текстовые поля — строка или `null`. */
 function validatePatch(patch: WallpaperStatusPatch): string | null {
   for (const [field] of WALLPAPER_FIELDS) {
     const value = patch[field];
     if (value === undefined || value === null) continue;
-    if (field === 'deviceName') {
+    if (TEXT_FIELDS.has(field)) {
       if (typeof value !== 'string') return `${field} must be a string`;
     } else if (!isIsoInstant(value)) {
       return `${field} must be an ISO 8601 instant`;

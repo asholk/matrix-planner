@@ -178,32 +178,76 @@ describe('сборка этапа 2', () => {
     expect(planner(ctx).index.getById(event.id)).toBeUndefined();
   });
 
-  it('пакет обоев → запуск быстрой команды → подтверждение по ссылке', async () => {
+  it('пакет обоев: фоновая подготовка → «Установить» → запуск → подтверждение только своего runId', async () => {
     ctx = await setup();
     const status = planner(ctx).wallpaperStatus;
-    expect(status.getState().kind).toBe('idle');
+    // После запуска пакет не на сегодня — фоновая подготовка сразу, без запуска команды.
+    await waitUntil(() => status.getState().kind === 'ready');
+    expect(ctx.app.vault.getFileByPath(`${PROFILE_DIR}/lock-expired.png`)).not.toBeNull();
+    await waitUntil(() => {
+      const state = planner(ctx!).companion.getState();
+      return state.status === 'ok' && !!state.wallpapers['iphone-1179x2556']?.fingerprint;
+    });
+    expect(ctx.opened).toEqual([]);
 
-    // Правка данных после запуска — «Есть изменения».
+    // Ревизия без изменения картинки: отпечаток совпал — пакет не перерисован, savedAt прежний.
+    const savedAt = () => {
+      const state = planner(ctx!).companion.getState();
+      return state.status === 'ok' ? state.wallpapers['iphone-1179x2556']?.savedAt : null;
+    };
+    const savedBefore = savedAt();
+    const service = planner(ctx).wallpaper;
+    const original = service.renderAll.bind(service);
+    const results: Array<boolean | undefined> = [];
+    service.renderAll = async (options) => {
+      const result = await original(options);
+      results.push(result.ok ? result.value.unchanged : undefined);
+      return result;
+    };
+    status.markDataChanged();
+    await (status as unknown as { prepareNow(): Promise<void> }).prepareNow();
+    expect(results).toEqual([true]);
+    expect(status.getState().kind).toBe('ready');
+    expect(savedAt()).toBe(savedBefore);
+
+    // Правка данных — «Есть изменения».
     await createTask(ctx, 'Позвонить маме', { due: { date: TODAY, time: '18:00' } });
     await waitUntil(() => status.getState().kind === 'dirty');
-    expect(status.getState().kind).toBe('dirty');
 
     await status.run();
-    // Семь датированных файлов и lock.png.
+    // Семь датированных файлов, lock.png и lock-expired.png.
     for (let day = 10; day <= 16; day++) {
       expect(ctx.app.vault.getFileByPath(`${PROFILE_DIR}/lock-2026-10-${day}.png`)).not.toBeNull();
     }
     expect(ctx.app.vault.getFileByPath(`${PROFILE_DIR}/lock.png`)).not.toBeNull();
-    expect(status.getState().kind).toBe('launched');
+    // Рендер дольше жеста — команда по второму нажатию.
+    expect(status.getState().kind).toBe('ready');
+    expect(ctx.opened).toEqual([]);
+    const tap = status.run();
     expect(ctx.opened).toHaveLength(1);
+    await tap;
+    expect(status.getState().kind).toBe('launched');
     const url = ctx.opened[0] ?? '';
     expect(url.startsWith('shortcuts://x-callback-url/run-shortcut?name=')).toBe(true);
     // Ссылки возврата используют `do=`, а не `action=`.
-    expect(decodeURIComponent(url)).toContain('do=wallpaper-done');
-    expect(decodeURIComponent(url)).not.toContain('action=wallpaper');
+    const decoded = decodeURIComponent(url);
+    expect(decoded).toContain('do=wallpaper-done');
+    expect(decoded).toContain('do=wallpaper-cancelled');
+    expect(decoded).not.toContain('action=wallpaper');
+    const outer = new URLSearchParams(url.slice(url.indexOf('?') + 1));
+    expect(outer.get('input')).toBe('text');
+    const input = JSON.parse(outer.get('text') ?? '{}') as { profile: string; runId: string; file: string };
+    expect(input).toMatchObject({ profile: 'iphone-1179x2556', file: `lock-${TODAY}.png` });
+    const success = new URLSearchParams((outer.get('x-success') ?? '').split('?')[1]);
+    expect(success.get('run')).toBe(input.runId);
+
+    // Чужой (запоздалый) runId — игнор.
+    await protocol(ctx)({ action: 'planner', vault: 'Хранилище', do: 'wallpaper-done', profile: 'iphone-1179x2556', run: 'old-run' });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(status.getState().kind).toBe('launched');
 
     // Возврат из «Быстрых команд»: Obsidian кладёт имя обработчика в `action`.
-    protocol(ctx)({ action: 'planner', vault: 'Хранилище', do: 'wallpaper-done' });
+    protocol(ctx)({ action: 'planner', vault: 'Хранилище', do: 'wallpaper-done', profile: 'iphone-1179x2556', run: input.runId });
     await waitUntil(() => status.getState().kind === 'confirmed');
     expect(status.getState().kind).toBe('confirmed');
     await waitUntil(() => {
@@ -212,6 +256,18 @@ describe('сборка этапа 2', () => {
     });
     const companion = planner(ctx).companion.getState();
     expect(companion.status === 'ok' && companion.wallpapers['iphone-1179x2556']?.confirmedAt).toBeTruthy();
+  });
+
+  it('x-error с errorMessage: уведомление с причиной и запись в companion.json', async () => {
+    ctx = await setup();
+    const status = planner(ctx).wallpaperStatus;
+    await protocol(ctx)({ action: 'planner', vault: 'Хранилище', do: 'wallpaper-failed', profile: 'iphone-1179x2556', errorMessage: 'Файл не найден' });
+    await waitUntil(() => status.getState().kind === 'failed');
+    expect(ctx.notifier.messages).toContain('Не удалось установить обои: Файл не найден');
+    await waitUntil(() => {
+      const state = planner(ctx!).companion.getState();
+      return state.status === 'ok' && state.wallpapers['iphone-1179x2556']?.errorMessage === 'Файл не найден';
+    });
   });
 
   it('открывает ссылку в существующем виде', async () => {
@@ -299,7 +355,7 @@ describe('сборка этапа 2', () => {
 
     // Обои не сохраняются — это сбой рендера, быстрая команда не запускается.
     await planner(ctx).wallpaperStatus.run();
-    expect(planner(ctx).wallpaperStatus.getState()).toEqual({ kind: 'failed', reason: 'render' });
+    expect(planner(ctx).wallpaperStatus.getState()).toMatchObject({ kind: 'failed', reason: 'render' });
     expect(ctx.opened).toEqual([]);
 
     expect(files()).toEqual(before);

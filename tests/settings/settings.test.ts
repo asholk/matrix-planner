@@ -766,3 +766,13 @@ describe('вкладка настроек', () => {
     expect(dispose).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('обои: композиция (доработка 007)', () => {
+  it('по умолчанию — «виджеты под часами есть»; неизвестное значение — по умолчанию', async () => {
+    expect(createDefaultSettings().wallpaper.layoutPreset).toBe('widgets');
+    const { store } = await createStore({ wallpaper: { layoutPreset: 'no-widgets' } });
+    expect(store.get().wallpaper.layoutPreset).toBe('no-widgets');
+    const { store: bad } = await createStore({ wallpaper: { layoutPreset: 'huge' } });
+    expect(bad.get().wallpaper.layoutPreset).toBe('widgets');
+  });
+});

@@ -76,21 +76,45 @@ class ReadableRepository extends MemoryRepository {
   }
 }
 
-describe('WallpaperOutputRepository.readLock', () => {
-  it('reads lock.png through readBinary', async () => {
+describe('WallpaperOutputRepository.read and writeIfChanged', () => {
+  it('reads files through readBinary', async () => {
     const repo = new ReadableRepository();
     const data = bytes('png');
     repo.files.set(`${FOLDER}/lock.png`, data);
     const output = new WallpaperOutputRepository(repo);
-    const read = await output.readLock('iphone-1179x2556');
+    const read = await output.read(output.lockPath('iphone-1179x2556'));
     expect(read.ok && read.value).toBe(data);
-    expect((await output.readLock('iphone-1080x2340')).ok).toBe(false);
+    expect((await output.read(output.lockPath('iphone-1080x2340'))).ok).toBe(false);
   });
 
   it('reports unsupported without readBinary', async () => {
-    const read = await new WallpaperOutputRepository(new MemoryRepository()).readLock('iphone-1179x2556');
+    const output = new WallpaperOutputRepository(new MemoryRepository());
+    const read = await output.read(output.lockPath('iphone-1179x2556'));
     expect(read.ok).toBe(false);
     if (!read.ok) expect(read.error.code).toBe('unsupported');
+  });
+
+  it('skips writing identical PNG bytes', async () => {
+    const repo = new ReadableRepository();
+    const output = new WallpaperOutputRepository(repo);
+    const first = await output.writeDated('iphone-1179x2556', '2026-10-10', bytes('a'));
+    expect(first.ok && first.changed).toBe(true);
+    const same = await output.writeDated('iphone-1179x2556', '2026-10-10', bytes('a'));
+    expect(same.ok && same.changed).toBe(false);
+    const other = await output.writeDated('iphone-1179x2556', '2026-10-10', bytes('b'));
+    expect(other.ok && other.changed).toBe(true);
+    expect(repo.writes.map((w) => w.mode)).toEqual(['create', 'modify']);
+  });
+
+  it('writes lock-expired.png next to the pack', async () => {
+    const repo = new ReadableRepository();
+    const output = new WallpaperOutputRepository(repo);
+    expect(output.expiredPath('iphone-1179x2556')).toBe(`${FOLDER}/lock-expired.png`);
+    await output.writeExpired('iphone-1179x2556', bytes('x'));
+    expect(repo.files.has(`${FOLDER}/lock-expired.png`)).toBe(true);
+    // Очистка не трогает запасной файл.
+    await output.cleanup('iphone-1179x2556', '2026-10-10');
+    expect(repo.files.has(`${FOLDER}/lock-expired.png`)).toBe(true);
   });
 });
 

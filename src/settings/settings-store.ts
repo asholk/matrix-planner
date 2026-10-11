@@ -217,6 +217,7 @@ function normalizeWallpaper(raw: unknown, fallback: WallpaperSettings): Wallpape
     tasksPerQuadrant,
     weekStart: pickEnum(source.weekStart, ['auto', 'monday', 'sunday'] as const, fallback.weekStart),
     calendarIds,
+    layoutPreset: pickEnum(source.layoutPreset, ['widgets', 'no-widgets'] as const, fallback.layoutPreset ?? 'widgets'),
   };
 }
 

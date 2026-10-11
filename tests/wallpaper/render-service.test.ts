@@ -248,7 +248,7 @@ function setup(now = '2026-12-29T10:00:00Z', extra: SetupExtra = {}): Harness {
       width: input.profile.width,
       height: input.profile.height,
       commands: [
-        { op: 'text', x: 0, y: 0, text: input.date, font: { size: 10, weight: 400, family: null }, color: '#fff', align: 'left', baseline: 'top' },
+        { op: 'text', x: 0, y: 0, text: input.expired ? `expired:${input.date}` : input.date, font: { size: 10, weight: 400, family: null }, color: '#fff', align: 'left', baseline: 'top' },
         { op: 'text', x: 0, y: 20, text: due, font: { size: 10, weight: 400, family: null }, color: '#fff', align: 'left', baseline: 'top' },
         { op: 'icon', name: 'check', x: 0, y: 40, size: 24, color: '#fff' },
       ],
@@ -279,6 +279,7 @@ function setup(now = '2026-12-29T10:00:00Z', extra: SetupExtra = {}): Harness {
 const DATES = ['2026-12-29', '2026-12-30', '2026-12-31', '2027-01-01', '2027-01-02', '2027-01-03', '2027-01-04'];
 const dated = (date: string) => `${FOLDER}/lock-${date}.png`;
 const LOCK = `${FOLDER}/lock.png`;
+const EXPIRED = `${FOLDER}/lock-expired.png`;
 
 // ---------------------------------------------------------------------------
 
@@ -292,8 +293,9 @@ describe('PlannerWallpaperService.renderAll', () => {
     expect(result.value.written).toEqual(DATES.map(dated));
     expect(result.value.failed).toEqual([]);
     expect(result.value.lockUpdated).toBe(true);
-    expect(h.repo.order).toEqual([...DATES.map(dated), LOCK]);
+    expect(h.repo.order).toEqual([...DATES.map(dated), EXPIRED, LOCK]);
     expect(h.repo.text(LOCK)).toEqual(h.repo.text(dated('2026-12-29')));
+    expect(result.value.fingerprint).toMatch(/^v\d+-2026-12-29-[0-9a-f]{16}$/);
     expect(h.ranges).toHaveLength(1);
     expect(h.ranges[0].options).toEqual({ forWallpaper: true });
     expect(h.ranges[0].range.from <= '2026-12-01').toBe(true);
@@ -313,7 +315,8 @@ describe('PlannerWallpaperService.renderAll', () => {
     const h = setup();
     await h.service.renderAll();
     const used = h.canvases.renderCanvases();
-    expect(used).toHaveLength(7);
+    // Семь дат и запасной `lock-expired.png`.
+    expect(used).toHaveLength(8);
     expect(used.every((c) => c.released)).toBe(true);
     // Значок без картинки рисуется запасной фигурой.
     expect(used[0].calls).toContain('arc');
@@ -380,7 +383,7 @@ describe('PlannerWallpaperService.renderAll', () => {
     };
     const result = await h.service.renderAll();
     expect(result.ok && result.value.dataRevision).toBe(5);
-    expect(h.revision.value).toBe(12);
+    expect(h.revision.value).toBe(13);
   });
 
   it('draws from a snapshot taken at the start', async () => {
@@ -416,14 +419,17 @@ describe('PlannerWallpaperService.renderAll', () => {
     const second = await h.service.renderAll();
     expect(second.ok && second.value.written).toEqual(first.ok && first.value.written);
     expect(new Map([...h.repo.files].map(([k, v]) => [k, new TextDecoder().decode(v)]))).toEqual(snapshot);
-    expect([...h.repo.files.keys()].filter((k) => k.startsWith(FOLDER))).toHaveLength(8);
+    expect([...h.repo.files.keys()].filter((k) => k.startsWith(FOLDER))).toHaveLength(9);
+    // Одинаковые PNG не переписываются.
+    expect(h.repo.order).toHaveLength(9);
+    expect(second.ok && second.changed).toBe(false);
   });
 
   it('shares one run between concurrent calls', async () => {
     const h = setup();
     const [a, b] = await Promise.all([h.service.renderAll(), h.service.renderAll()]);
     expect(a).toBe(b);
-    expect(h.repo.order).toHaveLength(8);
+    expect(h.repo.order).toHaveLength(9);
   });
 
   it('loads a background image once per batch and releases it', async () => {
@@ -435,13 +441,16 @@ describe('PlannerWallpaperService.renderAll', () => {
     expect(h.canvases.renderCanvases()[0].calls).toContain('drawImage');
   });
 
-  it('renders with a fallback when the background image is missing', async () => {
+  it('keeps previous PNG and reports a clear reason when the background image is missing', async () => {
     const h = setup();
+    h.repo.files.set(LOCK, new TextEncoder().encode(JSON.stringify(['old'])).buffer);
     h.images.present = false;
     h.settings.wallpaper.background = { kind: 'image', path: 'нет.png', crop: { centerX: 0.5, centerY: 0.5, scale: 1 } };
     const result = await h.service.renderAll();
-    expect(result.ok && result.value.written).toHaveLength(7);
-    expect(h.canvases.renderCanvases()[0].calls).not.toContain('drawImage');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.messageKey).toBe('protocol.wallpaper.background.missing');
+    expect(h.repo.order).toEqual([]);
+    expect(h.repo.text(LOCK)).toEqual(['old']);
   });
 
   it('uses a gradient background', async () => {
@@ -510,18 +519,70 @@ describe('PlannerWallpaperService auto profile by platform', () => {
   });
 });
 
-describe('PlannerWallpaperService.readCurrentImage', () => {
-  it('returns not-found before the first render and the lock.png bytes after it', async () => {
+describe('PlannerWallpaperService: lock-expired.png and fingerprint (007)', () => {
+  it('draws lock-expired.png for the day after the pack with the expired flag', async () => {
     const h = setup();
-    const before = await h.service.readCurrentImage();
-    expect(before.ok).toBe(false);
-    if (!before.ok) expect(before.error.code).toBe('not-found');
+    const inputs: WallpaperLayoutInput[] = [];
+    h.onLayout = (input) => inputs.push(input);
     await h.service.renderAll();
-    const after = await h.service.readCurrentImage();
-    expect(after.ok).toBe(true);
-    if (after.ok) {
-      expect(after.value.path).toBe(LOCK);
-      expect(after.value.data).toBe(h.repo.files.get(LOCK));
-    }
+    expect(h.repo.text(EXPIRED)?.[0]).toBe('expired:2027-01-05');
+    expect(inputs.filter((input) => input.expired)).toHaveLength(1);
+    expect(inputs.filter((input) => !input.expired).map((input) => input.date)).toEqual(DATES);
+  });
+
+  it('an expired-file failure does not fail the pack', async () => {
+    const h = setup();
+    h.failDates.add('2027-01-05');
+    const result = await h.service.renderAll();
+    expect(result.ok && result.value.failed).toEqual([]);
+    expect(h.repo.exists(EXPIRED)).toBe(false);
+  });
+
+  it('skips rendering when the stored fingerprint matches and the pack is complete', async () => {
+    const h = setup();
+    const first = await h.service.renderAll();
+    const fingerprint = first.ok ? first.value.fingerprint : undefined;
+    expect(fingerprint).toBeDefined();
+    const canvases = h.canvases.renderCanvases().length;
+    const second = await h.service.renderAll({ knownFingerprint: fingerprint });
+    expect(second.ok && second.value.unchanged).toBe(true);
+    expect(second.ok && second.changed).toBe(false);
+    expect(second.ok && second.value.written).toEqual(DATES.map(dated));
+    expect(h.canvases.renderCanvases()).toHaveLength(canvases);
+    // Нет файла — рендер, даже если отпечаток совпал.
+    h.repo.files.delete(EXPIRED);
+    const third = await h.service.renderAll({ knownFingerprint: fingerprint });
+    expect(third.ok && third.value.unchanged).toBeFalsy();
+    expect(h.repo.exists(EXPIRED)).toBe(true);
+  });
+
+  it('fingerprint changes with tasks, settings, date, zone and background file stamp', async () => {
+    let stamp = '1:100';
+    let zone = 'UTC';
+    let now = '2026-12-29T10:00:00Z';
+    const h = setup(undefined, {});
+    const service = new PlannerWallpaperService({
+      ...(h.service as unknown as { deps: ConstructorParameters<typeof PlannerWallpaperService>[0] }).deps,
+      clock: { now: () => new Date(now), timeZone: () => zone },
+      backgroundStamp: () => stamp,
+    });
+    const fp = async () => (await service.computeFingerprint()).fingerprint;
+    const base = await fp();
+    expect(await fp()).toBe(base);
+    h.tasks = [];
+    const noTasks = await fp();
+    expect(noTasks).not.toBe(base);
+    h.settings.wallpaper.tasksPerQuadrant = h.settings.wallpaper.tasksPerQuadrant === 2 ? 3 : 2;
+    const otherSettings = await fp();
+    expect(otherSettings).not.toBe(noTasks);
+    h.settings.wallpaper.background = { kind: 'image', path: 'фон.jpg', crop: { centerX: 0.5, centerY: 0.5, scale: 1 } };
+    const image = await fp();
+    stamp = '2:100';
+    expect(await fp()).not.toBe(image);
+    zone = 'Asia/Tokyo';
+    const tokyo = await fp();
+    now = '2026-12-31T10:00:00Z';
+    expect(await fp()).not.toBe(tokyo);
+    expect(await fp()).toContain('-2026-12-31-');
   });
 });

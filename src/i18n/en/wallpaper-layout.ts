@@ -29,6 +29,24 @@ export const enWallpaperLayout = {
     m11: 'November',
     m12: 'December',
   },
+  monthShort: {
+    m1: 'Jan',
+    m2: 'Feb',
+    m3: 'Mar',
+    m4: 'Apr',
+    m5: 'May',
+    m6: 'Jun',
+    m7: 'Jul',
+    m8: 'Aug',
+    m9: 'Sep',
+    m10: 'Oct',
+    m11: 'Nov',
+    m12: 'Dec',
+  },
+  /** Плашка на запасных обоях после 7 дней без Obsidian. */
+  expired: 'Wallpaper is out of date — open Obsidian',
+  /** Срок на устаревших обоях: без «Сегодня»/«Завтра». */
+  dueDate: '{month} {day}',
   emptyQuadrant: 'No tasks',
   yearProgress: '{percent}% of the year passed',
   daysLeft: {

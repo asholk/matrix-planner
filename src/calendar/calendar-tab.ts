@@ -84,6 +84,8 @@ import { renderWeekStrip } from './week-strip';
 import { renderTimeline } from './timeline-view';
 import { renderMonthView } from './month-view';
 import { DEFAULT_MAX_BARS, layoutMonth } from './month-layout';
+import { DaySwipeGesture, DayWheel, dayKeyStep, type DayStep, type DaySwipeEffect } from './day-swipe';
+import { isSidebarEdgeTouch } from '../ui/view-state';
 
 // Словари регистрируются идемпотентно (повторная регистрация заменяет модуль).
 registerDictionary('ru', 'calendar', ruCalendar);
@@ -95,6 +97,12 @@ registerDictionary('en', 'cache', enCache);
 
 /** Пауза анимации выполнения перед записью, мс. */
 const COMPLETE_ANIMATION_MS = 220;
+/** Уезжающий день после свайпа, мс (как `transition` в `50-calendar.css`). */
+const DAY_OUT_MS = 150;
+/** Въезжающий день, мс. */
+const DAY_IN_MS = 220;
+/** Возврат на место, мс. */
+const DAY_BACK_MS = 200;
 
 const MODE_ICONS: Record<CalendarMode, string> = {
   list: 'list',
@@ -230,6 +238,14 @@ export class CalendarTab implements TabController {
   private timelineScroll: { date: LocalDateString; top: number } | null = null;
   private timelineEl: HTMLElement | null = null;
   private dayWatcher: DayChangeWatcher | null = null;
+  /** Листание дней свайпом (доработка 007). */
+  private readonly daySwipe = new DaySwipeGesture();
+  private readonly dayWheel = new DayWheel();
+  private daySwipeCleanup: (() => void) | null = null;
+  /** Анимация смены дня: таймер и завершение (вызывается досрочно новым жестом). */
+  private dayAnimation: { timer: number; finish: () => void } | null = null;
+  /** После свайпа ближайший `click` не открывает элемент. */
+  private daySwipeClickUntil = 0;
 
   constructor(
     private readonly host: PlannerViewHost,
@@ -267,6 +283,7 @@ export class CalendarTab implements TabController {
     this.pickerEl.hidden = true;
     this.weekEl = root.createDiv({ cls: 'mp-cal-week' });
     this.bodyEl = root.createDiv({ cls: 'mp-cal-body' });
+    this.attachDayGestures(this.bodyEl);
 
     this.subscriptions.push(this.deps.dayItems.onChange(() => this.scheduleRender()));
     this.subscriptions.push(
@@ -304,6 +321,8 @@ export class CalendarTab implements TabController {
   }
 
   unmount(): void {
+    this.endDaySwipe();
+    this.settleDayAnimation();
     this.dayWatcher?.dispose();
     this.dayWatcher = null;
     this.closePicker();
@@ -331,6 +350,8 @@ export class CalendarTab implements TabController {
   }
 
   onHide(): void {
+    this.endDaySwipe();
+    this.settleDayAnimation();
     this.dayWatcher?.stop();
     this.closePicker();
   }
@@ -569,7 +590,12 @@ export class CalendarTab implements TabController {
         if (this.timelineScroll && this.timelineEl === timeline) this.timelineScroll.top = timeline.scrollTop;
       });
     } else {
-      renderDayList(body, model, ctx);
+      const section = renderDayList(body, model, ctx);
+      section.setAttr('tabindex', '0');
+    }
+    if (state.mode !== 'month') {
+      const area = state.mode === 'timeline' ? this.timelineEl : body.querySelector<HTMLElement>('.mp-cal-day');
+      area?.setAttr('aria-keyshortcuts', 'ArrowLeft ArrowRight');
     }
 
     if (panel) panel.scrollTop = panelScroll;
@@ -598,6 +624,232 @@ export class CalendarTab implements TabController {
         isBusy: (key) => this.busy.has(key),
       },
     };
+  }
+
+  // --- Листание дней: свайп, колесо тачпада, стрелки (доработка 007) ---
+
+  /** Обработчики на области дня; живут, пока смонтирована вкладка (содержимое области перерисовывается). */
+  private attachDayGestures(body: HTMLElement): void {
+    const enabled = (): boolean => this.state.mode !== 'month';
+
+    body.addEventListener('pointerdown', (evt: PointerEvent) => {
+      if (!enabled() || evt.pointerType === 'mouse' || evt.button !== 0 || !evt.isPrimary) return;
+      // У самого края экрана свайп остаётся Obsidian (шторки).
+      if (isSidebarEdgeTouch(evt.clientX, body.win?.innerWidth ?? 0)) return;
+      // Жест во время анимации: предыдущая смена дня завершается сразу.
+      this.settleDayAnimation();
+      this.endDaySwipe();
+      const width = body.getBoundingClientRect().width;
+      this.daySwipe.down({ x: evt.clientX, y: evt.clientY, time: evt.timeStamp, width });
+      if (this.daySwipe.getPhase() !== 'pending') return;
+
+      const doc = body.doc;
+      const pointerId = evt.pointerId;
+      const cancel = (): void => {
+        const effect = this.daySwipe.cancel();
+        this.endDaySwipe();
+        this.applyDaySwipe(effect);
+      };
+      const onMove = (e: PointerEvent): void => {
+        if (e.pointerId !== pointerId) return;
+        this.applyDaySwipe(this.daySwipe.move(e.clientX, e.clientY, e.timeStamp));
+        if (this.daySwipe.isSwiping() && e.cancelable) e.preventDefault();
+        // Жест отменён (прокрутка, долгое нажатие) — обработчики больше не нужны.
+        if (this.daySwipe.getPhase() === 'cancelled') this.endDaySwipe();
+      };
+      const onUp = (e: PointerEvent): void => {
+        if (e.pointerId !== pointerId) return;
+        const effect = this.daySwipe.up(e.timeStamp);
+        this.endDaySwipe();
+        this.applyDaySwipe(effect);
+      };
+      const onCancel = (e: PointerEvent): void => {
+        if (e.pointerId === pointerId) cancel();
+      };
+      // iOS: прокрутку во время свайпа останавливает только отмена `touchmove`.
+      const onTouchMove = (e: TouchEvent): void => {
+        if (this.daySwipe.isSwiping() && e.cancelable) e.preventDefault();
+      };
+      const onKey = (e: KeyboardEvent): void => {
+        if (e.key === 'Escape') cancel();
+      };
+      doc.addEventListener('pointermove', onMove, { passive: false });
+      doc.addEventListener('pointerup', onUp);
+      doc.addEventListener('pointercancel', onCancel);
+      doc.addEventListener('touchmove', onTouchMove, { passive: false });
+      doc.addEventListener('keydown', onKey);
+      this.daySwipeCleanup = () => {
+        doc.removeEventListener('pointermove', onMove);
+        doc.removeEventListener('pointerup', onUp);
+        doc.removeEventListener('pointercancel', onCancel);
+        doc.removeEventListener('touchmove', onTouchMove);
+        doc.removeEventListener('keydown', onKey);
+      };
+    });
+
+    // Касание, после которого был свайп, не открывает элемент.
+    body.addEventListener(
+      'click',
+      (evt: MouseEvent) => {
+        if (Date.now() >= this.daySwipeClickUntil) return;
+        this.daySwipeClickUntil = 0;
+        evt.preventDefault();
+        evt.stopPropagation();
+      },
+      true,
+    );
+
+    // Горизонтальная прокрутка тачпада: один жест — один день.
+    body.addEventListener(
+      'wheel',
+      (evt: WheelEvent) => {
+        if (!enabled() || !DayWheel.isHorizontal(evt.deltaX, evt.deltaY)) return;
+        evt.preventDefault();
+        const step = this.dayWheel.push(evt.deltaX, evt.timeStamp);
+        if (step !== 0) this.stepDay(step, 'none');
+      },
+      { passive: false },
+    );
+
+    // Стрелки ←/→ при фокусе в области дня (не в полях ввода).
+    body.addEventListener('keydown', (evt: KeyboardEvent) => {
+      if (!enabled() || evt.defaultPrevented) return;
+      const target = evt.target as HTMLElement | null;
+      if (target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      const step = dayKeyStep(evt);
+      if (step === 0) return;
+      evt.preventDefault();
+      this.stepDay(step, 'none', true);
+    });
+  }
+
+  private endDaySwipe(): void {
+    this.daySwipeCleanup?.();
+    this.daySwipeCleanup = null;
+  }
+
+  /** Содержимое дня, которое едет за пальцем. */
+  private daySection(): HTMLElement | null {
+    return this.bodyEl?.querySelector<HTMLElement>(':scope > .mp-cal-day') ?? null;
+  }
+
+  private reducedMotion(): boolean {
+    const win = this.bodyEl?.win ?? (typeof window === 'undefined' ? null : window);
+    return Boolean(win?.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+  }
+
+  private setDayOffset(section: HTMLElement | null, offset: number): void {
+    section?.setCssProps({ '--mp-day-x': `${Math.round(offset)}px` });
+  }
+
+  private applyDaySwipe(effect: DaySwipeEffect): void {
+    const body = this.bodyEl;
+    if (!body) return;
+    switch (effect.type) {
+      case 'none':
+        return;
+      case 'start':
+        body.addClass('is-day-moving');
+        return;
+      case 'move':
+        this.setDayOffset(this.daySection(), effect.offset);
+        if (effect.crossed && effect.armed) this.haptic('threshold');
+        return;
+      case 'commit':
+        this.daySwipeClickUntil = Date.now() + 500;
+        this.finishDaySwipe(effect.step);
+        return;
+      case 'cancel':
+        if (!effect.wasSwiping) return;
+        this.daySwipeClickUntil = Date.now() + 500;
+        this.springBack();
+        return;
+    }
+  }
+
+  /** Короткий свайп: содержимое возвращается на место. */
+  private springBack(): void {
+    const body = this.bodyEl;
+    const section = this.daySection();
+    if (!body || !section || this.reducedMotion()) {
+      this.clearDayMotion();
+      return;
+    }
+    body.setCssProps({ '--mp-day-duration': `${DAY_BACK_MS}ms` });
+    body.addClass('is-day-animating');
+    this.setDayOffset(section, 0);
+    this.startDayAnimation(DAY_BACK_MS, () => this.clearDayMotion());
+  }
+
+  /** Свайп за порогом: текущий день уезжает, соседний выезжает с другой стороны. */
+  private finishDaySwipe(step: DayStep): void {
+    const body = this.bodyEl;
+    const section = this.daySection();
+    if (!body || !section || this.reducedMotion()) {
+      this.clearDayMotion();
+      this.stepDay(step, 'none');
+      return;
+    }
+    const width = body.getBoundingClientRect().width;
+    body.addClass('is-day-moving');
+    body.setCssProps({ '--mp-day-duration': `${DAY_OUT_MS}ms` });
+    body.addClass('is-day-animating');
+    this.setDayOffset(section, step > 0 ? -width : width);
+    this.startDayAnimation(DAY_OUT_MS, () => this.stepDay(step, 'enter'));
+  }
+
+  /**
+   * Смена дня на `step`: лента недели и «+» следуют за выбранным днём. `enter` — новый день
+   * выезжает со стороны жеста; `keepFocus` — вернуть фокус области дня (клавиатура).
+   */
+  private stepDay(step: DayStep, motion: 'none' | 'enter', keepFocus = false): void {
+    this.clearDayMotion();
+    this.haptic('select');
+    this.update(moveSelection(this.state, step));
+    if (keepFocus) {
+      const area = this.state.mode === 'timeline' ? this.timelineEl : this.daySection();
+      area?.focus({ preventScroll: true });
+    }
+    const body = this.bodyEl;
+    const section = this.daySection();
+    if (motion !== 'enter' || !body || !section || this.reducedMotion()) return;
+    const width = body.getBoundingClientRect().width;
+    body.addClass('is-day-moving');
+    this.setDayOffset(section, step > 0 ? width : -width);
+    // Применить начальное положение без перехода, затем включить переход.
+    void section.offsetWidth;
+    body.setCssProps({ '--mp-day-duration': `${DAY_IN_MS}ms` });
+    body.addClass('is-day-animating');
+    this.setDayOffset(section, 0);
+    this.startDayAnimation(DAY_IN_MS, () => this.clearDayMotion());
+  }
+
+  private startDayAnimation(ms: number, done: () => void): void {
+    this.settleDayAnimation();
+    const finish = (): void => {
+      const current = this.dayAnimation;
+      if (current?.finish !== finish) return;
+      window.clearTimeout(current.timer);
+      this.dayAnimation = null;
+      done();
+    };
+    // Небольшой запас, чтобы переход успел закончиться.
+    this.dayAnimation = { timer: window.setTimeout(finish, ms + 30), finish };
+  }
+
+  /** Завершить анимацию сразу (новый жест, скрытие вкладки). */
+  private settleDayAnimation(): void {
+    // Завершение уезжающего дня запускает въезд нового — его тоже завершить.
+    for (let i = 0; i < 2 && this.dayAnimation; i++) this.dayAnimation.finish();
+  }
+
+  private clearDayMotion(): void {
+    const body = this.bodyEl;
+    if (!body) return;
+    body.removeClass('is-day-moving');
+    body.removeClass('is-day-animating');
+    body.setCssProps({ '--mp-day-duration': '' });
+    this.daySection()?.setCssProps({ '--mp-day-x': '' });
   }
 
   // --- Действия ---

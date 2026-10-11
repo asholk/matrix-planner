@@ -3,12 +3,19 @@
  * Размер — `screen × devicePixelRatio` в портретной ориентации; профиль — имя папки в `Обои/`.
  */
 
-import type { WallpaperProfile, WallpaperProfileSetting } from '../model/types';
+import type { WallpaperLayoutPreset, WallpaperProfile, WallpaperProfileSetting } from '../model/types';
 
-/** Верхняя безопасная зона: 0–38 % высоты (дата, часы, виджеты iOS). */
-export const SAFE_TOP = 0.38;
-/** Нижняя безопасная зона: 88–100 % высоты (фонарик, камера). */
-export const SAFE_BOTTOM = 0.88;
+/**
+ * Верх контента при ряде виджетов под часами: 0–31 % высоты — дата, часы, виджеты iOS
+ * (как в LockDay: лента недели начинается на ~31 %).
+ */
+export const SAFE_TOP = 0.31;
+/** Без виджетов под часами контент поднимается на высоту ряда виджетов: ~27 %. */
+export const WIDGETS_ROW = 0.04;
+/** Предпочтительный низ контента: ниже ~70 % — уведомления iOS. */
+export const NOTIFICATIONS_TOP = 0.7;
+/** Абсолютный предел контента: 84–100 % — фонарик, камера, полоска «Домой». */
+export const SAFE_BOTTOM = 0.84;
 
 /** Допуск сравнения размеров при округлении `screen × dpr`. */
 const SIZE_TOLERANCE = 2;
@@ -119,11 +126,27 @@ export function resolveProfile(
   return detectProfile(screen);
 }
 
-/** Область контента между безопасными зонами, в пикселях. */
-export function contentBand(profile: WallpaperProfile): { top: number; bottom: number } {
-  const safeTop = clamp01(profile.safeTop);
+/** Область контента в пикселях. */
+export interface ContentBand {
+  /** Верх контента (под часами и виджетами). */
+  top: number;
+  /** Предпочтительный низ: зона уведомлений iOS свободна. */
+  softBottom: number;
+  /** Абсолютный предел (фонарик и камера). */
+  bottom: number;
+}
+
+/**
+ * Область контента между безопасными зонами. `no-widgets` поднимает верх на
+ * высоту ряда виджетов; предпочтительный низ — верх зоны уведомлений.
+ */
+export function contentBand(profile: WallpaperProfile, preset: WallpaperLayoutPreset = 'widgets'): ContentBand {
+  const safeTop = Math.max(0, clamp01(profile.safeTop) - (preset === 'no-widgets' ? WIDGETS_ROW : 0));
   const safeBottom = Math.max(safeTop, clamp01(profile.safeBottom));
-  return { top: Math.ceil(profile.height * safeTop), bottom: Math.floor(profile.height * safeBottom) };
+  const soft = Math.min(safeBottom, Math.max(safeTop, NOTIFICATIONS_TOP));
+  const top = Math.ceil(profile.height * safeTop);
+  const bottom = Math.max(top, Math.floor(profile.height * safeBottom));
+  return { top, softBottom: Math.min(bottom, Math.max(top, Math.floor(profile.height * soft))), bottom };
 }
 
 function clamp01(value: number): number {

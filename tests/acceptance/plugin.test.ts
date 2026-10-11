@@ -309,11 +309,19 @@ describe('приёмка без компаньона (ТЗ §10)', () => {
     expect(ctx.app.vault.getFileByPath(`${PROFILE_DIR}/lock.png`)).not.toBeNull();
     // Восьмой день не сохраняется.
     expect(ctx.app.vault.getFileByPath(`${PROFILE_DIR}/lock-2026-10-17.png`)).toBeNull();
+    // После последней даты пакета — запасной «Обои устарели».
+    expect(ctx.app.vault.getFileByPath(`${PROFILE_DIR}/lock-expired.png`)).not.toBeNull();
+    // Рендер дольше жеста: команда — по нажатию «Обои готовы · Установить».
+    expect(status.getState().kind).toBe('ready');
+    expect(ctx.opened).toHaveLength(0);
+    await status.run();
     expect(status.getState().kind).toBe('launched');
     expect(ctx.opened).toHaveLength(1);
     const url = decodeURIComponent(ctx.opened[0] ?? '');
     expect(url).toContain('do=wallpaper-done');
     expect(url).toContain('do=wallpaper-failed');
+    expect(url).toContain('do=wallpaper-cancelled');
+    expect(url).toContain('input=text');
     expect(url).not.toContain('action=wallpaper');
   });
 
@@ -358,7 +366,7 @@ describe('приёмка без компаньона (ТЗ §10)', () => {
     expect((await planner(ctx).events.delete(REFERENCE_IDS.concert)).ok).toBe(false);
     expect((await planner(ctx).notes.create({ title: 'Нельзя', body: '', date: REFERENCE_TODAY })).ok).toBe(false);
     await planner(ctx).wallpaperStatus.run();
-    expect(planner(ctx).wallpaperStatus.getState()).toEqual({ kind: 'failed', reason: 'render' });
+    expect(planner(ctx).wallpaperStatus.getState()).toMatchObject({ kind: 'failed', reason: 'render' });
     expect(ctx.opened).toEqual([]);
 
     await tick(10);

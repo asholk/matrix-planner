@@ -346,6 +346,16 @@ body:not(.is-mobile) .mp-tab-label {
   display: none;
 }
 
+/* «Обои готовы · Установить» (доработка 007, п. 7): действие выделено акцентом. */
+.mp-banner-slot .mp-ls-banner[data-state='ready'] .mp-ls-banner-icon {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.mp-banner-slot .mp-ls-banner[data-state='ready'] .mp-ls-banner-title {
+  color: var(--text-accent);
+}
+
 /* Компактный баннер на телефоне: кнопка-таблетка в одну строку (доработка 006, §8). */
 .mp-banner-slot .mp-ls-banner.is-compact {
   flex-direction: row;
