@@ -1,7 +1,8 @@
 /**
  * Карточка задачи (ТЗ §4.2, кадры 01, 07, 08): кружок цвета квадранта, `flag`
  * при высоком приоритете, название до 2 строк, относительный срок, `repeat`.
- * Только DOM; жесты и действия — обработчики вкладки.
+ * Только DOM; жесты и действия — обработчики вкладки. Маркера перетаскивания нет
+ * (доработка 005): на сенсоре карточку поднимает долгое нажатие в любом месте.
  */
 
 import { setIcon } from 'obsidian';
@@ -12,8 +13,6 @@ import { cardAriaLabel, type CardLabelStrings, type TaskCardModel } from './task
 export interface TaskCardOptions {
   /** Название квадранта карточки (для подписи диктора). */
   quadrantTitle: string;
-  /** Маркер перетаскивания справа (мобильные, активный режим). */
-  showHandle: boolean;
   /** Показывать точку квадранта (список по датам — карточки из разных квадрантов). */
   showQuadrantDot: boolean;
   /** Карточка в процессе операции (кнопки заблокированы). */
@@ -25,10 +24,12 @@ export interface TaskCardHandlers {
   onToggle(card: TaskCardModel, cardEl: HTMLElement): void;
   /** Нажатие на карточку: форма редактирования. */
   onOpen(card: TaskCardModel): void;
-  /** Меню действий (ПКМ, кнопка действий, клавиатура). */
+  /** Меню действий (ПКМ, скрытая кнопка «Действия», клавиатура). */
   onMenu(card: TaskCardModel, anchor: MouseEvent | HTMLElement): void;
-  /** Начало жеста (перетаскивание, долгое нажатие). */
-  onPointerDown(card: TaskCardModel, evt: PointerEvent, cardEl: HTMLElement, onHandle: boolean): void;
+  /** Системное `contextmenu` (ПКМ; на Android — и долгое нажатие пальцем). */
+  onContextMenu(card: TaskCardModel, evt: MouseEvent): void;
+  /** Начало жеста (перетаскивание мышью или долгим нажатием). */
+  onPointerDown(card: TaskCardModel, evt: PointerEvent, cardEl: HTMLElement): void;
   /** `true` — этот click завершает жест и не должен открывать форму. */
   consumeClick(): boolean;
 }
@@ -86,7 +87,8 @@ export function renderTaskCard(
   const titleRow = main.createDiv({ cls: 'mp-task-title-row', attr: { 'aria-hidden': 'true' } });
   if (options.showQuadrantDot) titleRow.createSpan({ cls: 'mp-task-dot' });
   if (card.highPriority) setIcon(titleRow.createSpan({ cls: 'mp-task-flag' }), 'flag');
-  titleRow.createSpan({ cls: 'mp-task-title', text: card.title });
+  // Внутренний строчный элемент: линия зачёркивания при выполнении рисуется по каждой строке.
+  titleRow.createSpan({ cls: 'mp-task-title' }).createSpan({ cls: 'mp-task-title-text', text: card.title });
 
   const meta = card.done ? card.completedLabel : card.dueLabel;
   if (meta || card.recurring) {
@@ -116,23 +118,11 @@ export function renderTaskCard(
     handlers.onMenu(card, more);
   });
 
-  if (options.showHandle) {
-    const handle = cardEl.createDiv({
-      cls: 'mp-task-handle',
-      attr: { 'data-role': 'handle', 'aria-hidden': 'true', title: t('tasks.card.dragHandle') },
-    });
-    setIcon(handle, 'grip-vertical');
-  }
-
   cardEl.addEventListener('contextmenu', (evt) => {
     evt.preventDefault();
-    handlers.onMenu(card, evt);
+    handlers.onContextMenu(card, evt);
   });
-  cardEl.addEventListener('pointerdown', (evt) => {
-    const target = evt.target as HTMLElement | null;
-    const onHandle = Boolean(target?.closest?.('.mp-task-handle'));
-    handlers.onPointerDown(card, evt, cardEl, onHandle);
-  });
+  cardEl.addEventListener('pointerdown', (evt) => handlers.onPointerDown(card, evt, cardEl));
 
   return cardEl;
 }

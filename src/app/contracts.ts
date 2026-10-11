@@ -90,8 +90,16 @@ export interface PlatformInfo {
 }
 
 /** Показ коротких сообщений (`Notice`). */
+/** Действие-ссылка в уведомлении («Вернуть», «Открыть настройки»). */
+export interface NoticeAction {
+  label: string;
+  run(): void;
+}
+
 export interface Notifier {
   show(message: string, timeoutMs?: number): void;
+  /** Уведомление с действием; без реализации вызывающий показывает `show(message)`. */
+  showAction?(message: string, action: NoticeAction, timeoutMs?: number): void;
 }
 
 /** Региональные настройки, вычисленные из настроек плагина и локали. */

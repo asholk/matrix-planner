@@ -110,17 +110,6 @@ body {
   background: var(--mp-calendar-color);
 }
 
-.mp-event-form-actions {
-  display: flex;
-  justify-content: center;
-  padding: var(--size-4-2) 0;
-}
-
-.mp-event-form .mp-event-form-delete {
-  width: 100%;
-  min-height: var(--mp-touch);
-}
-
 /* Просмотр внешнего события. */
 .mp-event-details {
   display: flex;
@@ -186,4 +175,51 @@ body {
 /* Заметка: текст выше обычного поля заметок задачи. */
 .mp-note-form textarea.mp-note-form-body {
   min-height: 6em;
+}
+
+/* Поле URL — в стиле заметок: без рамки, под разделителем. */
+.mp-event-form input.mp-event-form-url {
+  width: 100%;
+  padding: var(--size-4-2) 0 0;
+  border: none;
+  border-top: 1px solid var(--background-modifier-border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--font-ui-medium);
+}
+
+.mp-event-form .mp-event-form-color-row .mp-form-row-label {
+  flex: none;
+}
+
+/* Телефон (~390px): дата и время помещаются в строку, 8 цветов — рядом с подписью. */
+.is-phone .mp-event-form .mp-form-row-value {
+  min-width: 0;
+  gap: 0.3em;
+}
+
+.is-phone .mp-event-form .mp-form-pill {
+  padding-inline: 0.55em;
+  font-size: var(--font-ui-small);
+}
+
+.is-phone .mp-event-form input.mp-task-form-time {
+  flex: none;
+  width: 4.6em;
+  padding-inline: 0.4em;
+}
+
+.is-phone .mp-event-form input.mp-task-form-time::-webkit-calendar-picker-indicator {
+  display: none;
+}
+
+.is-phone .mp-event-form .mp-event-form-swatches {
+  gap: 0.35em;
+}
+
+.is-phone .mp-event-form .mp-event-form-swatch {
+  width: 1.45em;
+  height: 1.45em;
+  min-width: 1.45em;
 }

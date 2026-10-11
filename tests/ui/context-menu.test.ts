@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Menu } from '../__mocks__/obsidian';
-import { MENU_DEBOUNCE_MS, attachContextMenu, isMenuKey, showMenuAt } from '../../src/ui/controls/context-menu';
+import { MENU_DEBOUNCE_MS, attachContextMenu, isMenuKey, isTouchContextMenu, showMenuAt } from '../../src/ui/controls/context-menu';
 
 type Listener = (event: unknown) => void;
 
@@ -156,5 +156,20 @@ describe('isMenuKey и showMenuAt', () => {
     const anchor = { getBoundingClientRect: () => ({ left: 12, bottom: 34 }), doc: {} };
     showMenuAt(menu as never, anchor as unknown as HTMLElement);
     expect(at).toHaveBeenCalledWith({ x: 12, y: 34 }, anchor.doc);
+  });
+});
+
+describe('isTouchContextMenu', () => {
+  it('contextmenu от пальца или пера', () => {
+    expect(isTouchContextMenu({ pointerType: 'touch' })).toBe(true);
+    expect(isTouchContextMenu({ pointerType: 'pen' })).toBe(true);
+    expect(isTouchContextMenu({ sourceCapabilities: { firesTouchEvents: true } })).toBe(true);
+  });
+
+  it('правая кнопка мыши и клавиатура — не касание', () => {
+    expect(isTouchContextMenu({ pointerType: 'mouse' })).toBe(false);
+    expect(isTouchContextMenu({ sourceCapabilities: { firesTouchEvents: false } })).toBe(false);
+    expect(isTouchContextMenu({})).toBe(false);
+    expect(isTouchContextMenu(null)).toBe(false);
   });
 });

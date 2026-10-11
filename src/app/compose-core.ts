@@ -57,6 +57,7 @@ import { createAddMenuOpener } from '../ui/add-menu';
 import { createSettingsViewTab } from '../ui/settings-tab-view';
 import { createBrowserGeolocation, createLocalWeatherCache, createRequestUrlHttp, WeatherService } from '../weather/weather-service';
 import { openStatsSheet } from '../stats/stats-sheet';
+import { showActionNotice } from '../caldav/sync-feedback';
 import { DataJsonAttentionStateStore, PluginDataFile } from './attention-state-store';
 import { registerCoreCommands } from './commands';
 
@@ -90,6 +91,7 @@ export const noticeNotifier: Notifier = {
   show: (message, timeoutMs) => {
     new Notice(message, timeoutMs);
   },
+  showAction: (message, action, timeoutMs) => showActionNotice(message, action, timeoutMs),
 };
 
 export function readPlatform(): PlatformInfo {

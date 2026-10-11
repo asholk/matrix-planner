@@ -15,6 +15,7 @@ import { registerDictionary, t } from '../i18n';
 import { ruTaskForm } from '../i18n/ru/task-form';
 import { enTaskForm } from '../i18n/en/task-form';
 import { shortDateLabel } from '../ui/controls/date-picker';
+import { renderDeleteButton } from '../ui/controls/delete-button';
 import {
   REMIND_OPTIONS,
   REPEAT_OPTIONS,
@@ -47,6 +48,8 @@ export type TaskFormDeps = Pick<
 export interface TaskFormOptions {
   /** Вызывается после успешного сохранения (созданная задача или `null` при правке). */
   onSaved?(task: Task | null): void;
+  /** Вызывается после удаления задачи из формы. */
+  onDeleted?(id: string): void;
 }
 
 /** Положение квадранта в мини-сетке плитки (как на кадре 02). */
@@ -68,6 +71,11 @@ const ERROR_KEYS: Record<PlannerErrorCode, string> = {
 
 export function errorMessage(error: PlannerError): string {
   return t(error.messageKey ?? ERROR_KEYS[error.code] ?? ERROR_KEYS.unknown);
+}
+
+/** Подпись квадранта справа от поля «Квадрант». */
+export function quadrantHint(key: QuadrantKey): string {
+  return t(`taskForm.quadrantHint.${key}`);
 }
 
 export function repeatLabel(rule: RepeatRule): string {
@@ -95,7 +103,7 @@ export function openTaskForm(deps: TaskFormDeps, request: TaskFormRequest, optio
   } else {
     initial = createDraftState({ quadrant: request.quadrant ?? null, date: request.date ?? null });
   }
-  const form = new TaskFormView(deps, new TaskDraftController(initial, deps.tasks), options);
+  const form = new TaskFormView(deps, new TaskDraftController(initial, deps.tasks), options, editTask?.id ?? null);
   const handle = deps.sheets.open({
     title: t(request.mode === 'edit' ? 'taskForm.titleEdit' : 'taskForm.titleCreate'),
     submitLabel: t('common.actions.done'),
@@ -117,12 +125,15 @@ class TaskFormView {
   private quadrantEl: HTMLElement | null = null;
   private calendarOpen = false;
   private disposed = false;
+  private deleting = false;
   private readonly cleanups: Array<() => void> = [];
 
   constructor(
     private readonly deps: TaskFormDeps,
     private readonly controller: TaskDraftController,
     private readonly options: TaskFormOptions,
+    /** Правка существующей задачи — внизу кнопка «Удалить». */
+    private readonly editId: string | null = null,
   ) {}
 
   private get state(): TaskDraftState {
@@ -141,6 +152,14 @@ class TaskFormView {
     this.quadrantEl = contentEl.createDiv({ cls: 'mp-form-card mp-task-form-matrix' });
     this.renderSchedule();
     this.renderPriorityAndQuadrant();
+    if (this.editId !== null) {
+      renderDeleteButton(contentEl, {
+        label: t('taskForm.delete'),
+        ariaLabel: t('taskForm.deleteLabel'),
+        confirmLabel: t('taskForm.deleteConfirm'),
+        onDelete: () => this.runDelete(),
+      });
+    }
     this.syncSubmit();
     // Фокус на названии при открытии (после вставки листа в DOM).
     const focusTimer = window.setTimeout(() => this.titleInput?.focus(), 0);
@@ -153,6 +172,7 @@ class TaskFormView {
   }
 
   async submit(): Promise<boolean> {
+    if (this.deleting) return false;
     const result = await this.controller.submit();
     if (result.ok) {
       this.options.onSaved?.(result.task);
@@ -193,7 +213,38 @@ class TaskFormView {
   }
 
   private syncSubmit(): void {
-    this.sheet?.setSubmitEnabled(this.controller.canSubmit());
+    this.sheet?.setSubmitEnabled(this.controller.canSubmit() && !this.deleting);
+  }
+
+  /** Удаление из формы: в корзину через `TaskService.delete`, лист закрывается. */
+  private async runDelete(): Promise<boolean> {
+    const id = this.editId;
+    if (id === null) return false;
+    this.deleting = true;
+    this.sheet?.setBusy(true);
+    this.syncSubmit();
+    try {
+      const result = await this.deps.tasks.delete(id);
+      if (this.disposed) return true;
+      if (result.ok) {
+        this.deps.notifier.show(t('taskForm.deleted'));
+        this.options.onDeleted?.(id);
+        this.sheet?.close();
+        return true;
+      }
+      this.deps.notifier.show(errorMessage(result.error));
+      return false;
+    } catch (error) {
+      if (!this.disposed) this.deps.notifier.show(t('common.errors.unknown'));
+      console.error('[matrix-planner] task delete failed', error);
+      return false;
+    } finally {
+      this.deleting = false;
+      if (!this.disposed) {
+        this.sheet?.setBusy(false);
+        this.syncSubmit();
+      }
+    }
   }
 
   private syncBody(status: string | null): void {
@@ -419,9 +470,9 @@ class TaskFormView {
     toggle.onChange((high) => this.update((s) => setPriority(s, high)));
 
     const matrix = this.deps.index.getMatrix();
-    const selected = matrix.byKey[state.quadrant];
     const quadrantRow = this.row(card, 'layout-grid', t('taskForm.fields.quadrant'));
-    quadrantRow.value.createSpan({ cls: 'mp-task-form-quadrant-name', text: selected?.title ?? '' });
+    // Подпись выбранного квадранта (кадры 04, 05): «Срочно и важно», «Важно, не срочно»…
+    quadrantRow.value.createSpan({ cls: 'mp-task-form-quadrant-name', text: quadrantHint(state.quadrant) });
 
     const tiles = card.createDiv({
       cls: 'mp-task-form-tiles',

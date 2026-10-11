@@ -21,6 +21,7 @@ export const enTasks = {
     },
   },
   empty: 'No tasks here yet',
+  emptyAdd: 'Select to add',
   emptyDone: 'No completed tasks here yet',
   emptyList: 'No open tasks',
   emptyDoneList: 'No completed tasks',
@@ -32,7 +33,6 @@ export const enTasks = {
     complete: 'Complete task "{title}"',
     uncomplete: 'Restore task "{title}"',
     more: 'Actions for task "{title}"',
-    dragHandle: 'Drag task',
     highPriority: 'high priority',
     repeat: 'repeats',
     overdue: 'overdue',
@@ -50,8 +50,13 @@ export const enTasks = {
     delete: 'Delete',
     uncomplete: 'Restore',
   },
+  drag: {
+    deleteZone: 'Drag here to delete',
+  },
   notices: {
     deleted: 'Task moved to trash',
+    deletedUndo: 'Task deleted',
+    undo: 'Undo',
     moved: 'Task moved to "{quadrant}"',
   },
 } satisfies Dictionary;

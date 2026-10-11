@@ -105,7 +105,7 @@
 | `IdGenerator` | `next()` — ULID |
 | `TextMeasurer` | `measure(text, font)` → `TextMetrics` |
 | `PlatformInfo` | `isMobile`, `isPhone`, `isTablet`, `isIos`, `isAndroid`, `isDesktop` |
-| `Notifier` | `show(message)` — обёртка над `Notice` |
+| `Notifier` | `show(message)` — обёртка над `Notice`; `showAction?(message, action, timeoutMs)` — уведомление со ссылкой-действием («Вернуть») |
 | `FormatPreferencesProvider` | язык, вычисленное начало недели (`0`/`1`), 12/24 ч |
 
 ### Хранение (S1.T3)

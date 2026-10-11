@@ -23,6 +23,7 @@ export const ruTasks = {
     },
   },
   empty: 'Здесь пока нет задач',
+  emptyAdd: 'Нажмите, чтобы добавить',
   emptyDone: 'Здесь пока нет выполненных задач',
   emptyList: 'Незавершённых задач нет',
   emptyDoneList: 'Выполненных задач нет',
@@ -34,7 +35,6 @@ export const ruTasks = {
     complete: 'Выполнить задачу «{title}»',
     uncomplete: 'Вернуть в работу задачу «{title}»',
     more: 'Действия с задачей «{title}»',
-    dragHandle: 'Перетащить задачу',
     highPriority: 'высокий приоритет',
     repeat: 'повторяется',
     overdue: 'просрочена',
@@ -52,8 +52,13 @@ export const ruTasks = {
     delete: 'Удалить',
     uncomplete: 'Вернуть в работу',
   },
+  drag: {
+    deleteZone: 'Перетащите сюда, чтобы удалить',
+  },
   notices: {
     deleted: 'Задача удалена в корзину',
+    deletedUndo: 'Задача удалена',
+    undo: 'Вернуть',
     moved: 'Задача перенесена в квадрант «{quadrant}»',
   },
 } satisfies Dictionary;

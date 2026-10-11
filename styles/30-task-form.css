@@ -257,3 +257,52 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Кнопка «Удалить» внизу формы задачи и события (доработка 005, кадр 04). */
+.mp-form-actions {
+  display: flex;
+  padding: var(--size-4-1) 0;
+}
+
+.mp-task-form button.mp-form-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--size-4-2);
+  width: 100%;
+  height: auto;
+  min-height: calc(var(--mp-touch) + var(--size-4-2));
+  padding: var(--size-4-2) var(--size-4-4);
+  border: none;
+  border-radius: var(--mp-radius-card);
+  background: color-mix(in srgb, var(--text-error) 12%, var(--background-primary));
+  color: var(--text-error);
+  box-shadow: none;
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+  white-space: normal;
+  cursor: var(--cursor);
+}
+
+.mp-task-form button.mp-form-delete:hover {
+  background: color-mix(in srgb, var(--text-error) 18%, var(--background-primary));
+}
+
+.mp-task-form button.mp-form-delete.is-armed {
+  background: color-mix(in srgb, var(--text-error) 24%, var(--background-primary));
+}
+
+.mp-task-form button.mp-form-delete:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.mp-form-delete-icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.mp-form-delete-icon .svg-icon {
+  width: 1.1em;
+  height: 1.1em;
+}

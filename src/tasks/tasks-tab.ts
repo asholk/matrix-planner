@@ -2,6 +2,11 @@
  * Вкладка «Задачи» (ТЗ §4.2; кадры 01, 07, 08): шапка с датой, погодой и серией «🔥 N», фильтр «Выполнено N»,
  * переключатель «Сетка / Список», матрица 2 × 2 и списки, меню и перенос карточек.
  * Данные — `NoteIndex` (подписка на изменения), действия — `TaskService` и `PlannerActions`.
+ *
+ * Доработка 005: выполнение — галочка, зачёркивание и сворачивание карточки (~600 мс); долгое
+ * нажатие пальцем поднимает карточку для переноса между квадрантами, над «+» появляется зона
+ * удаления (удаление откладывается на 5 с, в уведомлении — «Вернуть»). Меню — только ПКМ,
+ * клавиатура и скрытая кнопка «Действия» для диктора. Пустой квадрант — «⊕ Нажмите, чтобы добавить».
  */
 
 import { Menu, setIcon } from 'obsidian';
@@ -62,6 +67,8 @@ import {
 import { renderTaskCard, type TaskCardHandlers } from './task-card';
 import {
   CardGesture,
+  TASK_DRAG_GESTURE_OPTIONS,
+  deleteZoneRect,
   isHighlightedZone,
   resolveDrop,
   startDrag,
@@ -69,9 +76,11 @@ import {
   type DragSession,
   type DropZone,
   type GestureEffect,
+  type Rect,
 } from './task-drag';
+import { DeferredDeletes, UNDO_DELETE_MS } from './deferred-delete';
 import { addTaskMenuItems } from './task-menu';
-import { MENU_DEBOUNCE_MS, showMenuAt, toPointerKind } from '../ui/controls/context-menu';
+import { MENU_DEBOUNCE_MS, isTouchContextMenu, showMenuAt, toPointerKind } from '../ui/controls/context-menu';
 
 registerDictionary('ru', 'tasks', ruTasks);
 registerDictionary('en', 'tasks', enTasks);
@@ -81,8 +90,10 @@ registerDictionary('ru', 'stats', ruStats);
 registerDictionary('en', 'stats', enStats);
 // Подписи дат (`formatDueLabel`) берутся из словаря `model`; его регистрирует сборка (app/compose-core).
 
-/** Длительность анимации выполнения перед записью, мс. */
-const COMPLETE_ANIMATION_MS = 260;
+/** Длительность анимации выполнения (галочка → зачёркивание → сворачивание) перед записью, мс. */
+export const COMPLETE_ANIMATION_MS = 600;
+/** Размер зоны «Перетащите сюда, чтобы удалить», px. */
+const DELETE_ZONE = { width: 300, height: 52, gap: 12 };
 /** Проверка устаревания (срок наступил, полночь, погода), пока вкладка показана, мс. */
 export const TASKS_REFRESH_INTERVAL_MS = 60_000;
 
@@ -106,12 +117,24 @@ export function createTasksTab(deps: TasksTabDeps): TabFactory {
 
 interface ActiveDrag {
   session: DragSession;
+  card: TaskCardModel;
   cardEl: HTMLElement;
   ghost: HTMLElement | null;
   offsetX: number;
   offsetY: number;
   zones: DropZone[];
   zoneEls: Map<QuadrantKey, HTMLElement>;
+  deleteEl: HTMLElement | null;
+  deleteRect: Rect | null;
+}
+
+/** Пользователь просил меньше движения: анимация выполнения без задержки. */
+function prefersReducedMotion(): boolean {
+  try {
+    return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
 }
 
 export class TasksTab implements TabController {
@@ -133,7 +156,11 @@ export class TasksTab implements TabController {
   /** Карточки с идущей операцией (ключ карточки). */
   private readonly busy = new Set<string>();
 
-  private readonly gesture = new CardGesture();
+  private readonly gesture = new CardGesture(TASK_DRAG_GESTURE_OPTIONS);
+  /** Палец (перо) нажат на карточке: системное `contextmenu` не открывает меню. */
+  private touchDown = false;
+  /** Задачи, брошенные в зону удаления: скрыты, в корзину уходят через 5 с без «Вернуть». */
+  private readonly pendingDeletes = new DeferredDeletes();
   private gestureCard: { card: TaskCardModel; cardEl: HTMLElement } | null = null;
   private gestureCleanup: (() => void) | null = null;
   private longPressTimer: number | null = null;
@@ -192,6 +219,8 @@ export class TasksTab implements TabController {
 
   unmount(): void {
     this.cancelGesture();
+    // Закрытие вида не отменяет удаление: выполняем отложенные сразу.
+    this.pendingDeletes.flush();
     this.stopRefresh();
     this.visibilityCleanup?.();
     this.visibilityCleanup = null;
@@ -268,7 +297,7 @@ export class TasksTab implements TabController {
   private timeKeyFor(now: FloatingDateTime): string {
     const { format } = this.labelFormat();
     const model = buildTasksView({
-      tasks: this.deps.index.getTasks(),
+      tasks: this.visibleTasks(),
       matrix: this.deps.index.getMatrix(),
       now,
       mode: this.mode,
@@ -292,6 +321,13 @@ export class TasksTab implements TabController {
       this.renderTimer = null;
       this.render();
     }, 0);
+  }
+
+  /** Задачи индекса без ожидающих удаления. */
+  private visibleTasks(): ReturnType<NoteIndex['getTasks']> {
+    const tasks = this.deps.index.getTasks();
+    if (this.pendingDeletes.size === 0) return tasks;
+    return tasks.filter((task) => !this.pendingDeletes.has(task.id));
   }
 
   private now(): FloatingDateTime {
@@ -327,7 +363,7 @@ export class TasksTab implements TabController {
     const matrix = this.deps.index.getMatrix();
     this.applyQuadrantColors(quadrantColorOverrides(matrix));
     this.model = buildTasksView({
-      tasks: this.deps.index.getTasks(),
+      tasks: this.visibleTasks(),
       matrix,
       now,
       mode: this.mode,
@@ -501,7 +537,7 @@ export class TasksTab implements TabController {
       });
       this.renderQuadrantHeader(el, section, model.mode);
       const list = el.createDiv({ cls: 'mp-quadrant-list', attr: { role: 'list', 'data-scroll-key': section.key } });
-      if (section.cards.length === 0) this.renderEmpty(list, model.mode);
+      if (section.cards.length === 0) this.renderEmpty(list, model.mode, section);
       for (const card of section.cards) this.renderCard(list, card, model, false);
     }
   }
@@ -515,7 +551,7 @@ export class TasksTab implements TabController {
       });
       this.renderQuadrantHeader(el, section, model.mode);
       const list = el.createDiv({ cls: 'mp-list-section-cards', attr: { role: 'list' } });
-      if (section.cards.length === 0) this.renderEmpty(list, model.mode);
+      if (section.cards.length === 0) this.renderEmpty(list, model.mode, section);
       for (const card of section.cards) this.renderCard(list, card, model, false);
     }
   }
@@ -556,10 +592,21 @@ export class TasksTab implements TabController {
     add.addEventListener('click', (evt) => this.addToQuadrant(section.key, evt));
   }
 
-  private renderEmpty(parent: HTMLElement, mode: TasksMode): void {
+  /** Пустой квадрант: «⊕ Нажмите, чтобы добавить» (кадр 02); в «Выполнено» — прежний текст. */
+  private renderEmpty(parent: HTMLElement, mode: TasksMode, section: QuadrantSection): void {
     const empty = parent.createDiv({ cls: 'mp-tasks-empty', attr: { role: 'listitem' } });
-    if (mode === 'done') setIcon(empty.createSpan({ cls: 'mp-tasks-empty-icon', attr: { 'aria-hidden': 'true' } }), 'circle-check');
-    empty.createSpan({ text: t(mode === 'done' ? 'tasks.emptyDone' : 'tasks.empty') });
+    if (mode !== 'active') {
+      setIcon(empty.createSpan({ cls: 'mp-tasks-empty-icon', attr: { 'aria-hidden': 'true' } }), 'circle-check');
+      empty.createSpan({ text: t('tasks.emptyDone') });
+      return;
+    }
+    const button = empty.createEl('button', {
+      cls: 'mp-tasks-empty-add',
+      attr: { type: 'button', 'aria-label': t('tasks.quadrant.add', { quadrant: section.title }) },
+    });
+    setIcon(button.createSpan({ cls: 'mp-tasks-empty-icon', attr: { 'aria-hidden': 'true' } }), 'circle-plus');
+    button.createSpan({ cls: 'mp-tasks-empty-label', text: t('tasks.emptyAdd') });
+    button.addEventListener('click', (evt) => this.addToQuadrant(section.key, evt));
   }
 
   private renderCard(parent: HTMLElement, card: TaskCardModel, model: TasksViewModel, byDate: boolean): void {
@@ -569,7 +616,6 @@ export class TasksTab implements TabController {
       card,
       {
         quadrantTitle: quadrant?.title ?? card.quadrant,
-        showHandle: this.host.platform.isMobile && this.canDrag(model),
         showQuadrantDot: byDate,
         busy: this.busy.has(card.key),
       },
@@ -608,7 +654,12 @@ export class TasksTab implements TabController {
       onToggle: (card, cardEl) => this.toggleCard(card, cardEl),
       onOpen: (card) => this.host.actions.openTaskForm({ mode: 'edit', id: card.taskId }),
       onMenu: (card, anchor) => this.openMenu(card, anchor),
-      onPointerDown: (card, evt, cardEl, onHandle) => this.onPointerDown(card, evt, cardEl, onHandle),
+      onContextMenu: (card, evt) => {
+        // Долгое нажатие пальцем — перетаскивание, не меню (Android присылает `contextmenu`).
+        if (this.touchDown || this.drag || isTouchContextMenu(evt)) return;
+        this.openMenu(card, evt);
+      },
+      onPointerDown: (card, evt, cardEl) => this.onPointerDown(card, evt, cardEl),
       consumeClick: () => this.gesture.consumesClick(),
     };
   }
@@ -629,6 +680,9 @@ export class TasksTab implements TabController {
       return;
     }
     this.busy.add(card.key);
+    // Высота для сворачивания карточки в конце анимации.
+    const height = cardEl.getBoundingClientRect().height;
+    if (height > 0) cardEl.style.setProperty('--mp-card-height', `${height}px`);
     cardEl.addClass('is-completing');
     cardEl.querySelector('.mp-task-check')?.setAttr('aria-pressed', 'true');
     if (this.host.platform.isAndroid) {
@@ -643,7 +697,7 @@ export class TasksTab implements TabController {
       void this.runOp(card, () => this.deps.tasks.complete(card.taskId, card.instanceDate ?? undefined)).then((ok) => {
         if (!ok) cardEl.removeClass('is-completing');
       });
-    }, COMPLETE_ANIMATION_MS);
+    }, prefersReducedMotion() ? 0 : COMPLETE_ANIMATION_MS);
   }
 
   /** Выполняет операцию, показывает ошибку. Возвращает успех. */
@@ -684,12 +738,11 @@ export class TasksTab implements TabController {
 
   // --- Жесты: долгое нажатие и перетаскивание ---
 
-  private onPointerDown(card: TaskCardModel, evt: PointerEvent, cardEl: HTMLElement, onHandle: boolean): void {
+  private onPointerDown(card: TaskCardModel, evt: PointerEvent, cardEl: HTMLElement): void {
     if (this.drag || this.busy.has(card.key)) return;
+    // Перенос — только в активном режиме с квадрантами; иначе жест не нужен (меню — ПКМ и клавиатура).
+    if (!this.canDrag(this.model)) return;
     const pointerType = toPointerKind(evt.pointerType);
-    const dragAllowed = this.canDrag(this.model);
-    // Мышь без возможности переноса: жест не нужен (меню — по ПКМ).
-    if (pointerType === 'mouse' && !dragAllowed) return;
     const target = evt.target as HTMLElement | null;
     const onControl = Boolean(target?.closest?.('.mp-task-check, .mp-task-more'));
     this.cancelGesture();
@@ -699,20 +752,11 @@ export class TasksTab implements TabController {
       time: evt.timeStamp,
       pointerType,
       button: evt.button,
-      onHandle: onHandle && dragAllowed,
       onControl,
     });
     if (this.gesture.getPhase() === 'idle') return;
     this.gestureCard = { card, cardEl };
-    if (onHandle && dragAllowed) {
-      // За маркер тянем сразу, без прокрутки страницы.
-      evt.preventDefault();
-      try {
-        (target ?? cardEl).setPointerCapture(evt.pointerId);
-      } catch {
-        // Захват необязателен.
-      }
-    }
+    this.touchDown = pointerType !== 'mouse';
 
     const doc = cardEl.doc;
     const onMove = (e: PointerEvent): void => {
@@ -733,21 +777,27 @@ export class TasksTab implements TabController {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') this.cancelGesture();
     };
-    // Перетаскивание за маркер на iOS требует отмены `touchmove`, иначе прокручивается панель.
+    // Во время перетаскивания страница не прокручивается (iOS требует отмены `touchmove`).
     const onTouchMove = (e: TouchEvent): void => {
-      if (this.drag) e.preventDefault();
+      if (this.drag && e.cancelable) e.preventDefault();
+    };
+    // Прокрутка до срабатывания долгого нажатия (на iOS — без `pointercancel`) отменяет жест.
+    const onScroll = (): void => {
+      if (this.gesture.getPhase() === 'pressed') this.cancelGesture();
     };
     doc.addEventListener('pointermove', onMove, { passive: false });
     doc.addEventListener('pointerup', onUp);
     doc.addEventListener('pointercancel', onCancel);
     doc.addEventListener('keydown', onKey);
     doc.addEventListener('touchmove', onTouchMove, { passive: false });
+    doc.addEventListener('scroll', onScroll, true);
     this.gestureCleanup = () => {
       doc.removeEventListener('pointermove', onMove);
       doc.removeEventListener('pointerup', onUp);
       doc.removeEventListener('pointercancel', onCancel);
       doc.removeEventListener('keydown', onKey);
       doc.removeEventListener('touchmove', onTouchMove);
+      doc.removeEventListener('scroll', onScroll, true);
     };
     this.applyEffect(effect);
   }
@@ -765,20 +815,20 @@ export class TasksTab implements TabController {
         }, effect.delayMs);
         return;
       case 'long-press':
+        // На вкладке «Задачи» долгое нажатие — перетаскивание (`drag-start`), меню не открывается.
+        this.clearLongPress();
+        return;
+      case 'drag-start':
         this.clearLongPress();
         if (!current) return;
-        if (this.host.platform.isAndroid) {
+        if (effect.byLongPress && this.host.platform.isAndroid) {
           try {
             navigator.vibrate?.(10);
           } catch {
             // Вибрация необязательна.
           }
         }
-        this.openMenu(current.card, current.cardEl);
-        return;
-      case 'drag-start':
-        this.clearLongPress();
-        if (current) this.beginDrag(current.card, current.cardEl, effect.x, effect.y);
+        this.beginDrag(current.card, current.cardEl, effect.x, effect.y);
         return;
       case 'drag-move':
         this.moveDrag(effect.x, effect.y);
@@ -816,28 +866,54 @@ export class TasksTab implements TabController {
       const value = root.style.getPropertyValue(name);
       if (value) ghost.style.setProperty(name, value);
     }
+    const deleteZone = this.createDeleteZone(root);
     cardEl.addClass('is-dragging');
     root.addClass('is-dragging');
     this.drag = {
       session: startDrag(card.taskId, card.quadrant),
+      card,
       cardEl,
       ghost,
       offsetX: x - rect.left,
       offsetY: y - rect.top,
       zones,
       zoneEls,
+      deleteEl: deleteZone?.el ?? null,
+      deleteRect: deleteZone?.rect ?? null,
     };
     this.moveDrag(x, y);
+  }
+
+  /** Зона «🗑 Перетащите сюда, чтобы удалить» на одной высоте с «+» (кадр 06). */
+  private createDeleteZone(root: HTMLElement): { el: HTMLElement; rect: Rect } | null {
+    const view = root.closest<HTMLElement>('.mp-view') ?? root;
+    const viewBox = view.getBoundingClientRect();
+    if (viewBox.width <= 0 || viewBox.height <= 0) return null;
+    const fabBox = view.querySelector<HTMLElement>('.mp-fab')?.getBoundingClientRect() ?? null;
+    const fab: Rect | null = fabBox && fabBox.width > 0 ? { left: fabBox.left, top: fabBox.top, right: fabBox.right, bottom: fabBox.bottom } : null;
+    const rect = deleteZoneRect({ left: viewBox.left, top: viewBox.top, right: viewBox.right, bottom: viewBox.bottom }, fab, DELETE_ZONE);
+    const el = root.doc.body.createDiv({ cls: 'mp-task-delete-zone', attr: { 'aria-hidden': 'true' } });
+    el.setCssStyles({
+      left: `${rect.left}px`,
+      top: `${rect.top}px`,
+      width: `${rect.right - rect.left}px`,
+      height: `${rect.bottom - rect.top}px`,
+    });
+    setIcon(el.createSpan({ cls: 'mp-task-delete-zone-icon' }), 'trash-2');
+    el.createSpan({ cls: 'mp-task-delete-zone-label', text: t('tasks.drag.deleteZone') });
+    return { el, rect };
   }
 
   private moveDrag(x: number, y: number): void {
     const drag = this.drag;
     if (!drag) return;
-    if (drag.ghost) drag.ghost.style.transform = `translate(${x - drag.offsetX}px, ${y - drag.offsetY}px)`;
-    const next = updateDrag(drag.session, drag.zones, x, y);
+    if (drag.ghost) drag.ghost.style.transform = `translate(${x - drag.offsetX}px, ${y - drag.offsetY}px) scale(1.04)`;
+    const next = updateDrag(drag.session, drag.zones, x, y, drag.deleteRect);
     if (next === drag.session) return;
     drag.session = next;
     for (const [key, el] of drag.zoneEls) el.toggleClass('is-drop-target', isHighlightedZone(next, key));
+    drag.deleteEl?.toggleClass('is-over', next.overDelete);
+    drag.ghost?.toggleClass('is-over-delete', next.overDelete);
   }
 
   private endDrag(commit: boolean): void {
@@ -845,18 +921,43 @@ export class TasksTab implements TabController {
     if (!drag) return;
     this.drag = null;
     drag.ghost?.remove();
+    drag.deleteEl?.remove();
     drag.cardEl.removeClass('is-dragging');
     this.rootEl?.removeClass('is-dragging');
     for (const el of drag.zoneEls.values()) el.removeClass('is-drop-target');
     const drop = commit ? resolveDrop(drag.session) : null;
-    if (drop) {
-      const card = this.gestureCard?.card ?? null;
-      void this.runOp(card, () => this.deps.tasks.moveToQuadrant(drop.taskId, drop.quadrant));
+    if (drop?.kind === 'move') {
+      void this.runOp(drag.card, () => this.deps.tasks.moveToQuadrant(drop.taskId, drop.quadrant));
+    } else if (drop?.kind === 'delete') {
+      this.deleteWithUndo(drag.card);
     }
     if (this.renderPending) {
       this.renderPending = false;
       this.scheduleRender();
     }
+  }
+
+  /**
+   * Удаление из зоны перетаскивания: карточка сразу скрывается, в корзину задача уходит через
+   * 5 с; «Вернуть» в уведомлении отменяет удаление (восстанавливать из корзины не нужно).
+   */
+  private deleteWithUndo(card: TaskCardModel): void {
+    const id = card.taskId;
+    this.pendingDeletes.schedule(
+      id,
+      () => {
+        void this.runOp(null, () => this.deps.tasks.delete(id)).then(() => this.scheduleRender());
+      },
+      UNDO_DELETE_MS,
+    );
+    this.scheduleRender();
+    const message = t('tasks.notices.deletedUndo');
+    const undo = (): void => {
+      if (!this.pendingDeletes.undo(id)) return;
+      this.scheduleRender();
+    };
+    if (this.deps.notifier.showAction) this.deps.notifier.showAction(message, { label: t('tasks.notices.undo'), run: undo }, UNDO_DELETE_MS);
+    else this.deps.notifier.show(message);
   }
 
   private clearLongPress(): void {
@@ -871,6 +972,7 @@ export class TasksTab implements TabController {
     this.gestureCleanup?.();
     this.gestureCleanup = null;
     this.gestureCard = null;
+    this.touchDown = false;
   }
 
   private cancelGesture(): void {

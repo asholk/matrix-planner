@@ -25,4 +25,15 @@ export const enTaskForm = {
   loadingBody: 'Loading notes…',
   bodyLoadFailed: 'Could not read the task notes. They will stay unchanged',
   saved: 'Task saved',
+  delete: 'Delete',
+  deleteLabel: 'Delete task',
+  deleteConfirm: 'Select again to delete',
+  deleted: 'Task moved to trash',
+  /** Caption of the selected quadrant next to "Quadrant" (frames 04, 05). */
+  quadrantHint: {
+    do: 'Urgent and important',
+    plan: 'Important, not urgent',
+    urgent: 'Urgent, less important',
+    someday: 'Neither urgent nor important',
+  },
 } satisfies Dictionary;

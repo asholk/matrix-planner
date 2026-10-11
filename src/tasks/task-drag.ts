@@ -1,9 +1,11 @@
 /**
- * Жесты карточки задачи (ТЗ §4.2). Чистый модуль: без DOM и `obsidian`.
+ * Жесты карточки (ТЗ §4.2, доработка 005). Чистый модуль: без DOM и `obsidian`.
  *
  * - Мышь: перетаскивание за любую часть карточки после сдвига на `dragThreshold`.
- * - Касание/перо: перетаскивание только за маркер справа; долгое нажатие на карточку — меню.
- *   Сдвиг пальца до срабатывания долгого нажатия — прокрутка, жест отменяется.
+ * - Касание/перо: долгое нажатие (`longPressMs`) на карточку. Режим `longPress`:
+ *   `'drag'` — карточка «поднимается» и перетаскивается (вкладка «Задачи»),
+ *   `'menu'` — меню действий (строки «Календаря», запрос 004).
+ *   Сдвиг пальца больше `moveTolerance` до срабатывания — прокрутка, жест отменяется.
  * Нажатие (tap) обрабатывается обычным `click`; после перетаскивания или меню
  * вызывающий подавляет следующий `click` (`consumesClick`).
  */
@@ -17,14 +19,25 @@ export interface GestureOptions {
   longPressMs: number;
   /** Допуск дрожания пальца для долгого нажатия, px. */
   moveTolerance: number;
-  /** Сдвиг, после которого начинается перетаскивание, px. */
+  /** Сдвиг мыши, после которого начинается перетаскивание, px. */
   dragThreshold: number;
+  /** Что делает долгое нажатие касанием: меню (по умолчанию) или перетаскивание. */
+  longPress?: 'menu' | 'drag';
 }
 
 export const DEFAULT_GESTURE_OPTIONS: GestureOptions = {
   longPressMs: 500,
   moveTolerance: 10,
   dragThreshold: 6,
+  longPress: 'menu',
+};
+
+/** Карточки вкладки «Задачи»: долгое нажатие — перетаскивание, сдвиг > 8 px до него — прокрутка. */
+export const TASK_DRAG_GESTURE_OPTIONS: GestureOptions = {
+  longPressMs: 500,
+  moveTolerance: 8,
+  dragThreshold: 6,
+  longPress: 'drag',
 };
 
 export interface PointerDown {
@@ -34,8 +47,6 @@ export interface PointerDown {
   pointerType: PointerKind;
   /** 0 — основная кнопка. */
   button: number;
-  /** Нажатие пришлось на маркер перетаскивания. */
-  onHandle: boolean;
   /** Нажатие пришлось на элемент со своим действием (кружок, кнопка) — жест не начинается. */
   onControl: boolean;
 }
@@ -52,7 +63,8 @@ export type GestureEffect =
   | { type: 'none' }
   /** Запустить таймер долгого нажатия на `delayMs`, по нему вызвать `timeout()`. */
   | { type: 'schedule-long-press'; delayMs: number }
-  | { type: 'drag-start'; x: number; y: number }
+  /** Начало перетаскивания; `byLongPress` — карточку «подняли» долгим нажатием. */
+  | { type: 'drag-start'; x: number; y: number; byLongPress: boolean }
   | { type: 'drag-move'; x: number; y: number }
   | { type: 'drop'; x: number; y: number }
   | { type: 'long-press' }
@@ -65,6 +77,8 @@ const NONE: GestureEffect = { type: 'none' };
 export class CardGesture {
   private phase: GesturePhase = 'idle';
   private start: PointerDown | null = null;
+  /** Последняя точка указателя до начала перетаскивания. */
+  private last: PointerPoint | null = null;
   /** Подавить ближайший `click` (после перетаскивания или меню). */
   private suppressClick = false;
 
@@ -78,14 +92,18 @@ export class CardGesture {
     return this.phase === 'dragging';
   }
 
+  /** Активный жест касанием или пером (нажат палец). */
+  isTouchActive(): boolean {
+    return this.phase !== 'idle' && this.start !== null && this.start.pointerType !== 'mouse';
+  }
+
   down(event: PointerDown): GestureEffect {
     this.reset();
     if (event.button !== 0 || event.onControl) return NONE;
-    const touchLike = event.pointerType !== 'mouse';
     this.start = event;
+    this.last = { x: event.x, y: event.y, time: event.time };
     this.phase = 'pressed';
-    // На касании маркер — только для перетаскивания, без меню.
-    if (touchLike && !event.onHandle) return { type: 'schedule-long-press', delayMs: this.options.longPressMs };
+    if (event.pointerType !== 'mouse') return { type: 'schedule-long-press', delayMs: this.options.longPressMs };
     return NONE;
   }
 
@@ -94,13 +112,13 @@ export class CardGesture {
     if (!start) return NONE;
     if (this.phase === 'dragging') return { type: 'drag-move', x: point.x, y: point.y };
     if (this.phase !== 'pressed') return NONE;
+    this.last = point;
     const distance = Math.hypot(point.x - start.x, point.y - start.y);
-    const canDrag = start.pointerType === 'mouse' || start.onHandle;
-    if (canDrag) {
+    if (start.pointerType === 'mouse') {
       if (distance < this.options.dragThreshold) return NONE;
       this.phase = 'dragging';
       this.suppressClick = true;
-      return { type: 'drag-start', x: point.x, y: point.y };
+      return { type: 'drag-start', x: point.x, y: point.y, byLongPress: false };
     }
     if (distance > this.options.moveTolerance) {
       // Палец сдвинулся до долгого нажатия: это прокрутка.
@@ -114,10 +132,15 @@ export class CardGesture {
   timeout(time?: number): GestureEffect {
     const start = this.start;
     if (!start || this.phase !== 'pressed') return NONE;
-    if (start.pointerType === 'mouse' || start.onHandle) return NONE;
+    if (start.pointerType === 'mouse') return NONE;
     if (time !== undefined && time - start.time < this.options.longPressMs) return NONE;
-    this.phase = 'menu';
     this.suppressClick = true;
+    if (this.options.longPress === 'drag') {
+      this.phase = 'dragging';
+      const at = this.last ?? start;
+      return { type: 'drag-start', x: at.x, y: at.y, byLongPress: true };
+    }
+    this.phase = 'menu';
     return { type: 'long-press' };
   }
 
@@ -125,16 +148,18 @@ export class CardGesture {
     const phase = this.phase;
     this.phase = 'idle';
     this.start = null;
+    this.last = null;
     if (phase === 'dragging') return { type: 'drop', x: point.x, y: point.y };
     return NONE;
   }
 
-  /** `pointercancel`, потеря захвата, Escape. */
+  /** `pointercancel`, потеря захвата, Escape, прокрутка панели. */
   cancel(): GestureEffect {
     const wasDragging = this.phase === 'dragging';
     const active = this.phase !== 'idle';
     this.phase = 'idle';
     this.start = null;
+    this.last = null;
     return active ? { type: 'cancel', wasDragging } : NONE;
   }
 
@@ -148,6 +173,7 @@ export class CardGesture {
   private reset(): void {
     this.phase = 'idle';
     this.start = null;
+    this.last = null;
     this.suppressClick = false;
   }
 }
@@ -184,25 +210,68 @@ export interface DragSession {
   from: QuadrantKey;
   /** Квадрант под указателем. */
   over: QuadrantKey | null;
+  /** Указатель над зоной «Перетащите сюда, чтобы удалить». */
+  overDelete: boolean;
 }
 
 export function startDrag(taskId: ItemId, from: QuadrantKey): DragSession {
-  return { taskId, from, over: null };
+  return { taskId, from, over: null, overDelete: false };
 }
 
-/** Обновить квадрант под указателем. Возвращает тот же объект, если ничего не изменилось. */
-export function updateDrag(session: DragSession, zones: readonly DropZone[], x: number, y: number): DragSession {
-  const over = dropZoneAt(zones, x, y);
-  return over === session.over ? session : { ...session, over };
+/**
+ * Обновить цель под указателем. Зона удаления (`deleteRect`) важнее квадрантов: она лежит
+ * поверх матрицы. Возвращает тот же объект, если ничего не изменилось.
+ */
+export function updateDrag(session: DragSession, zones: readonly DropZone[], x: number, y: number, deleteRect: Rect | null = null): DragSession {
+  const overDelete = deleteRect !== null && contains(deleteRect, x, y);
+  const over = overDelete ? null : dropZoneAt(zones, x, y);
+  return over === session.over && overDelete === session.overDelete ? session : { ...session, over, overDelete };
 }
 
-/** Итог переноса: квадрант назначения или `null` (тот же квадрант / вне зон). */
-export function resolveDrop(session: DragSession): { taskId: ItemId; quadrant: QuadrantKey } | null {
+export type DropResult = { kind: 'move'; taskId: ItemId; quadrant: QuadrantKey } | { kind: 'delete'; taskId: ItemId };
+
+/** Итог переноса: удаление, квадрант назначения или `null` (тот же квадрант / вне зон). */
+export function resolveDrop(session: DragSession): DropResult | null {
+  if (session.overDelete) return { kind: 'delete', taskId: session.taskId };
   if (!session.over || session.over === session.from) return null;
-  return { taskId: session.taskId, quadrant: session.over };
+  return { kind: 'move', taskId: session.taskId, quadrant: session.over };
 }
 
 /** Подсвечивать ли зону: только чужой квадрант под указателем. */
 export function isHighlightedZone(session: DragSession, quadrant: QuadrantKey): boolean {
   return session.over === quadrant && quadrant !== session.from;
+}
+
+// ---------------------------------------------------------------------------
+// Зона удаления
+// ---------------------------------------------------------------------------
+
+export interface DeleteZoneLayout {
+  /** Желаемая ширина зоны, px. */
+  width: number;
+  height: number;
+  /** Отступ от «+» и от края вида, px. */
+  gap: number;
+}
+
+/**
+ * Положение зоны «Перетащите сюда, чтобы удалить» (кадр 06): на одной высоте с «+», по центру
+ * вида, но не заходя на «+». Без «+» — у нижнего края вида по центру.
+ */
+export function deleteZoneRect(view: Rect, fab: Rect | null, layout: DeleteZoneLayout): Rect {
+  const { gap, height } = layout;
+  const centerX = (view.left + view.right) / 2;
+  if (!fab) {
+    const width = Math.max(0, Math.min(layout.width, view.right - view.left - gap * 2));
+    const bottom = view.bottom - gap;
+    return { left: centerX - width / 2, right: centerX + width / 2, top: bottom - height, bottom };
+  }
+  const minLeft = view.left + gap;
+  const maxRight = Math.max(minLeft, fab.left - gap);
+  const width = Math.max(0, Math.min(layout.width, maxRight - minLeft));
+  let left = centerX - width / 2;
+  if (left + width > maxRight) left = maxRight - width;
+  if (left < minLeft) left = minLeft;
+  const centerY = (fab.top + fab.bottom) / 2;
+  return { left, right: left + width, top: centerY - height / 2, bottom: centerY + height / 2 };
 }

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   CardGesture,
+  TASK_DRAG_GESTURE_OPTIONS,
+  deleteZoneRect,
   dropZoneAt,
   isHighlightedZone,
   resolveDrop,
@@ -13,7 +15,7 @@ import {
 const OPTIONS = { longPressMs: 500, moveTolerance: 10, dragThreshold: 6 };
 
 function down(overrides: Partial<PointerDown> = {}): PointerDown {
-  return { x: 100, y: 100, time: 0, pointerType: 'mouse', button: 0, onHandle: false, onControl: false, ...overrides };
+  return { x: 100, y: 100, time: 0, pointerType: 'mouse', button: 0, onControl: false, ...overrides };
 }
 
 // Сетка 2 × 2: do | plan / urgent | someday.
@@ -29,7 +31,7 @@ describe('перенос мышью (компьютер)', () => {
     const g = new CardGesture(OPTIONS);
     expect(g.down(down())).toEqual({ type: 'none' });
     expect(g.move({ x: 103, y: 100, time: 10 })).toEqual({ type: 'none' });
-    expect(g.move({ x: 120, y: 100, time: 20 })).toEqual({ type: 'drag-start', x: 120, y: 100 });
+    expect(g.move({ x: 120, y: 100, time: 20 })).toEqual({ type: 'drag-start', x: 120, y: 100, byLongPress: false });
     expect(g.isDragging()).toBe(true);
     expect(g.move({ x: 300, y: 100, time: 30 })).toEqual({ type: 'drag-move', x: 300, y: 100 });
     expect(g.up({ x: 300, y: 100, time: 40 })).toEqual({ type: 'drop', x: 300, y: 100 });
@@ -75,25 +77,66 @@ describe('перенос мышью (компьютер)', () => {
   });
 });
 
-describe('перенос за маркер (мобильные)', () => {
-  it('касание маркера: без долгого нажатия, сдвиг начинает перетаскивание', () => {
-    const g = new CardGesture(OPTIONS);
-    expect(g.down(down({ pointerType: 'touch', onHandle: true }))).toEqual({ type: 'none' });
-    expect(g.timeout(600)).toEqual({ type: 'none' });
-    expect(g.move({ x: 100, y: 130, time: 700 })).toEqual({ type: 'drag-start', x: 100, y: 130 });
+describe('перенос долгим нажатием (вкладка «Задачи», доработка 005)', () => {
+  it('долгое нажатие пальцем поднимает карточку, перемещение — drag-move, отпускание — drop', () => {
+    const g = new CardGesture(TASK_DRAG_GESTURE_OPTIONS);
+    expect(g.down(down({ pointerType: 'touch' }))).toEqual({ type: 'schedule-long-press', delayMs: 500 });
+    expect(g.move({ x: 103, y: 104, time: 200 })).toEqual({ type: 'none' });
+    expect(g.timeout(500)).toEqual({ type: 'drag-start', x: 103, y: 104, byLongPress: true });
+    expect(g.isDragging()).toBe(true);
+    expect(g.move({ x: 300, y: 400, time: 700 })).toEqual({ type: 'drag-move', x: 300, y: 400 });
     expect(g.up({ x: 300, y: 400, time: 800 })).toEqual({ type: 'drop', x: 300, y: 400 });
+    // Отпускание после перетаскивания не открывает форму.
+    expect(g.consumesClick()).toBe(true);
   });
 
-  it('касание карточки вне маркера не перетаскивает: сдвиг — прокрутка', () => {
-    const g = new CardGesture(OPTIONS);
+  it('меню по долгому нажатию не открывается', () => {
+    const g = new CardGesture(TASK_DRAG_GESTURE_OPTIONS);
     g.down(down({ pointerType: 'touch' }));
-    expect(g.move({ x: 100, y: 105, time: 50 })).toEqual({ type: 'none' });
-    expect(g.move({ x: 100, y: 140, time: 80 })).toEqual({ type: 'cancel', wasDragging: false });
+    expect(g.timeout(500).type).toBe('drag-start');
+    expect(g.getPhase()).not.toBe('menu');
+  });
+
+  it('сдвиг больше 8 px до срабатывания — прокрутка: жест отменён, перетаскивания нет', () => {
+    const g = new CardGesture(TASK_DRAG_GESTURE_OPTIONS);
+    g.down(down({ pointerType: 'touch' }));
+    expect(g.move({ x: 100, y: 108, time: 50 })).toEqual({ type: 'none' });
+    expect(g.move({ x: 100, y: 109, time: 60 })).toEqual({ type: 'cancel', wasDragging: false });
     expect(g.timeout(600)).toEqual({ type: 'none' });
+    expect(g.consumesClick()).toBe(false);
+  });
+
+  it('короткое касание — обычное нажатие (форма)', () => {
+    const g = new CardGesture(TASK_DRAG_GESTURE_OPTIONS);
+    g.down(down({ pointerType: 'touch' }));
+    expect(g.up({ x: 100, y: 100, time: 150 })).toEqual({ type: 'none' });
+    expect(g.timeout(600)).toEqual({ type: 'none' });
+    expect(g.consumesClick()).toBe(false);
+  });
+
+  it('отмена указателя во время перетаскивания возвращает карточку', () => {
+    const g = new CardGesture(TASK_DRAG_GESTURE_OPTIONS);
+    g.down(down({ pointerType: 'pen' }));
+    g.timeout(500);
+    expect(g.isTouchActive()).toBe(true);
+    expect(g.cancel()).toEqual({ type: 'cancel', wasDragging: true });
+    expect(g.isTouchActive()).toBe(false);
+  });
+
+  it('кружок выполнения жест не начинает', () => {
+    const g = new CardGesture(TASK_DRAG_GESTURE_OPTIONS);
+    expect(g.down(down({ pointerType: 'touch', onControl: true }))).toEqual({ type: 'none' });
+    expect(g.timeout(600)).toEqual({ type: 'none' });
+  });
+
+  it('мышь тянет сразу после сдвига, как раньше', () => {
+    const g = new CardGesture(TASK_DRAG_GESTURE_OPTIONS);
+    expect(g.down(down())).toEqual({ type: 'none' });
+    expect(g.move({ x: 110, y: 100, time: 10 })).toEqual({ type: 'drag-start', x: 110, y: 100, byLongPress: false });
   });
 });
 
-describe('меню по долгому нажатию', () => {
+describe('меню по долгому нажатию (режим по умолчанию — строки «Календаря»)', () => {
   it('касание планирует таймер, по нему — меню', () => {
     const g = new CardGesture(OPTIONS);
     expect(g.down(down({ pointerType: 'touch' }))).toEqual({ type: 'schedule-long-press', delayMs: 500 });
@@ -140,7 +183,7 @@ describe('цели переноса', () => {
     expect(resolveDrop(session)).toBeNull();
     session = updateDrag(session, ZONES, 300, 50);
     expect(isHighlightedZone(session, 'plan')).toBe(true);
-    expect(resolveDrop(session)).toEqual({ taskId: 't1', quadrant: 'plan' });
+    expect(resolveDrop(session)).toEqual({ kind: 'move', taskId: 't1', quadrant: 'plan' });
   });
 
   it('отпускание вне квадрантов ничего не меняет', () => {
@@ -152,5 +195,51 @@ describe('цели переноса', () => {
   it('без изменения зоны возвращается тот же объект', () => {
     const a = updateDrag(startDrag('t1', 'do'), ZONES, 300, 50);
     expect(updateDrag(a, ZONES, 310, 60)).toBe(a);
+  });
+});
+
+describe('зона удаления', () => {
+  const DELETE: { left: number; top: number; right: number; bottom: number } = { left: 100, top: 700, right: 300, bottom: 750 };
+
+  it('отпускание над зоной — удаление; зона важнее квадранта под ней', () => {
+    const zones: DropZone[] = [...ZONES, { quadrant: 'urgent', rect: { left: 0, top: 650, right: 400, bottom: 800 } }];
+    let session = updateDrag(startDrag('t1', 'do'), zones, 200, 720, DELETE);
+    expect(session.overDelete).toBe(true);
+    expect(session.over).toBeNull();
+    expect(isHighlightedZone(session, 'urgent')).toBe(false);
+    expect(resolveDrop(session)).toEqual({ kind: 'delete', taskId: 't1' });
+    // Ушли с зоны — снова перенос.
+    session = updateDrag(session, zones, 300, 50, DELETE);
+    expect(session.overDelete).toBe(false);
+    expect(resolveDrop(session)).toEqual({ kind: 'move', taskId: 't1', quadrant: 'plan' });
+  });
+
+  it('без зоны удаления (null) — прежнее поведение', () => {
+    const session = updateDrag(startDrag('t1', 'do'), ZONES, 200, 720, null);
+    expect(session.overDelete).toBe(false);
+    expect(resolveDrop(session)).toBeNull();
+  });
+
+  it('зона по центру вида на высоте «+» и не заходит на «+» (телефон 393 px)', () => {
+    const view = { left: 0, top: 0, right: 393, bottom: 852 };
+    const fab = { left: 321, top: 650, right: 377, bottom: 706 };
+    const rect = deleteZoneRect(view, fab, { width: 300, height: 52, gap: 12 });
+    expect(rect.right).toBeLessThanOrEqual(fab.left - 12);
+    expect(rect.left).toBeGreaterThanOrEqual(12);
+    expect((rect.top + rect.bottom) / 2).toBe(678);
+    expect(rect.bottom - rect.top).toBe(52);
+  });
+
+  it('на широком виде зона по центру и шириной не больше заданной', () => {
+    const view = { left: 0, top: 0, right: 1200, bottom: 800 };
+    const fab = { left: 1130, top: 700, right: 1186, bottom: 756 };
+    const rect = deleteZoneRect(view, fab, { width: 300, height: 52, gap: 12 });
+    expect(rect.right - rect.left).toBe(300);
+    expect((rect.left + rect.right) / 2).toBe(600);
+  });
+
+  it('без «+» — у нижнего края вида', () => {
+    const rect = deleteZoneRect({ left: 0, top: 0, right: 400, bottom: 800 }, null, { width: 300, height: 50, gap: 10 });
+    expect(rect).toEqual({ left: 50, right: 350, top: 740, bottom: 790 });
   });
 });

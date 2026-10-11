@@ -288,10 +288,10 @@
   gap: var(--size-4-2);
 }
 
+/* Квадрант под пальцем при переносе — обведён цветом квадранта (кадр 06). */
 .mp-quadrant.is-drop-target,
 .mp-list-section.is-drop-target {
   border-color: var(--mp-q);
-  background: var(--mp-q-tint);
 }
 
 /* --- Список --- */
@@ -344,6 +344,28 @@
   height: 1.75em;
 }
 
+/* «⊕ Нажмите, чтобы добавить» в пустом квадранте (кадр 02). */
+.mp-tasks button.mp-tasks-empty-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--size-4-2);
+  height: auto;
+  padding: var(--size-4-2);
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  font: inherit;
+  white-space: normal;
+  cursor: var(--cursor);
+}
+
+.mp-tasks button.mp-tasks-empty-add:hover {
+  background: transparent;
+  color: var(--text-muted);
+}
+
 .mp-tasks-loading {
   padding: var(--size-4-8) 0;
   text-align: center;
@@ -355,6 +377,8 @@
 .mp-task-card {
   position: relative;
   display: flex;
+  /* В прокручиваемом списке квадранта карточка не сжимается (иначе текст наезжает на соседнюю). */
+  flex-shrink: 0;
   align-items: center;
   gap: var(--size-4-1);
   min-height: 3em;
@@ -410,12 +434,47 @@
   color: var(--mp-ink-inverse);
 }
 
-.mp-task-card.is-completing {
-  opacity: 0.55;
-}
-
 .mp-task-card.is-completing .mp-task-check-mark {
   transform: scale(1.12);
+}
+
+/* Выполнение (доработка 005, §1): галочка (0–150 мс) → линия зачёркивания (100–350 мс) →
+   карточка сворачивается и исчезает (350–600 мс). Высоту ставит вкладка (`--mp-card-height`). */
+.mp-task-title-text {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-position: 0 55%;
+  background-size: 0% 0.08em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.mp-task-card.is-completing .mp-task-title-text {
+  background-size: 100% 0.08em;
+  color: var(--text-muted);
+  transition: background-size 250ms ease-out 100ms, color 250ms ease-out 100ms;
+}
+
+.mp-task-card.is-completing {
+  overflow: hidden;
+  min-height: 0;
+  max-height: var(--mp-card-height, 4em);
+  animation: mp-task-collapse 250ms ease-in 350ms forwards;
+}
+
+@keyframes mp-task-collapse {
+  from {
+    max-height: var(--mp-card-height, 4em);
+    opacity: 1;
+  }
+
+  to {
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    opacity: 0;
+    transform: scale(0.96);
+  }
 }
 
 .mp-task-card.is-busy {
@@ -554,24 +613,6 @@
   clip-path: inset(50%);
 }
 
-/* Маркер перетаскивания (мобильные). */
-.mp-task-handle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 2em;
-  align-self: stretch;
-  color: var(--text-faint);
-  touch-action: none;
-  cursor: grab;
-}
-
-.mp-task-handle .svg-icon {
-  width: 1em;
-  height: 1em;
-}
-
 /* --- Перетаскивание --- */
 
 .mp-tasks.is-dragging {
@@ -599,6 +640,70 @@
   display: none;
 }
 
+/* Поднятая карточка над зоной удаления — бледнее. */
+.mp-task-drag-ghost.is-over-delete {
+  opacity: 0.8;
+}
+
+/* Зона «Перетащите сюда, чтобы удалить» над «+» (кадр 06). Положение задаёт вкладка. */
+.mp-task-delete-zone {
+  position: fixed;
+  /* Под поднятой карточкой. */
+  z-index: calc(var(--layer-dragged-item) - 1);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--size-4-2);
+  padding: 0 var(--size-4-4);
+  border: 2px dashed color-mix(in srgb, var(--text-error) 55%, transparent);
+  border-radius: var(--mp-radius-pill);
+  background: color-mix(in srgb, var(--text-error) 7%, var(--background-primary));
+  color: var(--text-error);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+  box-shadow: var(--mp-shadow-card);
+  pointer-events: none;
+  transition: transform var(--mp-transition), background-color var(--mp-transition), border-color var(--mp-transition);
+  animation: mp-task-delete-zone-in 160ms ease-out;
+}
+
+.mp-task-delete-zone.is-over {
+  border-style: solid;
+  border-color: var(--text-error);
+  background: color-mix(in srgb, var(--text-error) 18%, var(--background-primary));
+  transform: scale(1.05);
+}
+
+.mp-task-delete-zone-icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.mp-task-delete-zone-icon .svg-icon {
+  width: 1.2em;
+  height: 1.2em;
+}
+
+.mp-task-delete-zone-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes mp-task-delete-zone-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5em);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* Узкий экран без двух колонок по-прежнему 2 × 2, но плотнее. */
 @media (max-width: 380px) {
   .mp-quadrant {
@@ -610,17 +715,20 @@
   .mp-task-card.is-completing .mp-task-check-mark {
     transform: none;
   }
+
+  .mp-task-card.is-completing,
+  .mp-task-delete-zone {
+    animation: none;
+  }
+
+  .mp-task-card.is-completing .mp-task-title-text {
+    transition: none;
+  }
 }
 
-/* Маркер перетаскивания на телефоне — едва заметный, чтобы карточки выглядели как в референсе. */
 /* Дата длиннее приветствия: на телефоне чуть меньше, чтобы помещалась рядом с таблеткой серии. */
 .mp-view.is-phone .mp-tasks-title {
   font-size: 1.5em;
-}
-
-.mp-view.is-phone .mp-task-handle {
-  width: 1.25em;
-  opacity: 0.45;
 }
 
 /* Телефон: плотнее, чтобы на ширине ~390px слова не рвались (референс LockDay). */
@@ -675,10 +783,6 @@
   font-size: var(--font-ui-small);
 }
 
-.mp-view.is-phone .mp-task-handle {
-  width: 0.8em;
-}
-
 /* Кнопки карточки без фона и тени Obsidian (на мобильных у button есть подложка). */
 .mp-tasks button.mp-task-main,
 .mp-tasks button.mp-task-more {
@@ -691,18 +795,8 @@
   word-break: normal;
 }
 
-/* Телефон: маркер перетаскивания поверх правого края карточки — не отнимает ширину у названия. */
-.mp-view.is-phone .mp-task-handle {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 0.9em;
-  opacity: 0.35;
-}
-
 .mp-view.is-phone .mp-task-card {
-  padding-right: 0.7em;
+  padding-right: 0.5em;
 }
 
 .mp-view.is-phone .mp-task-check {

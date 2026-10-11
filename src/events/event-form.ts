@@ -15,6 +15,7 @@ import { registerDictionary, t } from '../i18n';
 import { ruModel } from '../i18n/ru/model';
 import { enModel } from '../i18n/en/model';
 import { shortDateLabel } from '../ui/controls/date-picker';
+import { renderDeleteButton } from '../ui/controls/delete-button';
 import { registerEventDictionaries } from './event-service';
 import { openExternalEventDetails } from './event-details';
 import {
@@ -134,7 +135,6 @@ class EventFormView {
   private scheduleEl: HTMLElement | null = null;
   private styleEl: HTMLElement | null = null;
   private picker: PickerTarget = null;
-  private deleteArmed = false;
   private deleting = false;
   private disposed = false;
   private readonly cleanups: Array<() => void> = [];
@@ -161,7 +161,7 @@ class EventFormView {
     this.styleEl = contentEl.createDiv({ cls: 'mp-form-card mp-event-form-style' });
     this.renderSchedule();
     this.renderStyle();
-    if (this.state.mode === 'edit') this.renderDelete(contentEl.createDiv({ cls: 'mp-event-form-actions' }));
+    if (this.state.mode === 'edit') this.renderDelete(contentEl);
     this.syncSubmit();
     const focusTimer = window.setTimeout(() => this.titleInput?.focus(), 0);
     this.cleanups.push(() => window.clearTimeout(focusTimer));
@@ -512,50 +512,39 @@ class EventFormView {
 
   // --- Удаление ---
 
-  private renderDelete(holder: HTMLElement): void {
-    const button = holder.createEl('button', {
-      cls: 'mod-warning mp-event-form-delete',
-      text: t('events.delete'),
-      attr: { type: 'button' },
-    });
-    button.addEventListener('click', () => {
-      if (this.deleting) return;
-      if (!this.deleteArmed) {
-        this.deleteArmed = true;
-        button.setText(t('events.deleteConfirm'));
-        return;
-      }
-      void this.runDelete(button);
+  private renderDelete(parent: HTMLElement): void {
+    renderDeleteButton(parent, {
+      label: t('events.delete'),
+      confirmLabel: t('events.deleteConfirm'),
+      onDelete: () => this.runDelete(),
     });
   }
 
-  private async runDelete(button: HTMLButtonElement): Promise<void> {
+  private async runDelete(): Promise<boolean> {
     const id = this.state.eventId;
-    if (id === null) return;
+    if (id === null) return false;
     this.deleting = true;
-    button.disabled = true;
     this.sheet?.setBusy(true);
     this.syncSubmit();
     try {
       const result = await this.deps.events.delete(id);
-      if (this.disposed) return;
+      if (this.disposed) return true;
       if (result.ok) {
         this.deps.notifier.show(t('events.deleted'));
         this.options.onDeleted?.(id);
         this.sheet?.close();
-        return;
+        return true;
       }
       // Сбой не теряется: сообщение называет этап, форма остаётся открытой для повтора.
       this.deps.notifier.show(eventErrorMessage(result.error));
+      return false;
     } catch (error) {
       if (!this.disposed) this.deps.notifier.show(t('common.errors.unknown'));
       console.error('[matrix-planner] event delete failed', error);
+      return false;
     } finally {
       this.deleting = false;
       if (!this.disposed) {
-        this.deleteArmed = false;
-        button.disabled = false;
-        button.setText(t('events.delete'));
         this.sheet?.setBusy(false);
         this.syncSubmit();
       }

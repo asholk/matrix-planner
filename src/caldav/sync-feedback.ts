@@ -12,10 +12,9 @@ import { enCaldav } from '../i18n/en/caldav';
 registerDictionary('ru', 'caldav', ruCaldav);
 registerDictionary('en', 'caldav', enCaldav);
 
-export interface NoticeAction {
-  label: string;
-  run(): void;
-}
+import type { NoticeAction } from '../app/contracts';
+
+export type { NoticeAction };
 
 export interface SaveFeedbackDeps {
   /** Синхронизация включена и заданы учётные данные. */
@@ -48,11 +47,11 @@ export function createSaveFeedback(deps: SaveFeedbackDeps): SaveFeedback {
 const ACTION_NOTICE_MS = 12_000;
 
 /** Уведомление Obsidian с текстом и ссылкой-действием. */
-export function showActionNotice(message: string, action: NoticeAction): void {
+export function showActionNotice(message: string, action: NoticeAction, timeoutMs: number = ACTION_NOTICE_MS): void {
   const fragment = createFragment();
   fragment.createDiv({ text: message });
   const link = fragment.createEl('a', { text: action.label, href: '#' });
-  const notice = new Notice(fragment, ACTION_NOTICE_MS);
+  const notice = new Notice(fragment, timeoutMs);
   link.addEventListener('click', (event) => {
     event.preventDefault();
     notice.hide();

@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MockElement, resetMockState } from '../__mocks__/obsidian';
+import { Menu, MockElement, resetMockState } from '../__mocks__/obsidian';
 import type { Clock, NoteIndex, PlannerViewHost, SettingsStore, TaskService } from '../../src/app/contracts';
 import type { FloatingDateTime, OpResult, PlannerSettings, Task, TaskProperties } from '../../src/model/types';
 import { defaultMatrixConfig } from '../../src/model/defaults';
 import { parseFloating } from '../../src/model/dates';
 import { setLanguageOverride } from '../../src/i18n';
-import { TASKS_REFRESH_INTERVAL_MS, TasksTab } from '../../src/tasks/tasks-tab';
+import { COMPLETE_ANIMATION_MS, TASKS_REFRESH_INTERVAL_MS, TasksTab } from '../../src/tasks/tasks-tab';
 
 function at(value: string): FloatingDateTime {
   const parsed = parseFloating(value);
@@ -50,14 +50,15 @@ function setup(initial: Task[]) {
     getMatrix: () => defaultMatrixConfig('ru'),
     onChange: () => () => {},
   } as unknown as NoteIndex;
-  const complete = vi.fn(async (_id: string, _instanceDate?: string) => OK);
+  const complete = vi.fn(async (_id: string, _instanceDate?: string): Promise<OpResult> => OK);
   const service = { complete, uncomplete: vi.fn(async () => OK) } as unknown as TaskService;
   const settings = {
     get: () => ({ ui: { tasksLayout: 'grid', tasksListGrouping: 'quadrant' } }) as unknown as PlannerSettings,
     onChange: () => () => {},
   } as unknown as SettingsStore;
+  const openTaskForm = vi.fn();
   const host = {
-    actions: { isAvailable: () => true, openTaskForm: () => {}, openAddMenu: () => {} },
+    actions: { isAvailable: () => true, openTaskForm, openAddMenu: () => {} },
     platform: { isAndroid: false, isMobile: false, isPhone: false, isTablet: false, isIos: false, isDesktop: true },
     setAddContext: () => {},
     getAddContext: () => ({ date: null, quadrant: null }),
@@ -78,6 +79,7 @@ function setup(initial: Task[]) {
     tab,
     container,
     complete,
+    openTaskForm,
     mount: () => tab.mount(container as unknown as HTMLElement),
     setTasks: (next: Task[]) => (tasks = next),
     setNow: (next: Date) => (now = next),
@@ -117,7 +119,7 @@ describe('выполнение повторяющейся задачи', () => {
     clickCheck(ctx.container, 'series');
     // Другое устройство выполнило 10-е: срок уже 11-е.
     ctx.setTasks([{ ...series, due: at('2026-10-11T08:00'), completions: ['2026-10-10'] }]);
-    await vi.advanceTimersByTimeAsync(260);
+    await vi.advanceTimersByTimeAsync(COMPLETE_ANIMATION_MS);
     expect(ctx.complete).toHaveBeenCalledWith('series', '2026-10-10');
     ctx.tab.unmount();
   });
@@ -127,7 +129,7 @@ describe('выполнение повторяющейся задачи', () => {
     ctx.mount();
     ctx.tab.onShow();
     clickCheck(ctx.container, 'single');
-    await vi.advanceTimersByTimeAsync(260);
+    await vi.advanceTimersByTimeAsync(COMPLETE_ANIMATION_MS);
     expect(ctx.complete).toHaveBeenCalledWith('single', undefined);
     ctx.tab.unmount();
   });
@@ -191,5 +193,100 @@ describe('обновление по времени', () => {
 
     ctx.tab.unmount();
     expect(listeners).toHaveLength(0);
+  });
+});
+
+describe('выполнение с зачёркиванием (доработка 005, §1)', () => {
+  it('карточка анимируется ~600 мс, запись — после анимации', async () => {
+    const ctx = setup([makeTask({ id: 'cook' })]);
+    ctx.mount();
+    ctx.tab.onShow();
+    clickCheck(ctx.container, 'cook');
+    const card = cardOf(ctx.container, 'cook');
+    expect(card.hasClass('is-completing')).toBe(true);
+    expect(card.findAllByClass('mp-task-check')[0]?.getAttribute('aria-pressed')).toBe('true');
+    expect(COMPLETE_ANIMATION_MS).toBeGreaterThanOrEqual(500);
+    expect(COMPLETE_ANIMATION_MS).toBeLessThanOrEqual(1000);
+    await vi.advanceTimersByTimeAsync(COMPLETE_ANIMATION_MS - 1);
+    expect(ctx.complete).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(ctx.complete).toHaveBeenCalledWith('cook', undefined);
+    ctx.tab.unmount();
+  });
+
+  it('ошибка записи возвращает карточку в исходный вид', async () => {
+    const ctx = setup([makeTask({ id: 'cook' })]);
+    ctx.complete.mockResolvedValueOnce({ ok: false, error: { code: 'write-failed' } } as unknown as OpResult);
+    ctx.mount();
+    ctx.tab.onShow();
+    clickCheck(ctx.container, 'cook');
+    await vi.advanceTimersByTimeAsync(COMPLETE_ANIMATION_MS);
+    expect(cardOf(ctx.container, 'cook').hasClass('is-completing')).toBe(false);
+    ctx.tab.unmount();
+  });
+
+  it('название — строчный элемент внутри (линия зачёркивания по каждой строке)', () => {
+    const ctx = setup([makeTask({ id: 'cook', title: 'Кулинария' })]);
+    ctx.mount();
+    const text = cardOf(ctx.container, 'cook').findAllByClass('mp-task-title-text')[0];
+    expect(text?.getText()).toBe('Кулинария');
+    ctx.tab.unmount();
+  });
+});
+
+describe('маркер перетаскивания и меню (доработка 005, §4)', () => {
+  it('маркера перетаскивания на карточке нет', () => {
+    const ctx = setup([makeTask({ id: 'a' })]);
+    ctx.mount();
+    expect(cardOf(ctx.container, 'a').findAllByClass('mp-task-handle')).toHaveLength(0);
+    ctx.tab.unmount();
+  });
+
+  it('contextmenu от пальца не открывает меню, правая кнопка мыши — открывает', () => {
+    const ctx = setup([makeTask({ id: 'a' })]);
+    ctx.mount();
+    Menu.lastShown = null;
+    const card = cardOf(ctx.container, 'a');
+    card.dispatch('contextmenu', { type: 'contextmenu', pointerType: 'touch', clientX: 10, clientY: 10, preventDefault: () => {}, stopPropagation: () => {} });
+    expect(Menu.lastShown).toBeNull();
+    card.dispatch('contextmenu', { type: 'contextmenu', pointerType: 'mouse', clientX: 10, clientY: 10, preventDefault: () => {}, stopPropagation: () => {} });
+    expect(Menu.lastShown).not.toBeNull();
+    ctx.tab.unmount();
+  });
+
+  it('скрытая кнопка «Действия» для диктора открывает меню', () => {
+    const ctx = setup([makeTask({ id: 'a' })]);
+    ctx.mount();
+    Menu.lastShown = null;
+    cardOf(ctx.container, 'a').findAllByClass('mp-task-more')[0]?.dispatch('click');
+    expect(Menu.lastShown).not.toBeNull();
+    ctx.tab.unmount();
+  });
+});
+
+describe('пустой квадрант (доработка 005, §5)', () => {
+  it('«Нажмите, чтобы добавить» открывает форму новой задачи в этом квадранте', () => {
+    const ctx = setup([makeTask({ id: 'a', quadrant: 'plan' })]);
+    ctx.mount();
+    const doQuadrant = ctx.container.findAllByClass('mp-quadrant').find((el) => el.getAttribute('data-quadrant') === 'do');
+    const add = doQuadrant?.findAllByClass('mp-tasks-empty-add')[0];
+    expect(add).toBeDefined();
+    expect(add?.findAllByClass('mp-tasks-empty-label')[0]?.getText()).toBe('Нажмите, чтобы добавить');
+    expect(add?.findAllByClass('mp-tasks-empty-icon')[0]?.getAttribute('data-icon')).toBe('circle-plus');
+    add?.dispatch('click');
+    expect(ctx.openTaskForm).toHaveBeenCalledWith({ mode: 'create', quadrant: 'do', date: null });
+    // В квадранте с задачей подсказки нет.
+    const plan = ctx.container.findAllByClass('mp-quadrant').find((el) => el.getAttribute('data-quadrant') === 'plan');
+    expect(plan?.findAllByClass('mp-tasks-empty-add')).toHaveLength(0);
+    ctx.tab.unmount();
+  });
+
+  it('в режиме «Выполнено» — прежний текст без кнопки', () => {
+    const ctx = setup([]);
+    ctx.mount();
+    ctx.container.findAllByClass('mp-tasks-done-filter')[0]?.dispatch('click');
+    expect(ctx.container.findAllByClass('mp-tasks-empty-add')).toHaveLength(0);
+    expect(ctx.container.findAllByClass('mp-tasks-empty')[0]?.getText()).toContain('Здесь пока нет выполненных задач');
+    ctx.tab.unmount();
   });
 });

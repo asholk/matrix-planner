@@ -19,6 +19,17 @@ function isMouseEvent(value: unknown): value is MouseEvent {
   return typeof MouseEvent !== 'undefined' && value instanceof MouseEvent;
 }
 
+/**
+ * `contextmenu` пришло от пальца или пера (Android по долгому нажатию). На вкладке «Задачи»
+ * долгое нажатие — перетаскивание, такое меню игнорируется; ПКМ мыши — меню.
+ */
+export function isTouchContextMenu(evt: unknown): boolean {
+  const pointerType = (evt as { pointerType?: unknown } | null)?.pointerType;
+  if (pointerType === 'touch' || pointerType === 'pen') return true;
+  const capabilities = (evt as { sourceCapabilities?: { firesTouchEvents?: boolean } | null } | null)?.sourceCapabilities;
+  return capabilities?.firesTouchEvents === true;
+}
+
 /** Shift+F10 или клавиша ContextMenu. */
 export function isMenuKey(evt: Pick<KeyboardEvent, 'key' | 'shiftKey'>): boolean {
   return evt.key === 'ContextMenu' || (evt.key === 'F10' && evt.shiftKey);
@@ -128,7 +139,7 @@ export function attachContextMenu(
     const target = evt.target as HTMLElement | null;
     const onControl = Boolean(options.controlSelector && target?.closest?.(options.controlSelector));
     finish();
-    const effect = gesture.down({ x: evt.clientX, y: evt.clientY, time: evt.timeStamp, pointerType, button: evt.button, onHandle: false, onControl });
+    const effect = gesture.down({ x: evt.clientX, y: evt.clientY, time: evt.timeStamp, pointerType, button: evt.button, onControl });
     if (gesture.getPhase() === 'idle') return;
     const doc = el.doc;
     const onMove = (e: PointerEvent): void => {
