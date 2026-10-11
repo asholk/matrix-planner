@@ -23,6 +23,8 @@ export interface CoreCommandDeps {
   index: Pick<NoteIndex, 'getByPath'>;
   integrity: Pick<IntegrityService, 'check'>;
   notifier: Notifier;
+  /** Открыть лист «Статистика»; без него команды нет. */
+  openStats?: () => void;
 }
 
 /** Задача Планировщика в активной заметке (архивные не считаются). */
@@ -97,6 +99,16 @@ export function registerCoreCommands(host: CommandHost, deps: CoreCommandDeps): 
       return true;
     },
   });
+
+  const openStats = deps.openStats;
+  if (openStats) {
+    host.addCommand({
+      id: 'open-stats',
+      name: t('app.commands.openStats'),
+      icon: 'bar-chart-3',
+      callback: () => openStats(),
+    });
+  }
 
   host.addCommand({
     id: 'check-integrity',

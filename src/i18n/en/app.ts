@@ -17,6 +17,7 @@ export const enApp = {
     createEvent: 'Create event',
     createNote: 'Create note',
     updateLockscreen: 'Update lock screen',
+    openStats: 'Open statistics',
   },
   settings: {
     sync: {

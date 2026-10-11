@@ -88,6 +88,7 @@ class FormSheet extends Modal implements SheetHandle {
     const titleId = `mp-sheet-title-${++sheetCounter}`;
     this.containerEl.addClass('mp-sheet-container');
     for (const cls of sheetClasses(this.platform, options.fullScreenOnPhone)) modalEl.addClass(cls);
+    if (options.cls) modalEl.addClass(options.cls);
     modalEl.setAttr('role', 'dialog');
     modalEl.setAttr('aria-modal', 'true');
     modalEl.setAttr('aria-labelledby', titleId);
@@ -114,6 +115,13 @@ class FormSheet extends Modal implements SheetHandle {
       setIcon(submit, 'check');
       submit.addEventListener('click', () => void this.submit());
       this.submitEl = submit;
+    } else if (options.headerAction) {
+      const action = options.headerAction;
+      modalEl.addClass('mp-sheet-has-action');
+      const button = bar.createEl('button', { cls: 'mp-sheet-action', attr: { type: 'button' } });
+      setIcon(button.createSpan({ cls: 'mp-sheet-action-icon', attr: { 'aria-hidden': 'true' } }), action.icon);
+      button.createSpan({ text: action.label });
+      button.addEventListener('click', (evt) => action.onClick(evt));
     } else {
       bar.createDiv({ cls: 'mp-sheet-spacer' });
     }

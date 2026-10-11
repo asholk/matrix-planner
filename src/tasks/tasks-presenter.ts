@@ -36,6 +36,18 @@ export function greetingFor(hour: number): GreetingKind {
   return 'evening';
 }
 
+/**
+ * Заголовок шапки — дата полностью: «Воскресенье, 11 октября» / «Sunday, October 11».
+ * Год — только если он не совпадает с `currentYear`. Дата локальная: форматируется как UTC.
+ */
+export function formatTodayTitle(date: LocalDateString, language: string, currentYear?: number): string {
+  const [year = 1970, month = 1, day = 1] = date.split('-').map(Number);
+  const options: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' };
+  if (currentYear !== undefined && year !== currentYear) options.year = 'numeric';
+  const text = new Intl.DateTimeFormat(language, options).format(new Date(Date.UTC(year, month - 1, day, 12)));
+  return text.charAt(0).toLocaleUpperCase() + text.slice(1);
+}
+
 // ---------------------------------------------------------------------------
 // Модель
 // ---------------------------------------------------------------------------

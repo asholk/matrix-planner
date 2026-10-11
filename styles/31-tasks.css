@@ -32,25 +32,73 @@
   --mp-q-tint: var(--mp-q-someday-bg);
 }
 
-/* --- Шапка --- */
+/* --- Шапка: дата, погода, таблетка серии --- */
 
 .mp-tasks-header {
   display: flex;
-  flex-direction: column;
-  gap: var(--size-2-1);
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--size-4-3);
 }
 
-.mp-tasks-greeting {
+.mp-tasks-heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-1);
+  min-width: 0;
+}
+
+.mp-tasks-title {
   margin: 0;
+  text-wrap: balance;
   font-size: max(var(--h1-size), 1.85em);
   font-weight: var(--font-bold);
   line-height: var(--line-height-tight);
   color: var(--text-normal);
 }
 
-.mp-tasks-subtitle {
+.mp-tasks-weather {
   color: var(--text-muted);
   font-size: var(--font-ui-medium);
+}
+
+.mp-tasks-weather.is-hidden {
+  display: none;
+}
+
+.mp-tasks .mp-tasks-streak {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: var(--size-4-1);
+  height: auto;
+  min-height: 2.6em;
+  margin-top: var(--size-2-1);
+  padding: 0 var(--size-4-3);
+  border: none;
+  border-radius: var(--mp-radius-pill);
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-card);
+  color: var(--text-normal);
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+  cursor: var(--cursor);
+}
+
+.mp-tasks .mp-tasks-streak:hover {
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-float);
+}
+
+.mp-tasks-streak-icon {
+  display: inline-flex;
+  color: var(--mp-q-urgent);
+}
+
+.mp-tasks-streak-icon .svg-icon {
+  width: 1.15em;
+  height: 1.15em;
+  fill: currentColor;
 }
 
 /* --- Строка управления --- */
@@ -565,6 +613,11 @@
 }
 
 /* Маркер перетаскивания на телефоне — едва заметный, чтобы карточки выглядели как в референсе. */
+/* Дата длиннее приветствия: на телефоне чуть меньше, чтобы помещалась рядом с таблеткой серии. */
+.mp-view.is-phone .mp-tasks-title {
+  font-size: 1.5em;
+}
+
 .mp-view.is-phone .mp-task-handle {
   width: 1.25em;
   opacity: 0.45;

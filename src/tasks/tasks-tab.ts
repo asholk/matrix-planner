@@ -1,5 +1,5 @@
 /**
- * Вкладка «Задачи» (ТЗ §4.2; кадры 01, 07, 08): приветствие, фильтр «Выполнено N»,
+ * Вкладка «Задачи» (ТЗ §4.2; кадры 01, 07, 08): шапка с датой, погодой и серией «🔥 N», фильтр «Выполнено N»,
  * переключатель «Сетка / Список», матрица 2 × 2 и списки, меню и перенос карточек.
  * Данные — `NoteIndex` (подписка на изменения), действия — `TaskService` и `PlannerActions`.
  */
@@ -38,12 +38,20 @@ import {
 import { interpolate, registerDictionary, t, tPlural } from '../i18n';
 import { ruTasks } from '../i18n/ru/tasks';
 import { enTasks } from '../i18n/en/tasks';
+import { ruWeather } from '../i18n/ru/weather';
+import { enWeather } from '../i18n/en/weather';
+import { ruStats } from '../i18n/ru/stats';
+import { enStats } from '../i18n/en/stats';
+import { completionEntries } from '../model/task-selectors';
+import { computeStreak } from '../stats/stats';
+import { conditionKey, formatWeatherLine, weatherCondition } from '../weather/weather-format';
+import type { WeatherProvider } from '../weather/weather-types';
 import {
   QUADRANT_CSS_VARS,
   buildTaskMenu,
   buildTasksView,
   errorMessageKey,
-  greetingFor,
+  formatTodayTitle,
   quadrantColorOverrides,
   type DateSection,
   type QuadrantSection,
@@ -68,11 +76,15 @@ import {
 
 registerDictionary('ru', 'tasks', ruTasks);
 registerDictionary('en', 'tasks', enTasks);
+registerDictionary('ru', 'weather', ruWeather);
+registerDictionary('en', 'weather', enWeather);
+registerDictionary('ru', 'stats', ruStats);
+registerDictionary('en', 'stats', enStats);
 // Подписи дат (`formatDueLabel`) берутся из словаря `model`; его регистрирует сборка (app/compose-core).
 
 /** Длительность анимации выполнения перед записью, мс. */
 const COMPLETE_ANIMATION_MS = 260;
-/** Проверка устаревания (срок наступил, полночь, приветствие), пока вкладка показана, мс. */
+/** Проверка устаревания (срок наступил, полночь, погода), пока вкладка показана, мс. */
 export const TASKS_REFRESH_INTERVAL_MS = 60_000;
 /** Повторное меню (долгое нажатие + `contextmenu` на Android) в этом окне игнорируется. */
 const MENU_DEBOUNCE_MS = 700;
@@ -84,6 +96,10 @@ export interface TasksTabDeps {
   clock: Clock;
   format: FormatPreferencesProvider;
   notifier: Notifier;
+  /** Погода в шапке; без неё строка не показывается. */
+  weather?: WeatherProvider;
+  /** Открыть «Статистику» (таблетка серии); без него таблетки нет. */
+  openStats?: () => void;
 }
 
 /** Фабрика вкладки для `PlannerViewOptions.tabs.tasks`. */
@@ -105,7 +121,9 @@ export class TasksTab implements TabController {
   readonly id = 'tasks' as const;
 
   private rootEl: HTMLElement | null = null;
-  private greetingEl: HTMLElement | null = null;
+  private titleEl: HTMLElement | null = null;
+  private weatherEl: HTMLElement | null = null;
+  private streakEl: HTMLElement | null = null;
   private controlsEl: HTMLElement | null = null;
   private contentEl: HTMLElement | null = null;
   private readonly subscriptions: Unsubscribe[] = [];
@@ -144,14 +162,24 @@ export class TasksTab implements TabController {
     this.rootEl = root;
 
     const header = root.createDiv({ cls: 'mp-tasks-header' });
-    this.greetingEl = header.createEl('h2', { cls: 'mp-tasks-greeting' });
-    header.createDiv({ cls: 'mp-tasks-subtitle', text: t('tasks.subtitle') });
+    const heading = header.createDiv({ cls: 'mp-tasks-heading' });
+    this.titleEl = heading.createEl('h2', { cls: 'mp-tasks-title' });
+    this.weatherEl = heading.createDiv({ cls: 'mp-tasks-weather' });
+    if (this.deps.openStats) {
+      const openStats = this.deps.openStats;
+      const streak = header.createEl('button', { cls: 'mp-tasks-streak', attr: { type: 'button' } });
+      setIcon(streak.createSpan({ cls: 'mp-tasks-streak-icon', attr: { 'aria-hidden': 'true' } }), 'flame');
+      streak.createSpan({ cls: 'mp-tasks-streak-count' });
+      streak.addEventListener('click', () => openStats());
+      this.streakEl = streak;
+    }
 
     this.controlsEl = root.createDiv({ cls: 'mp-tasks-controls', attr: { role: 'toolbar', 'aria-label': t('tasks.controls.label') } });
     this.contentEl = root.createDiv({ cls: 'mp-tasks-content' });
 
     this.subscriptions.push(this.deps.index.onChange(() => this.scheduleRender()));
     this.subscriptions.push(this.deps.settings.onChange(() => this.scheduleRender()));
+    if (this.deps.weather) this.subscriptions.push(this.deps.weather.onChange(() => this.renderWeather()));
     this.watchVisibility();
 
     if (this.deps.index.isReady()) {
@@ -178,7 +206,9 @@ export class TasksTab implements TabController {
     for (const unsubscribe of this.subscriptions.splice(0)) unsubscribe();
     this.rootEl?.remove();
     this.rootEl = null;
-    this.greetingEl = null;
+    this.titleEl = null;
+    this.weatherEl = null;
+    this.streakEl = null;
     this.controlsEl = null;
     this.contentEl = null;
     this.model = null;
@@ -188,8 +218,9 @@ export class TasksTab implements TabController {
     this.host.setAddContext({ date: null, quadrant: null });
     this.shown = true;
     this.startRefresh();
-    // Приветствие и «Сегодня» могли устареть, пока вкладка была скрыта.
+    // Дата и «Сегодня» могли устареть, пока вкладка была скрыта.
     if (this.rootEl && this.deps.index.isReady()) this.render();
+    this.refreshWeather();
   }
 
   onHide(): void {
@@ -231,6 +262,8 @@ export class TasksTab implements TabController {
 
   /** Перерисовывает, только если изменилось зависящее от времени (без лишней пересборки DOM). */
   private refreshIfStale(): void {
+    // Погода: запрос уходит, только если кэш устарел или сменились сутки.
+    this.refreshWeather();
     if (!this.rootEl || !this.deps.index.isReady()) return;
     if (this.timeKeyFor(this.now()) !== this.timeKey) this.scheduleRender();
   }
@@ -246,7 +279,7 @@ export class TasksTab implements TabController {
       grouping: this.grouping(),
       format,
     });
-    return `${greetingFor(hourOf(now))}|${JSON.stringify(model)}`;
+    return `${now.date}|${JSON.stringify(model)}`;
   }
 
   // --- Отрисовка ---
@@ -305,7 +338,7 @@ export class TasksTab implements TabController {
       grouping: this.grouping(),
       format,
     });
-    this.timeKey = `${greetingFor(hourOf(now))}|${JSON.stringify(this.model)}`;
+    this.timeKey = `${now.date}|${JSON.stringify(this.model)}`;
     this.renderHeader();
     this.renderControls(this.model);
     this.renderContent(this.model, strings);
@@ -321,8 +354,45 @@ export class TasksTab implements TabController {
   }
 
   private renderHeader(): void {
-    if (!this.greetingEl) return;
-    this.greetingEl.setText(t('tasks.greeting'));
+    if (!this.titleEl) return;
+    const now = this.now();
+    const year = Number(now.date.slice(0, 4));
+    this.titleEl.setText(formatTodayTitle(now.date, this.deps.format.get().language, year));
+    this.renderWeather();
+    this.renderStreak(now.date);
+  }
+
+  /** «☁️ +11°, облачно · ↓7° ↑12°»; при ошибке — «Погода недоступна», только если город задан явно. */
+  private renderWeather(): void {
+    const el = this.weatherEl;
+    if (!el) return;
+    const state = this.deps.weather?.getState() ?? { kind: 'off' as const };
+    let text: string | null = null;
+    if (state.kind === 'ready') {
+      text = formatWeatherLine(state.snapshot, t(conditionKey(weatherCondition(state.snapshot.code))));
+    } else if (state.kind === 'error' && this.deps.settings.get().weather.city !== '') {
+      text = t('weather.unavailable');
+    }
+    el.setText(text ?? '');
+    el.toggleClass('is-hidden', text === null);
+    if (text === null) el.removeAttribute('aria-label');
+    else el.setAttr('aria-label', t('weather.label', { value: text }));
+  }
+
+  private renderStreak(today: LocalDateString): void {
+    const el = this.streakEl;
+    if (!el) return;
+    const dates = completionEntries(this.deps.index.getTasks()).map((entry) => entry.date);
+    const streak = computeStreak(dates, today);
+    el.querySelector('.mp-tasks-streak-count')?.setText(String(streak));
+    const label = tPlural('stats.streak.pill', streak);
+    el.setAttr('aria-label', label);
+    el.setAttr('title', label);
+  }
+
+  private refreshWeather(): void {
+    if (!this.shown || !this.deps.weather) return;
+    void this.deps.weather.refresh().catch((error: unknown) => console.warn('[matrix-planner] weather refresh failed', error));
   }
 
   private renderControls(model: TasksViewModel): void {
@@ -878,8 +948,4 @@ function dateSectionTitle(section: DateSection, today: LocalDateString, strings:
   if (section.kind === 'overdue') return t('tasks.groups.overdue');
   if (section.kind === 'no-date' || !section.date) return t('tasks.groups.noDate');
   return formatDateLabel(section.date, today, strings);
-}
-
-function hourOf(now: FloatingDateTime): number {
-  return Number((now.time ?? '12:00').slice(0, 2));
 }

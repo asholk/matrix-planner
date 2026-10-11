@@ -612,10 +612,20 @@ export interface SheetOptions {
   submitLabel: string | null;
   /** На iPhone — лист во весь экран. */
   fullScreenOnPhone: boolean;
+  /** Дополнительный класс окна листа (оформление конкретного листа). */
+  cls?: string;
+  /** Кнопка справа в шапке вместо «Готово» (при `submitLabel: null`), например «Итоги». */
+  headerAction?: SheetHeaderAction;
   render(contentEl: HTMLElement, handle: SheetHandle): void;
   /** Возврат `false` оставляет лист открытым (ошибка сохранения). */
   onSubmit?(): Promise<boolean> | boolean;
   onClose?(): void;
+}
+
+export interface SheetHeaderAction {
+  icon: string;
+  label: string;
+  onClick(evt: MouseEvent): void;
 }
 
 export interface SheetHandle {

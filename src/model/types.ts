@@ -547,6 +547,19 @@ export interface CalendarSyncSettings {
   icsSubscriptions: IcsSubscriptionSetting[];
 }
 
+/** Единицы температуры погоды. */
+export type WeatherUnits = 'celsius' | 'fahrenheit';
+
+/** Погода в шапке «Задач» (Open-Meteo). Координаты — найденного города; без них — геолокация. */
+export interface WeatherSettings {
+  enabled: boolean;
+  /** Найденное название («Москва, Россия»); пусто — геолокация устройства. */
+  city: string;
+  latitude: number | null;
+  longitude: number | null;
+  units: WeatherUnits;
+}
+
 export type PlannerTabId = 'tasks' | 'calendar' | 'lockscreen' | 'settings';
 export type TasksLayout = 'grid' | 'list';
 export type TasksListGrouping = 'quadrant' | 'date';
@@ -581,6 +594,8 @@ export interface PlannerSettings {
   wallpaper: WallpaperSettings;
   /** Синхронизация с «Календарём» iOS через CalDAV (iCloud или другой сервер) и подписки ICS. */
   calendarSync: CalendarSyncSettings;
+  /** Погода в шапке вкладки «Задачи». */
+  weather: WeatherSettings;
   // Состояние интерфейса (не показывается в настройках)
   ui: {
     lastTab: PlannerTabId;

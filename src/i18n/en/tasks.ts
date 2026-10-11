@@ -2,8 +2,6 @@ import type { Dictionary } from '../index';
 
 /** Tasks tab: header, filters, quadrants, cards, menu. */
 export const enTasks = {
-  greeting: 'Hi! 👋',
-  subtitle: 'What shall we do today?',
   loading: 'Loading tasks…',
   controls: {
     label: 'Task view',

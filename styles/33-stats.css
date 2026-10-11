@@ -1,0 +1,307 @@
+/* Лист «Статистика»: карточки серии и недели, диаграмма по дням, недавно выполненные. */
+
+/* Серый фон листа и белые карточки — как во вкладках. */
+.modal.mp-sheet.mp-stats-sheet {
+  background: var(--mp-app-bg);
+}
+
+.modal.mp-sheet.mp-stats-sheet .mp-sheet-title {
+  font-size: var(--font-ui-large);
+  font-weight: var(--font-bold);
+}
+
+/* Шапка с кнопкой справа: колонки по краям одинаковые, заголовок по центру. */
+.modal.mp-sheet.mp-sheet-has-action .mp-sheet-bar {
+  grid-template-columns: minmax(var(--mp-touch), 1fr) auto minmax(var(--mp-touch), 1fr);
+}
+
+.mp-sheet .mp-sheet-action {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  gap: var(--size-4-1);
+  height: auto;
+  min-height: 2.4em;
+  padding: 0 var(--size-4-3);
+  border: none;
+  border-radius: var(--mp-radius-pill);
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-card);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+  cursor: var(--cursor);
+}
+
+.mp-sheet .mp-sheet-action:hover {
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-float);
+}
+
+.mp-sheet-action-icon {
+  display: inline-flex;
+}
+
+.mp-sheet-action-icon .svg-icon {
+  width: 1.05em;
+  height: 1.05em;
+}
+
+/* Цвета квадрантов для значков недавно выполненных. */
+.mp-stats .mp-q-do {
+  --mp-q: var(--mp-q-do);
+  --mp-q-tint: var(--mp-q-do-bg);
+}
+
+.mp-stats .mp-q-plan {
+  --mp-q: var(--mp-q-plan);
+  --mp-q-tint: var(--mp-q-plan-bg);
+}
+
+.mp-stats .mp-q-urgent {
+  --mp-q: var(--mp-q-urgent);
+  --mp-q-tint: var(--mp-q-urgent-bg);
+}
+
+.mp-stats .mp-q-someday {
+  --mp-q: var(--mp-q-someday);
+  --mp-q-tint: var(--mp-q-someday-bg);
+}
+
+.mp-stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-4);
+}
+
+.mp-stats-panel {
+  border-radius: var(--mp-radius-panel);
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-card);
+}
+
+/* --- Карточки серии и недели --- */
+
+.mp-stats-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--size-4-3);
+}
+
+.mp-stats-card {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  min-width: 0;
+  padding: var(--size-4-4) var(--size-4-3);
+}
+
+.mp-stats-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.4em;
+  height: 2.4em;
+  border-radius: var(--mp-radius-pill);
+}
+
+.mp-stats-card-icon .svg-icon {
+  width: 1.2em;
+  height: 1.2em;
+}
+
+.mp-stats-streak .mp-stats-card-icon {
+  background: var(--mp-q-urgent-bg);
+  color: var(--mp-q-urgent);
+}
+
+.mp-stats-streak .mp-stats-card-icon .svg-icon {
+  fill: currentColor;
+}
+
+.mp-stats-week .mp-stats-card-icon {
+  background: color-mix(in srgb, var(--mp-done) 16%, transparent);
+  color: var(--mp-done);
+}
+
+.mp-stats-week .mp-stats-card-icon .svg-icon {
+  stroke-width: 3;
+}
+
+.mp-stats-card-text {
+  min-width: 0;
+}
+
+.mp-stats-card-value {
+  font-size: 1.6em;
+  font-weight: var(--font-bold);
+  line-height: var(--line-height-tight);
+  font-variant-numeric: tabular-nums;
+}
+
+.mp-stats-card-label {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  line-height: var(--line-height-tight);
+}
+
+/* --- Диаграмма --- */
+
+.mp-stats-chart-card {
+  padding: var(--size-4-4);
+}
+
+.mp-stats-chart-title {
+  margin-bottom: var(--size-4-3);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+}
+
+.mp-stats-chart {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--size-4-2);
+}
+
+.mp-stats-bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--size-4-2);
+  min-width: 0;
+}
+
+/* Высота области столбцов; число — над столбцом. */
+.mp-stats-bar-track {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: var(--size-2-2);
+  height: 9em;
+}
+
+.mp-stats-bar-value {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.mp-stats-bar {
+  /* Доля от самого высокого дня; минимум — чтобы «1» было видно. */
+  height: max(0.75em, calc((100% - 1.6em) * var(--mp-bar-ratio, 0)));
+  border-radius: var(--size-4-2);
+  background: var(--mp-q-urgent);
+}
+
+/* Нулевой день — низкая серая «заглушка». */
+.mp-stats-bar.is-empty {
+  height: 0.5em;
+  border-radius: var(--mp-radius-pill);
+  background: var(--background-modifier-border);
+}
+
+.mp-stats-bar-day {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  text-align: center;
+}
+
+.mp-stats-bar-col.is-today .mp-stats-bar-day {
+  color: var(--text-normal);
+  font-weight: var(--font-bold);
+}
+
+/* --- Недавно выполненные --- */
+
+.mp-stats-section-title {
+  margin: var(--size-4-2) 0 0;
+  font-size: var(--font-ui-large);
+  font-weight: var(--font-semibold);
+}
+
+.mp-stats-recent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.mp-stats .mp-stats-recent-item {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-3);
+  width: 100%;
+  height: auto;
+  padding: var(--size-4-3);
+  border: none;
+  border-radius: var(--mp-radius-card);
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-card);
+  color: var(--text-normal);
+  font-size: inherit;
+  font-weight: normal;
+  text-align: start;
+  white-space: normal;
+  cursor: var(--cursor);
+}
+
+.mp-stats .mp-stats-recent-item:hover {
+  background: var(--mp-card-bg);
+  box-shadow: var(--mp-shadow-float);
+}
+
+.mp-stats-recent-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.2em;
+  height: 2.2em;
+  border-radius: var(--mp-radius-pill);
+  background: var(--mp-q-tint);
+  color: var(--mp-q);
+}
+
+.mp-stats-recent-icon .svg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+.mp-stats-recent-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mp-stats-recent-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-medium);
+}
+
+.mp-stats-recent-date {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.mp-stats-recent-check {
+  display: inline-flex;
+  flex: none;
+  color: var(--mp-done);
+}
+
+.mp-stats-recent-check .svg-icon {
+  width: 1.1em;
+  height: 1.1em;
+  stroke-width: 2.5;
+}
+
+.mp-stats-empty {
+  padding: var(--size-4-4);
+  color: var(--text-muted);
+  text-align: center;
+}

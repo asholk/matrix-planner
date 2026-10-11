@@ -14,6 +14,7 @@ import type {
   SettingsStore,
 } from '../app/contracts';
 import type { VaultPath, WallpaperProfile } from '../model/types';
+import type { GeocodeResult, WeatherCoordinates, WeatherProvider } from '../weather/weather-types';
 
 export type {
   ArchiveSetting,
@@ -84,6 +85,11 @@ export interface SettingsTabDeps {
   attentionPanel?: AttentionPanelFactory;
   /** Открыть заметку из простого списка «Требуют внимания». */
   openNote?: (path: VaultPath) => void;
+  /** Погода: поиск города, геолокация и состояние (подсказка «Укажите город»). */
+  weather?: Pick<WeatherProvider, 'getState' | 'onChange'> & {
+    geocode(name: string, language: string): Promise<GeocodeResult | null>;
+    locate(): Promise<WeatherCoordinates | null>;
+  };
   /** Дополнительные разделы (порядок — `SettingsSection.order`). */
   sections?: readonly SettingsSection[];
 }

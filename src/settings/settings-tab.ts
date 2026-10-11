@@ -11,6 +11,8 @@ import type { SettingsSection } from '../app/contracts';
 import { getCurrentLanguage, registerDictionary, t, tPlural } from '../i18n';
 import { enSettings } from '../i18n/en/settings';
 import { ruSettings } from '../i18n/ru/settings';
+import { ruWeather } from '../i18n/ru/weather';
+import { enWeather } from '../i18n/en/weather';
 import { DEFAULT_ROOT_FOLDER } from '../model/types';
 import type { CachedCalendar, IntegrityReport, Language, PlannerSettings, Unsubscribe } from '../model/types';
 import { ARCHIVE_DAYS_MAX, ARCHIVE_DAYS_MIN, DEFAULT_ARCHIVE_DAYS } from './defaults';
@@ -19,10 +21,13 @@ import type { RootFolderValidation, SettingsTabDeps } from './types';
 
 registerDictionary('ru', 'settings', ruSettings);
 registerDictionary('en', 'settings', enSettings);
+registerDictionary('ru', 'weather', ruWeather);
+registerDictionary('en', 'weather', enWeather);
 
 /** Порядок встроенных разделов (см. `SettingsSection.order`). */
 export const SETTINGS_SECTION_ORDER = {
   general: 0,
+  weather: 5,
   calendar: 10,
   lockscreen: 20,
   companion: 30,
@@ -113,6 +118,13 @@ export class PlannerSettingsRenderer {
       { order: SETTINGS_SECTION_ORDER.lockscreen, render: (el) => this.renderLockscreen(el) },
       { order: SETTINGS_SECTION_ORDER.companion, render: (el) => this.renderCompanion(el) },
     ];
+    // Погода — только с сервисом погоды (поиск города, геолокация).
+    if (this.deps.weather) {
+      builtIn.push({
+        order: SETTINGS_SECTION_ORDER.weather,
+        render: (el) => this.mountLive(el, (inner) => this.renderWeather(inner), this.weatherHintSubscription()),
+      });
+    }
     if (this.deps.integrity) {
       const integrity = this.deps.integrity;
       builtIn.push({
@@ -234,6 +246,133 @@ export class PlannerSettingsRenderer {
           draft.reminderTimeForDateOnly = time;
         });
       });
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Погода
+  // -------------------------------------------------------------------------
+
+  /** Перерисовка раздела только при смене подсказки «Укажите город» (не сбивать ввод города). */
+  private weatherHintSubscription(): ((refresh: () => void) => Unsubscribe | undefined) | undefined {
+    const service = this.deps.weather;
+    if (!service) return undefined;
+    return (refresh) => {
+      let noLocation = service.getState().kind === 'no-location';
+      return service.onChange((state) => {
+        const next = state.kind === 'no-location';
+        if (next === noLocation) return;
+        noLocation = next;
+        refresh();
+      });
+    };
+  }
+
+  private renderWeather(el: HTMLElement): void {
+    const settings = this.deps.store.get().weather;
+    const service = this.deps.weather;
+    new Setting(el).setName(t('weather.settings.heading')).setDesc(t('weather.settings.desc')).setHeading();
+
+    new Setting(el)
+      .setName(t('weather.settings.enabled.name'))
+      .setDesc(t('weather.settings.enabled.desc'))
+      .addToggle((toggle) =>
+        toggle.setValue(settings.enabled).onChange((value) => {
+          void this.save((draft) => {
+            draft.weather.enabled = value;
+          }).then(this.redisplayLater());
+        }),
+      );
+    if (!settings.enabled) return;
+
+    const city = new Setting(el).setName(t('weather.settings.city.name'));
+    const state = service?.getState();
+    const noLocation = settings.latitude === null && state?.kind === 'no-location';
+    city.setDesc(
+      noLocation
+        ? t('weather.settings.city.hint')
+        : settings.city !== ''
+          ? t('weather.settings.city.current', { city: settings.city })
+          : t('weather.settings.city.desc'),
+    );
+    if (noLocation) city.descEl.addClass('mp-settings-error');
+    let query = settings.city;
+    city.addText((text) => {
+      text.setPlaceholder(t('weather.settings.city.placeholder')).setValue(settings.city);
+      text.onChange((value) => {
+        query = value;
+      });
+    });
+    if (service) {
+      city.addButton((button) => {
+        button.setButtonText(t('weather.settings.city.find')).onClick(async () => {
+          const name = query.trim();
+          if (name === '') {
+            // Пустой город — снова геолокация.
+            void this.save((draft) => {
+              draft.weather.city = '';
+              draft.weather.latitude = null;
+              draft.weather.longitude = null;
+            }).then(this.redisplayLater());
+            return;
+          }
+          button.setDisabled(true).setButtonText(t('weather.settings.city.searching'));
+          try {
+            const found = await service.geocode(name, this.language());
+            if (!found) {
+              this.notify(t('weather.settings.city.notFound'));
+              return;
+            }
+            this.notify(t('weather.settings.city.found', { city: found.label }));
+            await this.save((draft) => {
+              draft.weather.city = found.label;
+              draft.weather.latitude = found.latitude;
+              draft.weather.longitude = found.longitude;
+            });
+            this.redisplayLater()();
+          } catch (error) {
+            console.warn('[matrix-planner] geocoding failed', error);
+            this.notify(t('weather.settings.city.failed'));
+          } finally {
+            button.setDisabled(false).setButtonText(t('weather.settings.city.find'));
+          }
+        });
+      });
+
+      new Setting(el)
+        .setName(t('weather.settings.geolocation.name'))
+        .setDesc(t('weather.settings.geolocation.desc'))
+        .addButton((button) => {
+          button.setButtonText(t('weather.settings.geolocation.button')).onClick(async () => {
+            button.setDisabled(true);
+            try {
+              const position = await service.locate();
+              this.notify(t(position ? 'weather.settings.geolocation.ok' : 'weather.settings.geolocation.failed'));
+              if (!position) return;
+              await this.save((draft) => {
+                draft.weather.city = '';
+                draft.weather.latitude = null;
+                draft.weather.longitude = null;
+              });
+              this.redisplayLater()();
+            } finally {
+              button.setDisabled(false);
+            }
+          });
+        });
+    }
+
+    new Setting(el).setName(t('weather.settings.units.name')).addDropdown((dropdown) => {
+      dropdown
+        .addOption('celsius', t('weather.settings.units.celsius'))
+        .addOption('fahrenheit', t('weather.settings.units.fahrenheit'))
+        .setValue(settings.units)
+        .onChange((value) => {
+          if (value !== 'celsius' && value !== 'fahrenheit') return;
+          void this.save((draft) => {
+            draft.weather.units = value;
+          });
+        });
     });
   }
 

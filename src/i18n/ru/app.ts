@@ -17,6 +17,7 @@ export const ruApp = {
     createEvent: 'Создать событие',
     createNote: 'Создать заметку',
     updateLockscreen: 'Обновить экран блокировки',
+    openStats: 'Открыть статистику',
   },
   settings: {
     sync: {

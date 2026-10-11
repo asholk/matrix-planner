@@ -18,6 +18,7 @@ import type {
   VisibleCalendarsSetting,
   WallpaperBackground,
   WallpaperSettings,
+  WeatherSettings,
 } from '../model/types';
 import type { SettingsStore } from '../app/contracts';
 import {
@@ -273,6 +274,28 @@ function legacyCalendarSyncFallback(source: UnknownRecord, fallback: CalendarSyn
   };
 }
 
+/** Координата в пределах; иначе `null`. */
+function pickCoordinate(value: unknown, limit: number): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= limit ? value : null;
+}
+
+function normalizeWeather(raw: unknown, fallback: WeatherSettings): WeatherSettings {
+  if (!isRecord(raw)) return { ...fallback };
+  const source = raw;
+  const latitude = pickCoordinate(source.latitude, 90);
+  const longitude = pickCoordinate(source.longitude, 180);
+  // Координаты имеют смысл только парой.
+  const pair = latitude !== null && longitude !== null;
+  return {
+    ...source,
+    enabled: pickBoolean(source.enabled, fallback.enabled),
+    city: typeof source.city === 'string' ? source.city.trim() : fallback.city,
+    latitude: pair ? latitude : null,
+    longitude: pair ? longitude : null,
+    units: pickEnum(source.units, ['celsius', 'fahrenheit'] as const, fallback.units),
+  };
+}
+
 function normalizeSources(raw: unknown, fallback: CalendarSourceFilter): CalendarSourceFilter {
   const source = asRecord(raw);
   return {
@@ -326,6 +349,7 @@ export function normalizeSettings(raw: unknown, fallback: PlannerSettings = crea
     visibleCalendars: normalizeVisibleCalendars(source.visibleCalendars, fallback.visibleCalendars),
     wallpaper: normalizeWallpaper(source.wallpaper, fallback.wallpaper),
     calendarSync: normalizeCalendarSync(source.calendarSync, legacyCalendarSyncFallback(source, fallback.calendarSync)),
+    weather: normalizeWeather(source.weather, fallback.weather),
     ui: normalizeUi(source.ui, fallback.ui),
   };
 }

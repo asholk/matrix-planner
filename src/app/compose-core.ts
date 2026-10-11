@@ -55,6 +55,8 @@ import { FormSheetPresenter } from '../ui/controls/form-sheet';
 import { createDatePicker } from '../ui/controls/date-picker';
 import { createAddMenuOpener } from '../ui/add-menu';
 import { createSettingsViewTab } from '../ui/settings-tab-view';
+import { createBrowserGeolocation, createLocalWeatherCache, createRequestUrlHttp, WeatherService } from '../weather/weather-service';
+import { openStatsSheet } from '../stats/stats-sheet';
 import { DataJsonAttentionStateStore, PluginDataFile } from './attention-state-store';
 import { registerCoreCommands } from './commands';
 
@@ -450,7 +452,23 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
       })
     : null;
 
-  const tasksTab = createTasksTab({ index, tasks, settings, clock, format, notifier });
+  // Погода — один сервис на плагин (шапка «Задач» и настройки).
+  const weather = new WeatherService({
+    settings,
+    http: createRequestUrlHttp(),
+    geolocation: createBrowserGeolocation(),
+    cache: createLocalWeatherCache(app),
+    now: () => clock.now().getTime(),
+    today: () => clockToday(clock),
+    log: (message, error) => log(message, error),
+  });
+  plugin.register(() => weather.dispose());
+
+  const openStats = (): void => {
+    openStatsSheet({ sheets, index, clock, format, notifier, actions });
+  };
+
+  const tasksTab = createTasksTab({ index, tasks, settings, clock, format, notifier, weather, openStats });
 
   // Общие зависимости вкладки настроек Obsidian и вкладки «Настройки» вида.
   const settingsDeps: SettingsTabDeps = {
@@ -462,6 +480,7 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
     attentionPanel: createAttentionPanel({ integrity, ...createWorkspaceOpeners(app), notifier }),
     openNote: (path) => void openNote(path),
     lastReminderEditAt: () => reminderEdits.get(),
+    weather,
     ...(extension?.settings ?? {}),
   };
   const settingsTab = createSettingsViewTab({
@@ -493,7 +512,7 @@ export async function composeCore<E extends CoreExtension = CoreExtension>(
     void actions.showTab('tasks');
   });
 
-  registerCoreCommands(plugin, { app, actions, taskActions, index, integrity, notifier });
+  registerCoreCommands(plugin, { app, actions, taskActions, index, integrity, notifier, openStats });
 
   plugin.addSettingTab(new PlannerSettingTab(app, plugin, settingsDeps));
 

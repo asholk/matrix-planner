@@ -4,7 +4,7 @@
  */
 
 import { DEFAULT_ROOT_FOLDER } from '../model/types';
-import type { CalendarSyncSettings, PlannerSettings, WallpaperSettings } from '../model/types';
+import type { CalendarSyncSettings, PlannerSettings, WallpaperSettings, WeatherSettings } from '../model/types';
 
 /** Текущая версия формата настроек (`PlannerSettings.version`). */
 export const SETTINGS_VERSION = 1;
@@ -57,6 +57,10 @@ export function createDefaultCalendarSyncSettings(): CalendarSyncSettings {
   };
 }
 
+export function createDefaultWeatherSettings(): WeatherSettings {
+  return { enabled: true, city: '', latitude: null, longitude: null, units: 'celsius' };
+}
+
 /** Новый объект настроек по умолчанию (каждый вызов — независимая копия). */
 export function createDefaultSettings(): PlannerSettings {
   return {
@@ -74,6 +78,7 @@ export function createDefaultSettings(): PlannerSettings {
     visibleCalendars: { planner: true, birthdays: true, calendarIds: [] },
     wallpaper: createDefaultWallpaperSettings(),
     calendarSync: createDefaultCalendarSyncSettings(),
+    weather: createDefaultWeatherSettings(),
     ui: {
       lastTab: 'tasks',
       tasksLayout: 'grid',
