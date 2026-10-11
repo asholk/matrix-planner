@@ -1,6 +1,6 @@
 {
   "name": "matrix-planner",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Eisenhower matrix planner with calendar and lock screen wallpapers, stored as plain Markdown notes.",
   "main": "main.js",
   "private": true,
